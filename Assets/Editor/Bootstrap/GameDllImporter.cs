@@ -2,6 +2,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using Newtonsoft.Json;
 using UnityEditor;
 using UnityEditor.Build;
@@ -170,7 +172,8 @@ namespace BAModTemplate.Editor
         /// <summary>
         /// Copies every DLL in <see cref="CanonicalGameDlls.All"/> from the install's
         /// <c>Big Ambitions_Data/Managed</c> folder into <see cref="GameDllsAssetFolder"/>,
-        /// then writes the tracker file and refreshes the asset database.
+        /// restores deterministic DLL asset GUIDs, then writes the tracker file and refreshes
+        /// the asset database.
         /// </summary>
         /// <exception cref="DirectoryNotFoundException">Install path or <c>Managed</c> folder does not exist.</exception>
         /// <exception cref="FileNotFoundException">One or more canonical DLLs are missing from the install.</exception>
@@ -211,9 +214,13 @@ namespace BAModTemplate.Editor
             copyTimer.Stop();
 
             var refreshTimer = System.Diagnostics.Stopwatch.StartNew();
-            if (copied > 0)
+            if (copied > 0 || AnyDllMetaMissing())
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             refreshTimer.Stop();
+
+            var guidTimer = System.Diagnostics.Stopwatch.StartNew();
+            var updatedGuids = EnsureCanonicalDllGuids();
+            guidTimer.Stop();
 
             var pluginTimer = System.Diagnostics.Stopwatch.StartNew();
             var updatedImporters = ApplyPluginImportSettingsToAllGameDlls();
@@ -236,9 +243,10 @@ namespace BAModTemplate.Editor
 
             Debug.Log(
                 $"[GameDllImporter] Imported {CanonicalGameDlls.All.Count} DLLs from '{managed}' " +
-                $"({copied} file copies, {updatedImporters} importer updates, " +
+                $"({copied} file copies, {updatedGuids} guid updates, {updatedImporters} importer updates, " +
                 $"copy {copyTimer.ElapsedMilliseconds} ms, refresh {refreshTimer.ElapsedMilliseconds} ms, " +
-                $"plugin settings {pluginTimer.ElapsedMilliseconds} ms, define {defineTimer.ElapsedMilliseconds} ms, " +
+                $"guid repair {guidTimer.ElapsedMilliseconds} ms, plugin settings {pluginTimer.ElapsedMilliseconds} ms, " +
+                $"define {defineTimer.ElapsedMilliseconds} ms, " +
                 $"total {totalTimer.ElapsedMilliseconds} ms)" +
                 (string.IsNullOrEmpty(buildId) ? "." : $" for Steam build {buildId}."));
         }
@@ -319,6 +327,70 @@ namespace BAModTemplate.Editor
 
             AssetDatabase.SaveAssets();
             return changedPaths.Count;
+        }
+
+        private static bool AnyDllMetaMissing()
+        {
+            return CanonicalGameDlls.All.Any(dllName =>
+                !File.Exists(AssetPathToAbsolute(GameDllsAssetFolder + "/" + dllName) + ".meta"));
+        }
+
+        private static int EnsureCanonicalDllGuids()
+        {
+            var changedPaths = CanonicalGameDlls.All
+                .Select(dllName => GameDllsAssetFolder + "/" + dllName)
+                .Where(EnsureCanonicalDllGuid)
+                .ToList();
+
+            if (changedPaths.Count == 0)
+                return 0;
+
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            foreach (var dllAssetPath in changedPaths)
+                AssetDatabase.ImportAsset(
+                    dllAssetPath,
+                    ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+
+            return changedPaths.Count;
+        }
+
+        private static bool EnsureCanonicalDllGuid(string dllAssetPath)
+        {
+            var metaPath = AssetPathToAbsolute(dllAssetPath) + ".meta";
+            if (!File.Exists(metaPath))
+            {
+                Debug.LogWarning(
+                    $"[GameDllImporter] Missing meta for '{dllAssetPath}' after refresh; cannot repair GUID.");
+                return false;
+            }
+
+            var expectedGuid = ComputeDeterministicDllGuid(Path.GetFileName(dllAssetPath));
+            var metaText = File.ReadAllText(metaPath);
+            var currentGuid = TryReadGuid(metaText);
+            if (string.Equals(currentGuid, expectedGuid, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (string.IsNullOrEmpty(currentGuid))
+            {
+                Debug.LogWarning(
+                    $"[GameDllImporter] Could not locate a guid entry in '{metaPath}'; leaving generated meta untouched.");
+                return false;
+            }
+
+            var updated = metaText.Replace(
+                $"guid: {currentGuid}",
+                $"guid: {expectedGuid}",
+                StringComparison.Ordinal);
+
+            if (string.Equals(updated, metaText, StringComparison.Ordinal))
+            {
+                Debug.LogWarning(
+                    $"[GameDllImporter] Failed to rewrite guid for '{dllAssetPath}'; leaving generated meta untouched.");
+                return false;
+            }
+
+            File.WriteAllText(metaPath, updated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return true;
         }
 
         private static bool CopyIfChanged(string sourceAbsolutePath, string destinationAbsolutePath)
@@ -445,6 +517,36 @@ namespace BAModTemplate.Editor
                     out var dt))
                 return dt;
             return null;
+        }
+
+        private static string ComputeDeterministicDllGuid(string dllFileName)
+        {
+            using var md5 = MD5.Create();
+            var input = Encoding.UTF8.GetBytes("BAModTemplate.GameDllGuid:" + dllFileName.ToLowerInvariant());
+            var hash = md5.ComputeHash(input);
+            var builder = new StringBuilder(hash.Length * 2);
+            foreach (var b in hash)
+                builder.Append(b.ToString("x2"));
+            return builder.ToString();
+        }
+
+        private static string TryReadGuid(string metaText)
+        {
+            if (string.IsNullOrEmpty(metaText))
+                return string.Empty;
+
+            using var reader = new StringReader(metaText);
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (!line.StartsWith("guid: ", StringComparison.Ordinal))
+                    continue;
+
+                var guid = line.Substring("guid: ".Length).Trim();
+                return guid.Length == 32 ? guid : string.Empty;
+            }
+
+            return string.Empty;
         }
 
         [InitializeOnLoad]
