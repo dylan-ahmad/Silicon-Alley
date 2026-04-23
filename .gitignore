@@ -9,31 +9,36 @@
 *.csproj.user
 *.DotSettings.user
 TestResults/
-MyFirstBAMod/*.log
-MyFirstBAMod/*diag.log
-MyFirstBAMod/Directory.Build.props
+
+# Mod Builder packaged outputs
+Output/
 
 # Unity generated
-BAModTemplate/[Ll]ibrary/
-BAModTemplate/[Tt]emp/
-BAModTemplate/[Oo]bj/
-BAModTemplate/[Bb]uild/
-BAModTemplate/[Bb]uilds/
-BAModTemplate/[Ll]ogs/
-BAModTemplate/[Uu]ser[Ss]ettings/
-BAModTemplate/[Mm]emoryCaptures/
-BAModTemplate/[Rr]ecordings/
-BAModTemplate/*.csproj
-BAModTemplate/*.unityproj
-BAModTemplate/*.sln
-BAModTemplate/*.suo
-BAModTemplate/*.tmp
-BAModTemplate/*.user
-BAModTemplate/*.userprefs
-BAModTemplate/*.pidb
-BAModTemplate/*.booproj
-BAModTemplate/*.svd
-BAModTemplate/*.pdb
-BAModTemplate/*.mdb
-BAModTemplate/*.opendb
-BAModTemplate/*.VC.db
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Game DLLs are user-sourced from the local Big Ambitions install
+# via the Welcome window importer. Ignore the imported binaries and generated metas.
+Assets/_BaDependencies/GameDlls/**/*.dll
+Assets/_BaDependencies/GameDlls/**/*.dll.meta
