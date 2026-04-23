@@ -153,14 +153,14 @@ MonoBehaviour:
   m_GameObject: {fileID: 5845070787440518354}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: -735949398, guid: e7bd72c8aa42191448f008374e860043, type: 3}
+  m_Script: {fileID: -735949398, guid: db7404fdd66bed727abbb3141ba453dd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   colliders:
   - {fileID: 3836489911324378301}
   attachmentPointVisualisation: {fileID: 267377046374854671}
   attachmentPointIndex: 0
-  alignmentTransform: {fileID: 0}
+  alignmentTransform: {fileID: 8671678628957832470}
 --- !u!1 &9072302194366119055
 GameObject:
   m_ObjectHideFlags: 0
