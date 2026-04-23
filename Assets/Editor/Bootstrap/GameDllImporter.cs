@@ -198,17 +198,26 @@ namespace BAModTemplate.Editor
                     "Missing: " + string.Join(", ", missing));
             }
 
+            var totalTimer = System.Diagnostics.Stopwatch.StartNew();
+            var copyTimer = System.Diagnostics.Stopwatch.StartNew();
             var copied = 0;
             foreach (var name in CanonicalGameDlls.All)
             {
                 var src = Path.Combine(managed, name);
                 var dst = Path.Combine(destinationAbsolute, name);
-                File.Copy(src, dst, overwrite: true);
-                copied++;
+                if (CopyIfChanged(src, dst))
+                    copied++;
             }
+            copyTimer.Stop();
 
-            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
-            ApplyPluginImportSettingsToAllGameDlls();
+            var refreshTimer = System.Diagnostics.Stopwatch.StartNew();
+            if (copied > 0)
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            refreshTimer.Stop();
+
+            var pluginTimer = System.Diagnostics.Stopwatch.StartNew();
+            var updatedImporters = ApplyPluginImportSettingsToAllGameDlls();
+            pluginTimer.Stop();
 
             SteamInstallLocator.TryReadBuildIdFor(installPath, out var buildId);
             WriteTracker(new TrackerFile
@@ -216,17 +225,22 @@ namespace BAModTemplate.Editor
                 installPath = installPath,
                 buildId = buildId ?? string.Empty,
                 importedAtUtc = DateTime.UtcNow.ToString("O"),
-                dllCount = copied,
+                dllCount = CanonicalGameDlls.All.Count,
             });
 
             SetConfiguredInstallPath(installPath);
+            var defineTimer = System.Diagnostics.Stopwatch.StartNew();
             EnsureImportedDefineEnabled();
-
-            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+            defineTimer.Stop();
+            totalTimer.Stop();
 
             Debug.Log(
-                $"[GameDllImporter] Imported {copied} DLLs from '{managed}'" +
-                (string.IsNullOrEmpty(buildId) ? "." : $" (Steam build {buildId})."));
+                $"[GameDllImporter] Imported {CanonicalGameDlls.All.Count} DLLs from '{managed}' " +
+                $"({copied} file copies, {updatedImporters} importer updates, " +
+                $"copy {copyTimer.ElapsedMilliseconds} ms, refresh {refreshTimer.ElapsedMilliseconds} ms, " +
+                $"plugin settings {pluginTimer.ElapsedMilliseconds} ms, define {defineTimer.ElapsedMilliseconds} ms, " +
+                $"total {totalTimer.ElapsedMilliseconds} ms)" +
+                (string.IsNullOrEmpty(buildId) ? "." : $" for Steam build {buildId}."));
         }
 
         /// <summary>
@@ -282,14 +296,50 @@ namespace BAModTemplate.Editor
             return Path.Combine(projectRoot, assetPath.Replace('/', Path.DirectorySeparatorChar));
         }
 
-        private static void ApplyPluginImportSettingsToAllGameDlls()
+        private static int ApplyPluginImportSettingsToAllGameDlls()
         {
-            foreach (var dllName in CanonicalGameDlls.All)
+            var changedPaths = CanonicalGameDlls.All
+                .Select(dllName => GameDllsAssetFolder + "/" + dllName)
+                .Where(ApplyPluginImportSettings)
+                .ToList();
+
+            if (changedPaths.Count == 0)
+                return 0;
+
+            AssetDatabase.StartAssetEditing();
+            try
             {
-                ApplyPluginImportSettings(GameDllsAssetFolder + "/" + dllName);
+                foreach (var dllAssetPath in changedPaths)
+                    AssetDatabase.WriteImportSettingsIfDirty(dllAssetPath);
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
             }
 
             AssetDatabase.SaveAssets();
+            return changedPaths.Count;
+        }
+
+        private static bool CopyIfChanged(string sourceAbsolutePath, string destinationAbsolutePath)
+        {
+            var sourceInfo = new FileInfo(sourceAbsolutePath);
+            if (sourceInfo.Exists == false)
+                throw new FileNotFoundException("Source DLL not found.", sourceAbsolutePath);
+
+            var destinationInfo = new FileInfo(destinationAbsolutePath);
+            if (destinationInfo.Exists
+                && destinationInfo.Length == sourceInfo.Length
+                && destinationInfo.LastWriteTimeUtc == sourceInfo.LastWriteTimeUtc)
+            {
+                return false;
+            }
+
+            File.Copy(sourceAbsolutePath, destinationAbsolutePath, overwrite: true);
+
+            // Keep timestamps aligned so future no-op imports can skip the copy cheaply.
+            File.SetLastWriteTimeUtc(destinationAbsolutePath, sourceInfo.LastWriteTimeUtc);
+            return true;
         }
 
         private static bool ApplyPluginImportSettings(string dllAssetPath)
@@ -314,7 +364,7 @@ namespace BAModTemplate.Editor
             changed |= SetValidateReferences(importer, false);
 
             if (changed)
-                importer.SaveAndReimport();
+                EditorUtility.SetDirty(importer);
 
             return changed;
         }
