@@ -178,32 +178,41 @@ namespace BAModTemplate.Editor
             job.CompilerMessages = messages?.ToList() ?? new List<CompilerMessage>();
             _currentBuilder = null;
 
-            var errors = job.CompilerMessages
-                .Where(m => m.type == CompilerMessageType.Error)
-                .ToList();
+            // AssemblyBuilder.buildFinished runs while Unity is still unwinding its internal
+            // compilation bookkeeping. Touching other editor systems immediately from this callback
+            // can trip re-entrancy bugs in IsCompiling/IsAnyAssemblyBuilderCompiling, so continue
+            // the packaging pipeline on the next editor tick instead.
+            EditorApplication.delayCall += ContinueAfterCompile;
 
-            foreach (var e in errors)
-                job.Log.Add($"[error] {e.file}({e.line},{e.column}): {e.message}");
+            void ContinueAfterCompile()
+            {
+                var errors = job.CompilerMessages
+                    .Where(m => m.type == CompilerMessageType.Error)
+                    .ToList();
 
-            if (errors.Count > 0)
-            {
-                FailJob(job, $"Compile failed: {errors.Count} error(s).");
-                return;
-            }
+                foreach (var e in errors)
+                    job.Log.Add($"[error] {e.file}({e.line},{e.column}): {e.message}");
 
-            if (!File.Exists(compiledDllPath))
-            {
-                FailJob(job, $"Compiler reported success but output DLL not found: {compiledDllPath}");
-                return;
-            }
+                if (errors.Count > 0)
+                {
+                    FailJob(job, $"Compile failed: {errors.Count} error(s).");
+                    return;
+                }
 
-            try
-            {
-                StartBundleStep(job, tempRoot, compiledDllPath);
-            }
-            catch (Exception ex)
-            {
-                FailJob(job, $"Bundle step failed: {ex.Message}");
+                if (!File.Exists(compiledDllPath))
+                {
+                    FailJob(job, $"Compiler reported success but output DLL not found: {compiledDllPath}");
+                    return;
+                }
+
+                try
+                {
+                    StartBundleStep(job, tempRoot, compiledDllPath);
+                }
+                catch (Exception ex)
+                {
+                    FailJob(job, $"Bundle step failed: {ex.Message}");
+                }
             }
         }
 
@@ -447,7 +456,7 @@ namespace BAModTemplate.Editor
         {
             _currentJob = null;
             _currentBuilder = null;
-            TryStartNext();
+            EditorApplication.delayCall += TryStartNext;
         }
 
         private static void RaiseJobChanged(BuildJob job)

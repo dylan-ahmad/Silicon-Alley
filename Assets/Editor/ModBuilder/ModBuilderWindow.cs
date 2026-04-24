@@ -74,7 +74,10 @@ namespace BAModTemplate.Editor
             {
                 AppendLog($"[{job.Mod.Manifest.ModId}] {job.State}: {job.StatusText}");
             }
-            Repaint();
+
+            // Repaint on the next editor tick so job updates raised from compilation callbacks do
+            // not re-enter IMGUI while Unity is still finalizing its internal compile state.
+            EditorApplication.delayCall += Repaint;
         }
 
         private void Refresh()
