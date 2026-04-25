@@ -292,8 +292,9 @@ namespace BAModTemplate.Editor
             var paths = AssetDatabase.GetAssetPathsFromAssetBundle(bundleName);
             if (paths == null || paths.Length == 0)
             {
-                issues.Add(new ValidationIssue(Severity.Error,
-                    $"No assets are assigned to asset bundle '{bundleName}'. Set AssetBundleName on at least one asset under '{mod.ModFolderAssetPath}/'."));
+                if (!string.IsNullOrWhiteSpace(mod.Manifest.AssetBundleName))
+                    issues.Add(new ValidationIssue(Severity.Error,
+                        $"No assets are assigned to asset bundle '{bundleName}'. Set AssetBundleName on at least one asset under '{mod.ModFolderAssetPath}/'."));
                 return;
             }
 
