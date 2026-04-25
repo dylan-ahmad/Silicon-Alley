@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   database: {fileID: 0}
   tags: []
-  itemName: gigacounter
+  itemName: example-furniture:itemname_gigacounter
   type: 262144
   leanBackSitAnimation: 0
   wholesalePrice: 0

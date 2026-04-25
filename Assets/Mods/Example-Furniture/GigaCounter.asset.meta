@@ -1,8 +1,8 @@
 fileFormatVersion: 2
-guid: 2bdd52b98717a434497fa8429b9e50e8
+guid: 47902c590e37d704a8ce4893f84a1600
 NativeFormatImporter:
   externalObjects: {}
-  mainObjectFileID: 11400000
+  mainObjectFileID: 0
   userData: 
-  assetBundleName: falcon
+  assetBundleName: example-furniture
   assetBundleVariant: unity3d

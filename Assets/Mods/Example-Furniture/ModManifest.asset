@@ -12,14 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a1b2c3d4e5f6478893ab1f4e5c6d7e80, type: 3}
   m_Name: ModManifest
   m_EditorClassIdentifier: 
-  ModId: FalconToy
-  DisplayName: Falcon Toy Mod
+  ModId: Example-Furniture
+  DisplayName: Example Furniture
   Author: Big Ambitions Mod Template
   Version: 0.1.0
-  AssetBundleName: falcon.unity3d
+  AssetBundleName: example-furniture.unity3d
   ModAssembly: {fileID: 5897886265953266890, guid: 1f5a7c3b2d6e4f049a8f2b6c1d0e1a01,
     type: 3}
-  LocalesFolder: {fileID: 0}
+  LocalesFolder: {fileID: 102900000, guid: c52fdc2db9504f17a9d77b37582ca893, type: 3}
   DependenciesFolder: {fileID: 0}
   EnumsFile: {fileID: 0}
   TargetPlatforms: 3

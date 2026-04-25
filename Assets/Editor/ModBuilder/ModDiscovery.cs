@@ -38,13 +38,13 @@ namespace BAModTemplate.Editor
         public BAModManifest Manifest { get; }
         public string ManifestAssetPath { get; }
 
-        /// <summary>e.g. <c>Assets/Mods/FalconToy</c>.</summary>
+        /// <summary>e.g. <c>Assets/Mods/Example-Furniture</c>.</summary>
         public string ModFolderAssetPath { get; }
 
         /// <summary>Absolute OS path to the mod folder.</summary>
         public string ModFolderAbsolutePath { get; }
 
-        /// <summary>e.g. <c>Assets/Mods/FalconToy/FalconToy.asmdef</c>. Empty if manifest has no asmdef reference.</summary>
+        /// <summary>e.g. <c>Assets/Mods/Example-Furniture/Example-Furniture.asmdef</c>. Empty if manifest has no asmdef reference.</summary>
         public string AsmdefAssetPath { get; }
 
         /// <summary>Asmdef logical name (DLL filename sans <c>.dll</c>).</summary>

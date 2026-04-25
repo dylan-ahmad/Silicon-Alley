@@ -148,11 +148,12 @@ MonoBehaviour:
   itemWarningIconOffset: {x: 0, y: 0, z: 0}
   alwaysShowWarningIcon: 0
   employeeNavMeshTargets: []
-  renderers: []
+  renderers:
+  - {fileID: 3407125313268337386}
   navMeshTargets:
   - {fileID: 3626927640905185927}
   blockOutline: 0
-  itemName: gigacounter
+  itemName: example-furniture:itemname_gigacounter
   alignmentTransform: {fileID: 0}
   playerItemPurchaserSettings:
     name: 
@@ -171,7 +172,7 @@ MonoBehaviour:
   rHandIKAttachmentPoint: {fileID: 0}
   headIKAttachmentPoint: {fileID: 0}
   colliders:
-  - {fileID: 0}
+  - {fileID: 4534185851125464346}
   navMeshObstacles:
   - {fileID: 7988858244890830978}
   groundIndicators:
@@ -180,8 +181,8 @@ MonoBehaviour:
   directionIndicators:
   - {fileID: 3917657474366151572}
   attachmentPoints:
-  - {fileID: 6739773515959111290}
   - {fileID: 8988705841052685997}
+  - {fileID: 6739773515959111290}
   screenVideoController: {fileID: 0}
   checkRenderersInChildren: 0
   checkRenderersDepth: -1

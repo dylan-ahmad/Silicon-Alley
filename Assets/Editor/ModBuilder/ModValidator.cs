@@ -366,7 +366,7 @@ namespace BAModTemplate.Editor
                 {
                     issues.Add(new ValidationIssue(Severity.Warning,
                         $"RelativeAssetBundlePath '{p}' contains a platform segment. " +
-                        "Use the flat path (e.g. 'AssetBundles/falcon.unity3d'); the runtime loader inserts the platform segment."));
+                        "Use the flat path (e.g. 'AssetBundles/example-furniture.unity3d'); the runtime loader inserts the platform segment."));
                 }
             }
         }

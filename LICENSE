@@ -30,7 +30,7 @@ assets in this repository, including:
 
   - Editor tooling under `Assets/Editor/` (Mod Builder,
     Welcome window, and related scripts)
-  - The sample mod under `Assets/Mods/FalconToy/`
+  - The sample mod under `Assets/Mods/Example-Furniture/`
   - Project settings, documentation, and build scripts
 
 This license does NOT grant any rights to Big Ambitions, Big Ambitions' own

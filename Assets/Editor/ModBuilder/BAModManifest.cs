@@ -33,7 +33,7 @@ namespace BAModTemplate.Editor
         public string Version = "0.1.0";
 
         [Tooltip("Full Unity AssetBundle identifier (including variant suffix). " +
-                 "Example: 'falcon.unity3d'. Must match the assetBundleName+variant set on each asset meta. " +
+                 "Example: 'example-furniture.unity3d'. Must match the assetBundleName+variant set on each asset meta. " +
                  "Defaults to ModId lowercased if left empty.")]
         public string AssetBundleName = string.Empty;
 
