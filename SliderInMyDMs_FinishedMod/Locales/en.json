@@ -1,0 +1,15 @@
+{
+  "sliderinmydms_options_header": "Slider in My DMs",
+
+  "sliderinmydms_toggle_label": "Enable Toggle",
+
+  "sliderinmydms_slider_label": "Slider",
+  "sliderinmydms_slider_value": "{value}",
+
+  "sliderinmydms_slider_no_suffix_label": "Slider (No Suffix)",
+
+  "sliderinmydms_dropdown_label": "Dropdown",
+  "sliderinmydms_dropdown_choice_one": "Option 1",
+  "sliderinmydms_dropdown_choice_two": "Option 2",
+  "sliderinmydms_dropdown_choice_three": "Option 3"
+}

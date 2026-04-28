@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net472</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <GameManagedDir Condition="'$(GameManagedDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Big Ambitions\Big Ambitions_Data\Managed</GameManagedDir>
+        <LangVersion>10</LangVersion>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Reference Include="BigAmbitions">
+            <HintPath>$(GameManagedDir)\BigAmbitions.dll</HintPath>
+        </Reference>
+        <Reference Include="BigAmbitions.ModAPI">
+            <HintPath>$(GameManagedDir)\BigAmbitions.ModAPI.dll</HintPath>
+        </Reference>
+        <Reference Include="HGExtensions">
+            <HintPath>$(GameManagedDir)\HGExtensions.dll</HintPath>
+        </Reference>
+        <Reference Include="HGPlugins">
+            <HintPath>$(GameManagedDir)\HGPlugins.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.AssetBundleModule">
+            <HintPath>$(GameManagedDir)\UnityEngine.AssetBundleModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.CoreModule">
+            <HintPath>$(GameManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.InputLegacyModule">
+            <HintPath>$(GameManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+</Project>
