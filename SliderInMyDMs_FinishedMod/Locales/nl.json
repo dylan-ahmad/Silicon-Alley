@@ -1,0 +1,15 @@
+{
+  "sliderinmydms_options_header": "Slider in My DMs",
+
+  "sliderinmydms_toggle_label": "Activeer Schakelaar",
+
+  "sliderinmydms_slider_label": "Slider",
+  "sliderinmydms_slider_value": "{value}",
+
+  "sliderinmydms_slider_no_suffix_label": "Slider (Zonder Eenheid)",
+
+  "sliderinmydms_dropdown_label": "Dropdown",
+  "sliderinmydms_dropdown_choice_one": "Optie 1",
+  "sliderinmydms_dropdown_choice_two": "Optie 2",
+  "sliderinmydms_dropdown_choice_three": "Optie 3"
+}

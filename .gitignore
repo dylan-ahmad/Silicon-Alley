@@ -11,4 +11,4 @@
 TestResults/
 MyFirstBAMod/*.log
 MyFirstBAMod/*diag.log
-MyFirstBAMod/Directory.Build.props
+*/Directory.Build.props
