@@ -3,7 +3,7 @@ using SliderInMyDMs.Logic;
 
 [assembly: RegisterModClass(typeof(OptionsMod))]
 
-[ModEntryMainMenu]
+[ModEntryOnInitializationLoad]
 public class OptionsMod : IModBigAmbitions
 {
     private readonly OptionsLogic _logic = new();
