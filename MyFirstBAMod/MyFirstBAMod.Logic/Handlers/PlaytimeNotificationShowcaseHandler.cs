@@ -20,9 +20,11 @@ public class PlaytimeNotificationShowcaseHandler
     private void OnNewHour()
     {
         _inGameHoursSinceSessionStart++;
+        var notificationData = new Dictionary<string, string>
+            { { "toTime", _inGameHoursSinceSessionStart.ToString() } };
         Notifications.Show(
             NotificationType.Info,
-            "myfirstmod_notification_played_for_hours",
-            new NotificationData { toTime = _inGameHoursSinceSessionStart.ToString() });
+            "myfirstmod_notification_played_for_hours", notificationData
+        );
     }
 }
