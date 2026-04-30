@@ -230,10 +230,15 @@ namespace BAModTemplate.Editor
                 return;
             }
 
+            var assignedCount = EnsureModAssetsAssignedToBundle(mod, bundleName);
+            if (assignedCount > 0)
+                job.Log.Add($"[info] Assigned {assignedCount} mod asset(s) to bundle '{bundleName}'.");
+
             var assetPaths = AssetDatabase.GetAssetPathsFromAssetBundle(bundleName);
             if (assetPaths == null || assetPaths.Length == 0)
             {
-                FailJob(job, $"No assets assigned to asset bundle '{bundleName}'. Assign AssetBundleName on at least one asset.");
+                job.Log.Add($"[info] No bundleable assets found under '{mod.ModFolderAssetPath}'; skipping AssetBundle build.");
+                StartCopyStep(job, compiledDllPath, new Dictionary<string, string>());
                 return;
             }
 
@@ -294,6 +299,73 @@ namespace BAModTemplate.Editor
             {
                 FailJob(job, $"Copy step failed: {ex.Message}");
             }
+        }
+
+        private static int EnsureModAssetsAssignedToBundle(DiscoveredMod mod, string fullBundleName)
+        {
+            var (baseName, variant) = SplitBundleName(fullBundleName);
+            var changedCount = 0;
+
+            foreach (var assetPath in FindBundleableModAssets(mod))
+            {
+                var importer = AssetImporter.GetAtPath(assetPath);
+                if (importer == null)
+                    continue;
+
+                if (string.Equals(importer.assetBundleName, baseName, StringComparison.Ordinal)
+                    && string.Equals(importer.assetBundleVariant, variant, StringComparison.Ordinal))
+                    continue;
+
+                importer.SetAssetBundleNameAndVariant(baseName, variant);
+                importer.SaveAndReimport();
+                changedCount++;
+            }
+
+            return changedCount;
+        }
+
+        private static IEnumerable<string> FindBundleableModAssets(DiscoveredMod mod)
+        {
+            var excludedPrefixes = new List<string>();
+            if (mod.Manifest.LocalesFolder != null)
+                excludedPrefixes.Add(NormaliseAssetPath(AssetDatabase.GetAssetPath(mod.Manifest.LocalesFolder)) + "/");
+
+            var depsFolder = ModValidator.GetDependenciesFolderAssetPath(mod);
+            if (!string.IsNullOrEmpty(depsFolder))
+                excludedPrefixes.Add(NormaliseAssetPath(depsFolder) + "/");
+
+            var enumsPath = mod.Manifest.EnumsFile != null
+                ? NormaliseAssetPath(AssetDatabase.GetAssetPath(mod.Manifest.EnumsFile))
+                : string.Empty;
+
+            foreach (var guid in AssetDatabase.FindAssets(string.Empty, new[] { mod.ModFolderAssetPath }))
+            {
+                var assetPath = NormaliseAssetPath(AssetDatabase.GUIDToAssetPath(guid));
+                if (string.IsNullOrEmpty(assetPath) || AssetDatabase.IsValidFolder(assetPath))
+                    continue;
+
+                if (string.Equals(assetPath, mod.ManifestAssetPath, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(assetPath, mod.AsmdefAssetPath, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(assetPath, enumsPath, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (excludedPrefixes.Any(prefix => assetPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                var extension = Path.GetExtension(assetPath);
+                if (extension.Equals(".cs", StringComparison.OrdinalIgnoreCase)
+                    || extension.Equals(".asmdef", StringComparison.OrdinalIgnoreCase)
+                    || extension.Equals(".dll", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                yield return assetPath;
+            }
+        }
+
+        private static string NormaliseAssetPath(string? path)
+        {
+            if (string.IsNullOrEmpty(path)) return string.Empty;
+            return path!.Replace('\\', '/').TrimEnd('/');
         }
 
         private static (string name, string variant) SplitBundleName(string fullBundleName)

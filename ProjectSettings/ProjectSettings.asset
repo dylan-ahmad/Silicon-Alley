@@ -819,7 +819,7 @@ PlayerSettings:
   webGLMemoryGeometricGrowthCap: 96
   webGLPowerPreference: 2
   scriptingDefineSymbols:
-    Standalone: 
+    Standalone: BA_GAME_DLLS_IMPORTED
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend: {}
