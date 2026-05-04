@@ -1,0 +1,94 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 1411348409, guid: db7404fdd66bed727abbb3141ba453dd, type: 3}
+  m_Name: GigaCounter
+  m_EditorClassIdentifier: 
+  database: {fileID: 0}
+  tags: []
+  itemName: example-furniture:itemname_gigacounter
+  type: 262144
+  leanBackSitAnimation: 0
+  wholesalePrice: 0
+  defaultMarketPrice: 1000
+  productSalesRatio: 0
+  boxSize: 1
+  showBoxAsHandItem: 1
+  defaultWorldSpaceKey: 
+  itemPanelMetaView: 0
+  customColorChannels: 15
+  customizationColors:
+  - {r: 1, g: 0.9686275, b: 0.9215687, a: 0}
+  - {r: 0.87843144, g: 0.70980394, b: 0.4666667, a: 0}
+  - {r: 0.6313726, g: 0.39607847, b: 0.13333334, a: 0}
+  - {r: 0.3019608, g: 0.16078432, b: 0.06666667, a: 0}
+  - {r: 0.18039216, g: 0.18039216, b: 0.18039216, a: 0}
+  - {r: 0.9803922, g: 0.7058824, b: 0.29411766, a: 0}
+  - {r: 0.9294118, g: 0.2509804, b: 0.34117648, a: 0}
+  - {r: 0.59607846, g: 0.82745105, b: 0.38823533, a: 0}
+  - {r: 0.25490198, g: 0.58431375, b: 0.81568635, a: 0}
+  - {r: 0.9150943, g: 0.5740922, b: 0.8260428, a: 0}
+  isFurniture: 1
+  gridSize: 0.5
+  degreesPerRotation: 45
+  quality: 0
+  addedCustomersPerHour: 0
+  cargoCapacity: 0
+  cargoCapacityMultiplier: 0
+  buildingHeightRequirement: 0
+  furnitureRequirements: []
+  wallMounted: 0
+  snapToCeiling: 0
+  canBeGrabbed: 1
+  stackType: 0
+  itemsThatCanOverlapWith: []
+  itemsWhitelist: []
+  isProducer: 0
+  producerSettings:
+    ResourcesRequired: 0
+    itemsToProduce: []
+  defaultShelfItemName: 
+  itemsThatCanShowcase: []
+  assignable: 0
+  hasWaitingLine: 0
+  canPlayerDoOrder: 0
+  suitableSkills: []
+  icon: {fileID: 0}
+  isConsumable: 0
+  requiresWeighing: 0
+  consumeAnimation: 0
+  consumeSoundType: 0
+  saturation: 0
+  energy: 0
+  isAccessory: 0
+  accessoryType: 0
+  accessoryIcon: {fileID: 0}
+  isReadable: 0
+  isADemandedProduct: 0
+  limitDemandToNeighbourhoods: []
+  isSpecialRivalOnly: 0
+  maxWholesaleOrderAmount: 5000
+  maxOrderAmountPerImporter: 5000
+  providersNeededToStartGeneratingEvents: 7
+  usingAnimation: 34
+  playerMountPosition: {x: 0, y: 0, z: 0}
+  playerMountRotation: {x: 0, y: 0, z: 0}
+  playGrabSound: 0
+  grabSoundType: 0
+  customPlaceSound: 0
+  placeSoundType: 7
+  isSpecialGift: 0
+  season: 0
+  isSeasonalItemFromAIBusiness: 0
+  itemToReplaceWithWhenOvertakingBusiness: 
+  isSeasonalForSale: 0
+  itemsBySeason: []
+  vehicleType: 
