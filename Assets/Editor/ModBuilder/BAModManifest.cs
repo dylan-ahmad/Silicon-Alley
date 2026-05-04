@@ -34,7 +34,7 @@ namespace BAModTemplate.Editor
 
         [Tooltip("Full Unity AssetBundle identifier (including variant suffix). " +
                  "Example: 'example-furniture.unity3d'. Must match the assetBundleName+variant set on each asset meta. " +
-                 "Defaults to ModId lowercased if left empty.")]
+                 "Leave empty to skip AssetBundle output.")]
         public string AssetBundleName = string.Empty;
 
         [Tooltip("The mod's own asmdef. Produces the shipped DLL.")]

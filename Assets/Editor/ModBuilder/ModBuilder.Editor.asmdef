@@ -1,21 +1,21 @@
 {
-    "name": "ModBuilder.Editor",
-    "rootNamespace": "BAModTemplate.Editor",
-    "references": [
-        "BAModTemplate.Bootstrap.Editor",
-        "BAModTemplate.Branding.Editor"
-    ],
-    "includePlatforms": [
-        "Editor"
-    ],
-    "excludePlatforms": [],
-    "allowUnsafeCode": false,
-    "overrideReferences": true,
-    "precompiledReferences": [
-        "Newtonsoft.Json.dll"
-    ],
-    "autoReferenced": true,
-    "defineConstraints": [],
-    "versionDefines": [],
-    "noEngineReferences": false
+  "name": "ModBuilder.Editor",
+  "rootNamespace": "BAModTemplate.Editor",
+  "references": [
+    "BAModTemplate.Bootstrap.Editor",
+    "BAModTemplate.Branding.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Newtonsoft.Json.dll"
+  ],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
 }

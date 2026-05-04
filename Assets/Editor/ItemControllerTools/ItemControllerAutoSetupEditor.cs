@@ -38,13 +38,13 @@ namespace BAModTemplate.Editor.ItemControllerTools
             var serialized = new SerializedObject(controller);
             var transform = controller.transform;
 
-            SetObjectArray(serialized.FindProperty("renderers"), GetRenderers(controller).Cast<Object>());
-            SetObjectArray(serialized.FindProperty("navMeshTargets"), GetNavMeshTargets(transform).Cast<Object>());
+            SetObjectArray(serialized.FindProperty("renderers"), GetRenderers(controller));
+            SetObjectArray(serialized.FindProperty("navMeshTargets"), GetNavMeshTargets(transform));
             SetObjectArray(serialized.FindProperty("attachmentPoints"),
-                controller.GetComponentsInChildren<AttachmentPoint>(includeInactive: true).Cast<Object>());
-            SetObjectArray(serialized.FindProperty("colliders"), GetColliders(controller).Cast<Object>());
+                controller.GetComponentsInChildren<AttachmentPoint>(true));
+            SetObjectArray(serialized.FindProperty("colliders"), GetColliders(controller));
             SetObjectArray(serialized.FindProperty("navMeshObstacles"),
-                controller.GetComponentsInChildren<NavMeshObstacle>(includeInactive: true).Cast<Object>());
+                controller.GetComponentsInChildren<NavMeshObstacle>(true));
             serialized.FindProperty("screenVideoController").objectReferenceValue =
                 controller.GetComponent<ScreenVideoController>();
 
@@ -64,7 +64,7 @@ namespace BAModTemplate.Editor.ItemControllerTools
             if (checkChildren)
             {
                 var renderers = depth < 1
-                    ? controller.GetComponentsInChildren<Renderer>(includeInactive: false)
+                    ? controller.GetComponentsInChildren<Renderer>(false)
                     : GetComponentsInChildrenWithDepth<Renderer>(controller.transform, depth).ToArray();
 
                 return renderers.Where(IsItemRenderer);
@@ -78,19 +78,19 @@ namespace BAModTemplate.Editor.ItemControllerTools
         private static bool IsItemRenderer(Renderer renderer)
         {
             return renderer.gameObject.CompareTag("Untagged")
-                && (renderer.transform.parent == null
-                    || !renderer.transform.parent.gameObject.CompareTag("DirectionIndicator"));
+                   && (renderer.transform.parent == null
+                       || !renderer.transform.parent.gameObject.CompareTag("DirectionIndicator"));
         }
 
         private static IEnumerable<Transform> GetNavMeshTargets(Transform root)
         {
-            return root.GetComponentsInChildren<Transform>(includeInactive: true)
+            return root.GetComponentsInChildren<Transform>(true)
                 .Where(t => t.CompareTag("NavMeshTarget"));
         }
 
         private static IEnumerable<Collider> GetColliders(ItemController controller)
         {
-            return controller.GetComponentsInChildren<Collider>(includeInactive: true)
+            return controller.GetComponentsInChildren<Collider>(true)
                 .Where(c => !c.CompareTag("GroundIndicator") && !c.CompareTag("AttachmentPointIndicator"));
         }
 
@@ -105,7 +105,7 @@ namespace BAModTemplate.Editor.ItemControllerTools
                 yield return new GroundIndicator
                 {
                     transform = child,
-                    renderer = renderer,
+                    renderer = renderer
                 };
             }
         }
@@ -114,7 +114,7 @@ namespace BAModTemplate.Editor.ItemControllerTools
             where T : Component
         {
             var results = new List<T>();
-            AddChildren(root, currentDepth: 0);
+            AddChildren(root, 0);
             return results;
 
             void AddChildren(Transform parent, int currentDepth)

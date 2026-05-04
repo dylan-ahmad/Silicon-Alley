@@ -223,10 +223,11 @@ namespace BAModTemplate.Editor
             var mod = job.Mod;
             Transition(job, BuildState.BuildingBundles, "Building AssetBundles...");
 
-            var bundleName = mod.Manifest.EffectiveAssetBundleName;
+            var bundleName = mod.Manifest.AssetBundleName;
             if (string.IsNullOrWhiteSpace(bundleName))
             {
-                FailJob(job, "Manifest.AssetBundleName is empty and ModId is empty; cannot derive bundle name.");
+                job.Log.Add("[info] Manifest.AssetBundleName is empty; skipping AssetBundle build.");
+                StartCopyStep(job, compiledDllPath, new Dictionary<string, string>());
                 return;
             }
 
