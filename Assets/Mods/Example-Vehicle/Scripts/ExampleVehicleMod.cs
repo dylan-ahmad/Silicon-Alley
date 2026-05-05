@@ -40,7 +40,7 @@ public class ExampleVehicleMod : IModBigAmbitions
     public Task OnUnloadAsync()
     {
         if (turboHonzaVehicleType != null)
-            ModdingAPI.UnregisterModVehicleType(turboHonzaVehicleType);
+            ModdingAPI.UnregisterModVehicleType(turboHonzaVehicleType.vehicleTypeName);
 
         return Task.CompletedTask;
     }
