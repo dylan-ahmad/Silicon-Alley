@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 417210127, guid: 4384b44565f83c96ced3259b77f79fb6, type: 3}
+  m_Name: DefaultGroundDetectionPreset
+  m_EditorClassIdentifier: 
+  particlePrefab: {fileID: 1980262531956446, guid: d43fdf76272def940b878508ff66406c,
+    type: 3}
+  chunkPrefab: {fileID: 1980262531956446, guid: 9a09c714107a4ce4db334cd04bf6d9df,
+    type: 3}
+  fallbackSurfacePreset: {fileID: 11400000, guid: fed571730f5dcdd4eba1dad9d23e9507,
+    type: 2}
+  surfaceMaps:
+  - name: Asphalt
+    surfacePreset: {fileID: 11400000, guid: fed571730f5dcdd4eba1dad9d23e9507, type: 2}
+    tags:
+    - Road
+    terrainTextureIndices: 04000000
