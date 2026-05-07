@@ -16,7 +16,6 @@ MonoBehaviour:
   tags: []
   itemName: example-businesstype:itemname_falcontoy
   type: 2
-  itemTags: 
   leanBackSitAnimation: 0
   wholesalePrice: 8
   defaultMarketPrice: 28
@@ -38,7 +37,7 @@ MonoBehaviour:
   furnitureRequirements: []
   wallMounted: 0
   snapToCeiling: 0
-  canBeGrabbed: 1
+  canBeGrabbed: 0
   stackType: 0
   itemsThatCanOverlapWith: []
   itemsWhitelist: []
