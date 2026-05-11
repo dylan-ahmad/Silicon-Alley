@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using BAModAPI;
 using BAModAPI.Services;
 using BigAmbitions.Items;
+using UnityEngine;
 
 [assembly: RegisterModClass(typeof(ExampleBusinessTypeMod))]
 [assembly: RegisterModClass(typeof(ExampleBusinessTypeCityMod))]
@@ -52,10 +53,11 @@ public class ExampleBusinessTypeCityMod : IModBigAmbitions
     private const string RoundedShelfItemName = "ba:itemname_roundedshelf";
     private const string CheapGiftItemName = "ba:itemname_cheapgift";
     private const string ExpensiveGiftItemName = "ba:itemname_expensivegift";
+    private const string ExpensiveFlowersItemName = "ba:itemname_expensiveflower";
 
     public string[] RelativeAssetBundlePaths => Array.Empty<string>();
 
-    private readonly Dictionary<Item, string[]> patchedShowcaseShelves = new Dictionary<Item, string[]>();
+    private readonly Dictionary<Item, string[]> patchedShowcaseShelves = new();
 
     public Task OnLoadAsync(ModContext context)
     {
@@ -79,6 +81,8 @@ public class ExampleBusinessTypeCityMod : IModBigAmbitions
             if (!ShouldPatchShowcaseShelf(item) || item.itemsThatCanShowcase.Contains(FalconToyItemName))
                 continue;
 
+            ShelfController.RegisterItemToShow(FalconToyItemName, item.itemName,
+                item.itemName == RoundedShelfItemName ? ExpensiveFlowersItemName : CheapGiftItemName);
             patchedShowcaseShelves[item] = item.itemsThatCanShowcase.ToArray();
             item.itemsThatCanShowcase = item.itemsThatCanShowcase.Concat(new[] { FalconToyItemName }).ToArray();
         }
@@ -101,6 +105,8 @@ public class ExampleBusinessTypeCityMod : IModBigAmbitions
     {
         foreach (var patchedShelf in patchedShowcaseShelves)
             patchedShelf.Key.itemsThatCanShowcase = patchedShelf.Value;
+        
+        ShelfController.UnregisterItemToShow(FalconToyItemName);
 
         patchedShowcaseShelves.Clear();
     }
