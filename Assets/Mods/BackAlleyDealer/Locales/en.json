@@ -1,0 +1,16 @@
+{
+  "backalleydealer:dealer_name": "Back Alley Dealer",
+  "backalleydealer:textmessage_welcome": "You don’t know me, but I was told you might be a good 'business partner'.\n\nI deal in merchandise that tends to be difficult to acquire through the usual means. Nothing too illegal, nothing too clean either. Don't worry about how I get them, the important part for you is that there's very little paperwork attached. You understand.\nAnd don't worry, this is an untraceable line.\n\nIf there’s ever something you need and nobody else can seem to source it… I know a guy.",
+  "backalleydealer:dialog_type_of_goods": "Got a decent selection today. Depends what you’re looking for — what kind of stuff tickles your fancy?",
+  "backalleydealer:dialog_option_merchandise": "Merchandise",
+  "backalleydealer:dialog_option_vehicles": "Vehicles",
+  "backalleydealer:dialog_furniture_start": "So, merchandise it is. Let’s see if I’ve got something that catches your attention.",
+  "backalleydealer:dialog_vehicles_start": "Vehicles, huh? Yeah, I might have a few things worth your time.",
+  "backalleydealer:dialog_furniture_player_start": "Let me buy the following from you.",
+  "backalleydealer:dialog_furniture_no_addresses": "You don’t exactly have room for this stuff yet, do you? Get yourself a place first, then we’ll talk.",
+  "backalleydealer:dialog_anything_else": "Anything else you need?",
+  "backalleydealer:dialog_furniture_on_contract_settings_set_manager": "Alright, I'll see what I can do. I'll be in touch",
+  "backalleydealer:dialog_furniture_store_delivery_cancelled": "So you’re not as reliable as I thought. Bit of advice: don’t place orders you’re not ready to follow through on.",
+  "backalleydealer:street_anonAve": "Anonymous Avenue",
+  "backalleydealer:dialog_start": "What’s it gonna be today? Looking for some merchandise, or are we talking vehicles?",
+}

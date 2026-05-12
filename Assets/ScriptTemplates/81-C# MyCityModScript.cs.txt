@@ -1,0 +1,23 @@
+using System.Threading.Tasks;
+using BAModAPI;
+
+[assembly: RegisterModClass(typeof(#SCRIPTNAME#))]
+
+namespace #NAMESPACE#
+{
+    [ModEntryOnCityLoad]
+    public class #SCRIPTNAME# : IModBigAmbitions
+    {
+        public string[] RelativeAssetBundlePaths { get; };
+
+        public Task OnLoadAsync(ModContext context)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task OnUnloadAsync()
+        {
+            return Task.CompletedTask;
+        }
+    }
+}
