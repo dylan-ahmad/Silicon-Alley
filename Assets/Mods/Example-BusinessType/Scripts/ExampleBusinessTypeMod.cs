@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using BAModAPI;
 using BAModAPI.Services;
 using BigAmbitions.Items;
+using Buildings;
+using Helpers;
 using UnityEngine;
 
 [assembly: RegisterModClass(typeof(ExampleBusinessTypeMod))]
@@ -58,16 +60,19 @@ public class ExampleBusinessTypeCityMod : IModBigAmbitions
     public string[] RelativeAssetBundlePaths => Array.Empty<string>();
 
     private readonly Dictionary<Item, string[]> patchedShowcaseShelves = new();
+    private ImportExportSettings? _importSettings;
 
     public Task OnLoadAsync(ModContext context)
     {
         PatchShowcaseShelves();
+        AddToImporter();
         return Task.CompletedTask;
     }
 
     public Task OnUnloadAsync()
     {
         RestoreShowcaseShelves();
+        RemoveFromImporter();
         return Task.CompletedTask;
     }
 
@@ -109,5 +114,18 @@ public class ExampleBusinessTypeCityMod : IModBigAmbitions
         ShelfController.UnregisterItemToShow(FalconToyItemName);
 
         patchedShowcaseShelves.Clear();
+    }
+
+    private void AddToImporter()
+    {
+        _importSettings ??=
+            (ImportExportSettings)BuildingHelper.GetBuilding(new Address("ba:street_pier", 4)).SpecialService.settings;
+        _importSettings.itemsAvailable.Add(FalconToyItemName);
+    }
+
+    private void RemoveFromImporter()
+    {
+        if (_importSettings != null)
+            _importSettings.itemsAvailable.Remove(FalconToyItemName);
     }
 }
