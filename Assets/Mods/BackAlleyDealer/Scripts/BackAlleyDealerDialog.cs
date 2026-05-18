@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using BigAmbitions.SaveSystem.Legacy;
 using Dialogs;
@@ -40,10 +40,13 @@ namespace BackAlleyDealer
 
         private DialogEntry StartFurniture()
         {
+            if (BackAlleyDealerInit.Instance == null || !BackAlleyDealerInit.Instance.HasRegisteredItems)
+                return NoRegisteredItemsInStock();
+
             var hasAtLeastOneAddress = SaveGameManager.Current.BuildingRegistrations.Any(x => x.RentedByPlayer);
             var hasAlreadyADelivery =
                 SaveGameManager.Current.FurnitureDeliveryContracts.Any(x =>
-                    x.fromAddress == DialogController.current.contact.Address);
+                    x.fromAddress == BackAlleyDealerCity.DealerAddress);
             return !hasAtLeastOneAddress
                 ? NoAddresses()
                 : hasAlreadyADelivery
@@ -57,6 +60,24 @@ namespace BackAlleyDealer
                     };
         }
 
+        private static DialogEntry NoRegisteredItemsInStock()
+        {
+            const string noStockMessage = "backalleydealer:dialog_furniture_no_stock";
+            DialogController.current.contact.SendMessage(
+                new TextMessage(noStockMessage, null, true, true));
+            return new DialogEntry
+            {
+                messageData = noStockMessage.Localize(),
+                Template = DialogEntry.TemplateType.Text,
+                OnVisible = DialogController.current.dialogType == DialogType.PhoneCall
+                    ? DialogController.current.FinishDialog
+                    : null,
+                OnCancel = DialogController.current.dialogType == DialogType.Physical
+                    ? DialogController.current.FinishDialog
+                    : null
+            };
+        }
+
         private DialogEntry FurnitureDeliveryContract()
         {
             return new DialogEntry
@@ -68,14 +89,14 @@ namespace BackAlleyDealer
                 InputTemplate = DialogEntry.InputTemplateName.FurnitureDeliverySettings,
                 OnConfirm = OnDeliveryContractSettingsSet,
                 OnCancel = DialogController.current.CancelDialog,
-                onCancelMessage = new TextMessage(LegacyRef.MessageType.ContactsMessagePlayerCancelCall)
+                onCancelMessage = new TextMessage("ba:messagetype_contacts_message_player_cancel_call")
             };
         }
 
-        private DialogEntry NoAddresses()
+        private static DialogEntry NoAddresses()
         {
             DialogController.current.contact.SendMessage(
-                new TextMessage(LegacyRef.MessageType.DialogFurnitureStoreNoAddresses, null, true, true));
+                new TextMessage("backalleydealer:dialog_furniture_no_addresses", null, true, true));
             return new DialogEntry
             {
                 messageData = "backalleydealer:dialog_furniture_no_addresses".Localize(),
@@ -158,7 +179,7 @@ namespace BackAlleyDealer
 
             var deliveryContract = new FurnitureDeliveryContract
             {
-                fromAddress = DialogController.current.contact.Address,
+                fromAddress = BackAlleyDealerCity.DealerAddress,
                 toAddress = deliveryContractSettings.selectedAddress,
                 dayOfDelivery = deliveryContractSettings.selectedDeliverySlot.Item1,
                 itemsToDeliver = itemsToDeliver,
@@ -187,7 +208,7 @@ namespace BackAlleyDealer
                     : LegacyRef.MessageType.DialogFurnitureStoreOnContractSettingsSetPlayerBusinessName, messageData,
                 true));
             DialogController.current.contact.SendMessage(
-                new TextMessage(LegacyRef.MessageType.DialogFurnitureStoreOnContractSettingsSetManager, null, true));
+                new TextMessage("backalleydealer:dialog_furniture_on_contract_settings_set_manager", null, true));
             return new DialogEntry
             {
                 messageData = "backalleydealer:dialog_furniture_on_contract_settings_set_manager".Localize(),
@@ -201,9 +222,9 @@ namespace BackAlleyDealer
             SaveGameManager.Current.FurnitureDeliveryContracts.Remove(deliveryContract);
 
             DialogController.current.contact.ReceivePlayerMessage(
-                new TextMessage(LegacyRef.MessageType.DialogFurnitureStoreCancelDelivery, null, true));
+                new TextMessage("backalleydealer:dialog_furniture_cancel_delivery", null, true));
             DialogController.current.contact.SendMessage(
-                new TextMessage(LegacyRef.MessageType.DialogFurnitureStoreDeliveryCancelled, null, true));
+                new TextMessage("backalleydealer:dialog_furniture_store_delivery_cancelled", null, true));
             return new DialogEntry
             {
                 messageData = "dialog_furniture_store_delivery_cancelled".Localize(),
@@ -224,7 +245,7 @@ namespace BackAlleyDealer
 
         private DialogEntry StartVehicles()
         {
-            
+
             return new DialogEntry
             {
                 messageData = "backalleydealer:dialog_vehicles_start".Localize(),

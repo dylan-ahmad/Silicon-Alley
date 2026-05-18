@@ -13,4 +13,8 @@
   "backalleydealer:dialog_furniture_store_delivery_cancelled": "So you’re not as reliable as I thought. Bit of advice: don’t place orders you’re not ready to follow through on.",
   "backalleydealer:street_anonAve": "Anonymous Avenue",
   "backalleydealer:dialog_start": "What’s it gonna be today? Looking for some merchandise, or are we talking vehicles?",
+  "backalleydealer:dialog_furniture_cancel_delivery": "Yes, I'm cancelling my order.",
+  "backalleydealer-dealername": "Back Alley Dealer",
+  "backalleydealer:description": "A shady dealer offering high-quality furniture, vehicles and equipment at a premium price.",
+  "backalleydealer:dialog_furniture_no_stock": "I don't have any merchandise in stock right now.",
 }
