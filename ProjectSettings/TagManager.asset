@@ -4,44 +4,76 @@
 TagManager:
   serializedVersion: 2
   tags:
+  - NPC
+  - AITrafficCar
+  - Crosswalk
   - Vehicle
-  - NavMeshTarget
+  - UiTemplate
+  - BuildingEntrance
+  - LightSource
+  - BuildingSignText
+  - BuildingSignLogo
+  - ItemBeingMoved
+  - ParkingArea
+  - DriveInEntrance
+  - BuildingUpperFloor
+  - BuildingFloor
+  - BuildingGroundFloor
+  - BuildingBottomPlane
+  - GroundIndicator
+  - TrafficLight
+  - WarehouseVehicleSlotZone
+  - ItemOverlay
+  - Scaffolding
   - Wheel
-  - AiVehicleHalt
+  - BuildingLOD
   - ExitTrigger
+  - BuildingParkingEntrance
+  - DirectionIndicator
+  - WallGrid
+  - GroundGrid
+  - AiVehicleHalt
+  - TrafficWaypoint
+  - NavMeshTarget
+  - Dropdown
+  - VehicleAntiRocketCollider
+  - EnterExitPoint
+  - IgnoreDamage
+  - GroundBlocker
+  - AttachmentPointIndicator
   layers:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - PPReflectionProbes
   - Water
   - UI
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
+  - Player
+  - Guiders
+  - Post-Processing
+  - InteractiveItems
+  - Ground
+  - Human
+  - Vehicles
+  - Sidewalk
+  - Crosswalk
+  - Roads
+  - CityMap
+  - Buildings
+  - GroundUnplacable
   - PlayerVehicles
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
+  - BuildingWalls
+  - ParkedVehicles
+  - AiVehicles
+  - ParkingArea
+  - BuildingsOutlined
+  - InteractiveItemsOutlined
+  - StreetProps
+  - AutoParkSpots
+  - WallPlacementLayer
+  - CharacterPortrait
+  - BorderFog
+  - Trigger
   m_SortingLayers:
   - name: Default
     uniqueID: 0
