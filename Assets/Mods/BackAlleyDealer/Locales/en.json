@@ -17,4 +17,5 @@
   "backalleydealer-dealername": "Back Alley Dealer",
   "backalleydealer:description": "A shady dealer offering high-quality furniture, vehicles and equipment at a premium price.",
   "backalleydealer:dialog_furniture_no_stock": "I don't have any merchandise in stock right now.",
+  "backalleydealer:dialog_vehicle_purchased_manager": "Payment checks out. Your ride is parked where we agreed. Keep it quiet.",
 }
