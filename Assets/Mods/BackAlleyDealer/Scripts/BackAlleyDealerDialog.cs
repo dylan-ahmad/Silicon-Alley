@@ -17,7 +17,6 @@ namespace BackAlleyDealer
         private VehicleContractSettings _vehicleContractSettings;
         private string _lastPurchasedVehicleId;
         private bool _shouldMovePurchasedVehicleToConfiguredSpot;
-        private readonly BackAlleyDealerVehicleService _vehicleService = new();
         
         public BackAlleyDealerDialog()
         {
@@ -276,8 +275,17 @@ namespace BackAlleyDealer
                 messageData = "backalleydealer:dialog_vehicles_start".Localize(),
                 Template = DialogEntry.TemplateType.Text,
                 headerKey = npcNameKey,
-                OnVisible = () => DialogController.current.ShowEntry(VehicleContractSettings())
+                OnVisible = () =>
+                {
+                    SetDisableDeliveryOnNextInitFlag();
+                    DialogController.current.ShowEntry(VehicleContractSettingsDialog());
+                }
             };
+        }
+
+        private static void SetDisableDeliveryOnNextInitFlag()
+        {
+            VehicleContractSettings.disableDeliveryOnNextInit = true;
         }
 
         private static DialogEntry NoRegisteredVehiclesInStock()
@@ -298,26 +306,16 @@ namespace BackAlleyDealer
             };
         }
         
-        private DialogEntry VehicleContractSettings() =>
+        private DialogEntry VehicleContractSettingsDialog() =>
             new()
             {
                 headerKey = "dialog_vehicle_store_contract_header",
                 Template = DialogEntry.TemplateType.Input,
                 InputTemplate = DialogEntry.InputTemplateName.VehicleContractSettings,
-                OnVisible = DisableDeliveryForBackAlleyVehicleSettings,
                 OnConfirm = OnVehicleSettingsSet,
                 OnCancel = DialogController.current.CancelDialog,
                 onCancelMessage = new TextMessage(LegacyRef.MessageType.ContactsMessagePlayerCancelCall),
             };
-
-        private static void DisableDeliveryForBackAlleyVehicleSettings()
-        {
-            var settings = DialogController.current.GetInputTransform<VehicleContractSettings>(null);
-            if (settings == null)
-                return;
-
-            settings.DisableDeliveryOptions();
-        }
 
         private DialogEntry OnVehicleSettingsSet()
         {
