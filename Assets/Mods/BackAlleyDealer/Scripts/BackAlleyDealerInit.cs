@@ -14,10 +14,12 @@ namespace BackAlleyDealer
     public class BackAlleyDealerInit : IModBigAmbitions
     {
         private readonly HashSet<string> _registeredItemNames = new();
+        private readonly HashSet<string> _registeredVehicleNames = new();
         private ModContext _context;
         public static BackAlleyDealerInit Instance { get; private set; }
 
         public bool HasRegisteredItems => _registeredItemNames.Count > 0;
+        public bool HasRegisteredVehicles => _registeredVehicleNames.Count > 0;
         public string[] RelativeAssetBundlePaths => Array.Empty<string>();
 
 
@@ -28,6 +30,8 @@ namespace BackAlleyDealer
             SetContactForAddress(BackAlleyDealerCity.DealerAddress, BackAlleyDealerCity.DealerName);
             if (HasRegisteredItems)
                 SetContractItemsForContact(BackAlleyDealerCity.DealerName, _registeredItemNames);
+            if (HasRegisteredVehicles)
+                SetContractVehiclesForContact(BackAlleyDealerCity.DealerName, _registeredVehicleNames);
             return Task.CompletedTask;
         }
 
@@ -37,6 +41,7 @@ namespace BackAlleyDealer
             RemoveContactForAddress(BackAlleyDealerCity.DealerAddress);
             Instance = null;
             _registeredItemNames.Clear();
+            _registeredVehicleNames.Clear();
             return Task.CompletedTask;
         }
 
@@ -68,12 +73,42 @@ namespace BackAlleyDealer
             SetContractItemsForContact(BackAlleyDealerCity.DealerName, _registeredItemNames);
         }
 
+        public void RegisterVehicle(string vehicleName)
+        {
+            if (string.IsNullOrEmpty(vehicleName))
+                return;
+
+            if (!_registeredVehicleNames.Add(vehicleName))
+                _context.Logger.Warn($"Vehicle '{vehicleName}' is already registered");
+
+            SetContractVehiclesForContact(BackAlleyDealerCity.DealerName, _registeredVehicleNames);
+        }
+
+        public void UnregisterVehicle(string vehicleName)
+        {
+            if (string.IsNullOrEmpty(vehicleName))
+                return;
+
+            if (!_registeredVehicleNames.Remove(vehicleName))
+                _context.Logger.Warn($"Vehicle '{vehicleName}' is not registered");
+
+            SetContractVehiclesForContact(BackAlleyDealerCity.DealerName, _registeredVehicleNames);
+        }
+
         private static void SetContractItemsForContact(string contactId, HashSet<string> itemNames)
         {
             if (string.IsNullOrEmpty(contactId))
                 return;
             
             ContractItemsForSaleService.SetItemsForContact(contactId, itemNames);
+        }
+
+        private static void SetContractVehiclesForContact(string contactId, HashSet<string> vehicleNames)
+        {
+            if (string.IsNullOrEmpty(contactId))
+                return;
+
+            ContractItemsForSaleService.SetVehiclesForContact(contactId, vehicleNames);
         }
 
         private static void RemoveContractItemsForContact(string contactId)

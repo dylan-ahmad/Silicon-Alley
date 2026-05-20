@@ -15,7 +15,9 @@ namespace BackAlleyDealer
     public class BackAlleyDealerDialog : Dialog
     {
         private VehicleContractSettings _vehicleContractSettings;
-        private const string ParkingGarageRootPath = "BuildingBlocks/BuildingBlock(5,1)/Parking01/Parking01_Floor03/LegalParkingColliders";
+        private string _lastPurchasedVehicleId;
+        private bool _shouldMovePurchasedVehicleToConfiguredSpot;
+        private readonly BackAlleyDealerVehicleService _vehicleService = new();
         
         public BackAlleyDealerDialog()
         {
@@ -266,12 +268,33 @@ namespace BackAlleyDealer
 
         private DialogEntry StartVehicles()
         {
+            if (BackAlleyDealerInit.Instance == null || !BackAlleyDealerInit.Instance.HasRegisteredVehicles)
+                return NoRegisteredVehiclesInStock();
+
             return new DialogEntry
             {
                 messageData = "backalleydealer:dialog_vehicles_start".Localize(),
                 Template = DialogEntry.TemplateType.Text,
                 headerKey = npcNameKey,
                 OnVisible = () => DialogController.current.ShowEntry(VehicleContractSettings())
+            };
+        }
+
+        private static DialogEntry NoRegisteredVehiclesInStock()
+        {
+            const string noStockMessage = "backalleydealer:dialog_vehicles_no_stock";
+            DialogController.current.contact.SendMessage(
+                new TextMessage(noStockMessage, null, true, true));
+            return new DialogEntry
+            {
+                messageData = noStockMessage.Localize(),
+                Template = DialogEntry.TemplateType.Text,
+                OnVisible = DialogController.current.dialogType == DialogType.PhoneCall
+                    ? DialogController.current.FinishDialog
+                    : null,
+                OnCancel = DialogController.current.dialogType == DialogType.Physical
+                    ? DialogController.current.FinishDialog
+                    : null
             };
         }
         
@@ -281,47 +304,45 @@ namespace BackAlleyDealer
                 headerKey = "dialog_vehicle_store_contract_header",
                 Template = DialogEntry.TemplateType.Input,
                 InputTemplate = DialogEntry.InputTemplateName.VehicleContractSettings,
+                OnVisible = DisableDeliveryForBackAlleyVehicleSettings,
                 OnConfirm = OnVehicleSettingsSet,
                 OnCancel = DialogController.current.CancelDialog,
                 onCancelMessage = new TextMessage(LegacyRef.MessageType.ContactsMessagePlayerCancelCall),
             };
 
+        private static void DisableDeliveryForBackAlleyVehicleSettings()
+        {
+            var settings = DialogController.current.GetInputTransform<VehicleContractSettings>(null);
+            if (settings == null)
+                return;
+
+            settings.DisableDeliveryOptions();
+        }
+
         private DialogEntry OnVehicleSettingsSet()
         {
             _vehicleContractSettings = DialogController.current.GetInputTransform<VehicleContractSettings>(null);
-            return !PurchaseVehicleAtConfiguredSpot() ? null : OnVehiclePurchased();
+            if (_vehicleContractSettings != null && _vehicleContractSettings.selectedVehicleForSale != null)
+                return !BackAlleyDealerVehicleService.TryPurchaseAtConfiguredSpot(
+                    _vehicleContractSettings,
+                    out _lastPurchasedVehicleId,
+                    out _shouldMovePurchasedVehicleToConfiguredSpot)
+                    ? null
+                    : OnVehiclePurchased();
+            Notifications.ShowError("common_notification_select_vehicle");
+            return null;
         }
 
-        private bool PurchaseVehicleAtConfiguredSpot()
-        {
-            var oldCount = SaveGameManager.Current.VehicleInstances.Count;
-            if (!_vehicleContractSettings.selectedVehicle.Purchase())
-                return false;
-
-            if (oldCount >= SaveGameManager.Current.VehicleInstances.Count)
-                return true;
-
-            var purchasedVehicleInstance = SaveGameManager.Current.VehicleInstances[oldCount];
-            var allPlayerVehicles = VehicleHelper.AllPlayerVehicles;
-            foreach (var vehicleController in allPlayerVehicles)
-            {
-                if (vehicleController.vehicleInstance.id != purchasedVehicleInstance.id)
-                    continue;
-
-                if (VehicleParkingHelper.TryGetRandomParkingGarageSpot(
-                        ParkingGarageRootPath,
-                        out var lanePosition,
-                        out var laneRotation))
-                    VehicleHelper.TeleportVehicleToGround(vehicleController, lanePosition, laneRotation);
-                break;
-            }
-
-            return true;
-        }
-        
         private DialogEntry OnVehiclePurchased()
         {
-            var vehicleTypeName = _vehicleContractSettings.selectedVehicle.vehicleName;
+            BackAlleyDealerVehicleService.FinalizePurchase(
+                _vehicleContractSettings,
+                _lastPurchasedVehicleId,
+                _shouldMovePurchasedVehicleToConfiguredSpot);
+
+            _lastPurchasedVehicleId = null;
+            _shouldMovePurchasedVehicleToConfiguredSpot = false;
+            var vehicleTypeName = _vehicleContractSettings.selectedVehicleForSale.vehicleName;
             var messageData =
                 new Dictionary<string, string> { { "vehicleTypeName", vehicleTypeName.GetLocalization() } };
             DialogController.current.contact.ReceivePlayerMessage(new TextMessage(

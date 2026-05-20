@@ -1,5 +1,6 @@
 #nullable enable
 using System.Threading.Tasks;
+using BackAlleyDealer;
 using BAModAPI;
 using BAModAPI.Services;
 using UnityEngine;
@@ -34,13 +35,17 @@ public class ExampleVehicleMod : IModBigAmbitions
         }
 
         ModdingAPI.RegisterModVehicleType(turboHonzaVehicleType);
+        BackAlleyDealerInit.Instance.RegisterVehicle(turboHonzaVehicleType.vehicleTypeName);
         return Task.CompletedTask;
     }
 
     public Task OnUnloadAsync()
     {
-        if (turboHonzaVehicleType != null)
-            ModdingAPI.UnregisterModVehicleType(turboHonzaVehicleType.vehicleTypeName);
+        if (turboHonzaVehicleType == null)
+            return Task.CompletedTask;
+        
+        ModdingAPI.UnregisterModVehicleType(turboHonzaVehicleType.vehicleTypeName);
+        BackAlleyDealerInit.Instance.UnregisterVehicle(turboHonzaVehicleType.vehicleTypeName);
 
         return Task.CompletedTask;
     }
