@@ -340,7 +340,7 @@ namespace BackAlleyDealer
 
             _lastPurchasedVehicleId = null;
             _shouldMovePurchasedVehicleToConfiguredSpot = false;
-            var vehicleTypeName = _vehicleContractSettings.selectedVehicleForSale.vehicleName;
+            var vehicleTypeName = _vehicleContractSettings.selectedVehicleForSale.VehicleName;
             var messageData =
                 new Dictionary<string, string> { { "vehicleTypeName", vehicleTypeName.GetLocalization() } };
             DialogController.current.contact.ReceivePlayerMessage(new TextMessage(

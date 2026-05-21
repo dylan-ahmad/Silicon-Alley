@@ -3,7 +3,6 @@ using BigAmbitions.SaveSystem.Legacy;
 using Buildings;
 using Extensions;
 using Helpers;
-using UI;
 using UnityEngine;
 using Vehicles.VehicleTypes;
 
@@ -33,9 +32,6 @@ namespace BackAlleyDealer
         {
             if (shouldMovePurchasedVehicleToConfiguredSpot && !string.IsNullOrEmpty(purchasedVehicleId))
                 TryMovePurchasedVehicleToConfiguredSpot(purchasedVehicleId);
-
-            UIs.Instance.playerHUD.purchaseVehicleUI.SetAsset(vehicleContractSettings.selectedVehicleForSale, false);
-            UIs.Instance.playerHUD.purchaseVehicleUI.RunShowcaseAnimation();
         }
 
         private static bool TryPurchaseShowcaseVehicle(VehicleContractSettings vehicleContractSettings,
@@ -72,7 +68,7 @@ namespace BackAlleyDealer
             if (saveGame?.VehicleInstances == null)
                 return false;
 
-            var vehicleName = vehicleContractSettings.selectedVehicleForSale.vehicleName;
+            var vehicleName = vehicleContractSettings.selectedVehicleForSale.VehicleName;
             var vehicleType = VehicleTypeHelper.GetVehicleType(vehicleName);
             if (vehicleType == null)
                 return false;
