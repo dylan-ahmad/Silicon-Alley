@@ -5,6 +5,7 @@ using BackAlleyDealer;
 using BAModAPI;
 using BigAmbitions.Items;
 using Services;
+using Vehicles.VehicleTypes;
 
 [assembly: RegisterModClass(typeof(BackAlleyDealerInit))]
 
@@ -27,6 +28,10 @@ namespace BackAlleyDealer
         {
             _context = context;
             Instance = this;
+
+            UpdateModdedItems();
+            UpdateModdedVehicles();
+            
             SetContactForAddress(BackAlleyDealerCity.DealerAddress, BackAlleyDealerCity.DealerName);
             if (HasRegisteredItems)
                 SetContractItemsForContact(BackAlleyDealerCity.DealerName, _registeredItemNames);
@@ -45,53 +50,33 @@ namespace BackAlleyDealer
             return Task.CompletedTask;
         }
 
-        public void RegisterItem(string itemName)
+        private void UpdateModdedItems()
         {
-            if (string.IsNullOrEmpty(itemName))
-                return;
-
-            if (ItemsGetter.GetByName(itemName) == null)
+            _registeredItemNames.Clear();
+            foreach (var item in ItemsGetter.AllItems)
             {
-                _context.Logger.Warn($"Tried to register invalid item '{itemName}' for BackAlleyDealer");
-                return;
+                if (item == null || string.IsNullOrEmpty(item.itemName))
+                    continue;
+                
+                if (ItemsGetter.IsModItem(item.itemName))
+                    _registeredItemNames.Add(item.itemName);
             }
-
-            if (!_registeredItemNames.Add(itemName))
-                _context.Logger.Warn($"Item '{itemName}' is already registered");
-
+            
             SetContractItemsForContact(BackAlleyDealerCity.DealerName, _registeredItemNames);
         }
 
-        public void UnregisterItem(string itemName)
+        private void UpdateModdedVehicles()
         {
-            if (string.IsNullOrEmpty(itemName))
-                return;
-
-            if (!_registeredItemNames.Remove(itemName))
-                _context.Logger.Warn($"Item '{itemName}' is not registered");
-
-            SetContractItemsForContact(BackAlleyDealerCity.DealerName, _registeredItemNames);
-        }
-
-        public void RegisterVehicle(string vehicleName)
-        {
-            if (string.IsNullOrEmpty(vehicleName))
-                return;
-
-            if (!_registeredVehicleNames.Add(vehicleName))
-                _context.Logger.Warn($"Vehicle '{vehicleName}' is already registered");
-
-            SetContractVehiclesForContact(BackAlleyDealerCity.DealerName, _registeredVehicleNames);
-        }
-
-        public void UnregisterVehicle(string vehicleName)
-        {
-            if (string.IsNullOrEmpty(vehicleName))
-                return;
-
-            if (!_registeredVehicleNames.Remove(vehicleName))
-                _context.Logger.Warn($"Vehicle '{vehicleName}' is not registered");
-
+            _registeredVehicleNames.Clear();
+            foreach (var vehicleName in VehicleTypeHelper.GetVehicleTypeNames())
+            {
+                if (string.IsNullOrEmpty(vehicleName))
+                    continue;
+                
+                if (VehicleTypeHelper.IsModVehicleType(vehicleName))
+                    _registeredVehicleNames.Add(vehicleName);
+            }
+            
             SetContractVehiclesForContact(BackAlleyDealerCity.DealerName, _registeredVehicleNames);
         }
 

@@ -1,6 +1,5 @@
 #nullable enable
 using System.Threading.Tasks;
-using BackAlleyDealer;
 using BAModAPI;
 using BAModAPI.Services;
 using BigAmbitions.Items;
@@ -26,11 +25,6 @@ public class ExampleFurnitureMod : IModBigAmbitions
                 "Item asset not found: Assets/Mods/Example-Furniture/GigaCounter.asset");
 
         ItemsGetter.RegisterModItem(_modItem);
-        if (BackAlleyDealerInit.Instance == null)
-            throw new System.InvalidOperationException(
-                "BackAlleyDealerInit.Instance is null. Ensure BackAlleyDealer is enabled and loaded in initialization scope.");
-
-        BackAlleyDealerInit.Instance.RegisterItem(_modItem.itemName);
         return Task.CompletedTask;
     }
 
@@ -39,7 +33,6 @@ public class ExampleFurnitureMod : IModBigAmbitions
         if (_modItem == null)
             return Task.CompletedTask;
 
-        BackAlleyDealerInit.Instance?.UnregisterItem(_modItem.itemName);
         ItemsGetter.UnregisterModItem(_modItem.itemName);
         return Task.CompletedTask;
     }
