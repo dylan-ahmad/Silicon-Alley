@@ -14,6 +14,8 @@ public static class SiliconAlleyState
         public float Reputation;     // 0..~3, grows with high-quality deliveries
         public int InstalledBase;    // completed projects still earning support income
         public float SupportAccrual; // fractional support income carried between hours
+        public float QualitySum;     // accumulated (staff-quality x phase-weight) over the project
+        public float QualityWeight;  // total accumulated weight (Testing hours weigh more)
     }
 
     private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
@@ -87,6 +89,25 @@ public static class SiliconAlleyState
         var state = Get(key);
         state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f);
         state.InstalledBase++;
+        state.QualitySum = 0f;     // the next project's quality accrues fresh
+        state.QualityWeight = 0f;
+    }
+
+    // Step 3 (quality): sample this hour's staff quality (0..1), weighted by phase so Testing-phase
+    // staffing matters more — under-skilled testing lowers the shipped quality ("bugs"). Averaged at
+    // release via GetAverageQuality.
+    public static void AccumulateQuality(string key, float sample, float weight)
+    {
+        var state = Get(key);
+        state.QualitySum += Mathf.Clamp01(sample) * weight;
+        state.QualityWeight += weight;
+    }
+
+    // Average accrued quality (0..1), or -1 when nothing has accrued yet (caller falls back).
+    public static float GetAverageQuality(string key)
+    {
+        var state = Get(key);
+        return state.QualityWeight > 0f ? state.QualitySum / state.QualityWeight : -1f;
     }
 
     public static void DecayReputation(string key, float amount)
@@ -112,7 +133,8 @@ public static class SiliconAlleyState
     public static void Reset() => States.Clear();
 
     // --- persistence (stored in GameInstance.modData by SiliconAlleyPersistence) ---
-    // One entry per building: key|progress|reputation|installedBase|supportAccrual, joined by ';'.
+    // One entry per building: key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight,
+    // joined by ';'. Older saves omit the last two fields; LoadFrom tolerates their absence.
     // InvariantCulture is required so a locale with comma decimals (e.g. nl-NL) cannot corrupt it.
     public static string Serialize()
     {
@@ -124,7 +146,9 @@ public static class SiliconAlleyState
                 .Append(state.Progress.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.Reputation.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.InstalledBase.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.SupportAccrual.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.SupportAccrual.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.QualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.QualityWeight.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -146,6 +170,11 @@ public static class SiliconAlleyState
             float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Reputation);
             int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.InstalledBase);
             float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out state.SupportAccrual);
+            if (parts.Length > 6) // newer saves also carry the quality accumulator
+            {
+                float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out state.QualitySum);
+                float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out state.QualityWeight);
+            }
             States[parts[0]] = state;
         }
     }

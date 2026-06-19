@@ -53,6 +53,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             SiliconAlleyState.AddProgress(key, totalSkill * SiliconAlleyState.ProjectSpeed);
             var progressAfter = SiliconAlleyState.GetProgress(key);
             AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter);
+            // Step 3 (quality): sample this hour's staff quality; Testing-phase work counts double.
+            var hourQuality = Mathf.Clamp01(totalSkill / programmers / 100f) * Mathf.Clamp01(totalSatisfaction / programmers / 100f);
+            var phaseWeight = SiliconAlleyState.PhaseOf(progressBefore) == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
+            SiliconAlleyState.AccumulateQuality(key, hourQuality, phaseWeight);
             Debug.Log($"[SiliconAlley] {key} h{currentHour}: {programmers} programmer(s), {SiliconAlleyState.PhaseOf(progressAfter)} progress {progressAfter:F0}/{SiliconAlleyState.ProjectSize:F0}");
         }
         else
@@ -76,10 +80,13 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                && SiliconAlleyState.GetProgress(key) >= SiliconAlleyState.ProjectSize)
         {
             SiliconAlleyState.AddProgress(key, -SiliconAlleyState.ProjectSize);
-            var avgSkill = totalSkill / programmers;
-            var avgSatisfaction = totalSatisfaction / programmers;
             var cleanliness = Mathf.Clamp01(buildingRegistration.GetCleanliness() / 100f);
-            var quality = Mathf.Clamp01(avgSkill / 100f) * Mathf.Clamp01(avgSatisfaction / 100f) * Mathf.Max(0.25f, cleanliness);
+            // Step 3 (quality): ship at the quality accrued across all phases (Testing weighted heavier),
+            // not just the final hour's staffing. Fall back to this hour if nothing has accrued.
+            var accruedQuality = SiliconAlleyState.GetAverageQuality(key);
+            if (accruedQuality < 0f)
+                accruedQuality = Mathf.Clamp01(totalSkill / programmers / 100f) * Mathf.Clamp01(totalSatisfaction / programmers / 100f);
+            var quality = accruedQuality * Mathf.Max(0.25f, cleanliness);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var payout = marketPrice * (0.5f + quality) * reputationFactor * MarketFactor(businessType) * SiliconAlleyState.PayoutMultiplier;
             CreditRevenue(product, payout, quality);
