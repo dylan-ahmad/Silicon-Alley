@@ -53,6 +53,18 @@ public static class SiliconAlleyState
         return Mathf.Clamp01((fraction - lo) / Mathf.Max(0.0001f, hi - lo));
     }
 
+    // Progress value at which the given phase ends (Testing/Release end at completion). Lets the
+    // dashboard compute "progress remaining in this phase" without duplicating the fraction constants.
+    public static float PhaseEndProgress(ProjectPhase phase)
+    {
+        switch (phase)
+        {
+            case ProjectPhase.Design: return DesignFraction * ProjectSize;
+            case ProjectPhase.Development: return DevelopmentFraction * ProjectSize;
+            default: return ProjectSize;
+        }
+    }
+
     public static string PhaseNameKey(ProjectPhase phase)
     {
         switch (phase)

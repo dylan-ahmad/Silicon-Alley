@@ -26,5 +26,7 @@
   "siliconalley:client_status": "{status}",
   "siliconalley:client_status_intro": "Your Silicon Alley studios:",
   "siliconalley:client_status_none": "No Silicon Alley studios running yet — found one in an office, staff it with Programmers at a Computer Workstation, then check back here.",
-  "siliconalley:client_status_line": "• {business}: {phase} {progress}%, reputation {reputation}, installed base {installedbase}, support {support}, rivals {rivals} (market x{market})"
+  "siliconalley:client_status_line": "━ {business}\n   {phase} · {progress}% — next phase {phaseeta}, ship {shipeta}\n   Quality (live): {quality}   Reputation: {reputation}\n   Installed base: {installedbase} — support {support}, next update {patcheta}\n   Market: {rivals} rival(s), payout x{market}",
+  "siliconalley:client_eta_idle": "needs staff",
+  "siliconalley:client_eta_due": "due now"
 }

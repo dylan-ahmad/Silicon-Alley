@@ -21,7 +21,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
 {
     // Post-release updates: a staffed studio patches its live catalog this often, earning a fraction
     // of each product's market price per installed unit.
-    private const int PatchIntervalDays = 7;
+    // public so the phone dashboard can show "next update in N days" off the same schedule.
+    public const int PatchIntervalDays = 7;
     private const float PatchRevenueFraction = 0.08f;
 
     public override void SimulateCurrentHour()
@@ -236,5 +237,32 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     public static float MarketFactor(BuildingRegistration registration)
     {
         return 1f / (1f + CompetitorCount(registration) * 0.25f);
+    }
+
+    // Project progress this studio accrues per in-game hour at the current hour's staffing
+    // (sum of programmer skill x ProjectSpeed) — the exact throughput SimulateCurrentHour applies.
+    // The phone dashboard divides remaining progress by this to estimate phase/ship ETAs. Returns 0
+    // when no qualifying programmer is at a workstation this hour (the studio is idle right now).
+    public static float CurrentHourlyProgress(BuildingRegistration registration)
+    {
+        var businessType = BusinessTypeHelper.GetData(registration);
+        if (businessType == null || registration.itemInstances == null)
+            return 0f;
+
+        var hour = TimeHelper.CurrentHour;
+        float totalSkill = 0f;
+        foreach (var instance in registration.itemInstances.Values)
+        {
+            if ((instance.ItemCached.type & ItemType.EmployeeWorkstation) == 0)
+                continue;
+            var employee = EmployeeHelper.GetEmployeeAtStationAndHour(registration, instance.id, hour);
+            if (employee == null)
+                continue;
+            var skill = employee.characterData.skills.FirstOrDefault(s => businessType.employeePrimarySkills.Contains(s.name));
+            if (skill == null)
+                continue;
+            totalSkill += skill.value;
+        }
+        return totalSkill * SiliconAlleyState.ProjectSpeed;
     }
 }

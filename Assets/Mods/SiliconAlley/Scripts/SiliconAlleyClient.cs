@@ -158,18 +158,23 @@ public class SiliconAlleyClientDialog : Dialog
             var key = SiliconAlleyState.KeyFor(registration);
             var rawProgress = SiliconAlleyState.GetProgress(key);
             var phase = SiliconAlleyState.PhaseOf(rawProgress);
+            var perHour = SiliconAlleyOfficeSimulator.CurrentHourlyProgress(registration);
             var line = "siliconalley:client_status_line".Localize(new Dictionary<string, string>
             {
                 ["business"] = registration.GetDisplayName(),
                 ["phase"] = SiliconAlleyState.PhaseNameKey(phase).GetLocalization(),
                 ["progress"] = Mathf.RoundToInt(SiliconAlleyState.PhaseProgressFraction(rawProgress) * 100f).ToString(CultureInfo.InvariantCulture),
+                ["phaseeta"] = FormatEta(SiliconAlleyState.PhaseEndProgress(phase) - rawProgress, perHour),
+                ["shipeta"] = FormatEta(SiliconAlleyState.ProjectSize - rawProgress, perHour),
+                ["quality"] = FormatQuality(SiliconAlleyState.GetAverageQuality(key)),
                 ["reputation"] = SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture),
                 ["installedbase"] = SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture),
                 ["support"] = SupportPerDay(registration, key),
+                ["patcheta"] = PatchEta(registration, key),
                 ["rivals"] = SiliconAlleyOfficeSimulator.CompetitorCount(registration).ToString(CultureInfo.InvariantCulture),
                 ["market"] = SiliconAlleyOfficeSimulator.MarketFactor(registration).ToString("F2", CultureInfo.InvariantCulture),
             }).ToString();
-            builder.Append('\n').Append(line);
+            builder.Append("\n\n").Append(line);
         }
 
         if (!any)
@@ -195,5 +200,43 @@ public class SiliconAlleyClientDialog : Dialog
             }
         }
         return "$" + Mathf.RoundToInt(perDay).ToString("N0", CultureInfo.InvariantCulture) + "/day";
+    }
+
+    // Per-phase ETA: remaining progress / current hourly throughput, rendered as a short "~Nd Nh".
+    // perHour is this hour's live staffing (SiliconAlleyOfficeSimulator.CurrentHourlyProgress), so an
+    // unstaffed studio reports "needs staff" rather than an infinite ETA.
+    private static string FormatEta(float remainingProgress, float perHour)
+    {
+        if (perHour <= 0f)
+            return "siliconalley:client_eta_idle".GetLocalization();
+        var hours = Mathf.CeilToInt(Mathf.Max(0f, remainingProgress) / perHour);
+        if (hours <= 0)
+            return "siliconalley:client_eta_due".GetLocalization();
+        var days = hours / 24;
+        var rest = hours % 24;
+        if (days > 0)
+            return "~" + days.ToString(CultureInfo.InvariantCulture) + "d " + rest.ToString(CultureInfo.InvariantCulture) + "h";
+        return "~" + rest.ToString(CultureInfo.InvariantCulture) + "h";
+    }
+
+    // Estimated shipped quality of the in-flight project (the phase-weighted average the simulator
+    // accrues), or "—" before any quality has accrued. Steers the player toward staffing Testing well.
+    private static string FormatQuality(float quality)
+    {
+        if (quality < 0f)
+            return "—";
+        return Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%";
+    }
+
+    // Days until this studio next patches its live catalog (only meaningful once it has shipped, i.e.
+    // installed base > 0); "due now" when the interval has elapsed, "—" with nothing released yet.
+    private static string PatchEta(BuildingRegistration registration, string key)
+    {
+        if (SiliconAlleyState.GetInstalledBase(key) <= 0)
+            return "—";
+        var daysUntil = SiliconAlleyOfficeSimulator.PatchIntervalDays - (TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key));
+        if (daysUntil <= 0)
+            return "siliconalley:client_eta_due".GetLocalization();
+        return "~" + daysUntil.ToString(CultureInfo.InvariantCulture) + "d";
     }
 }
