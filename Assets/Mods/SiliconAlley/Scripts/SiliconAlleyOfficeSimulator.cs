@@ -19,6 +19,11 @@ using UnityEngine;
 // revenue), and an installed base earns recurring support income. See docs/DESIGN.md.
 public class SiliconAlleyOfficeSimulator : BusinessSimulator
 {
+    // Post-release updates: a staffed studio patches its live catalog this often, earning a fraction
+    // of each product's market price per installed unit.
+    private const int PatchIntervalDays = 7;
+    private const float PatchRevenueFraction = 0.08f;
+
     public override void SimulateCurrentHour()
     {
         var businessType = BusinessTypeHelper.GetData(buildingRegistration);
@@ -75,6 +80,20 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 CreditRevenue(product, support, 1f);
         }
 
+        // 3b) Post-release updates: a staffed studio with shipped products patches its live catalog
+        // every PatchIntervalDays for extra revenue — the "Support/Updates" stage of the lifecycle.
+        if (programmers > 0 && product != null && marketPrice > 0f)
+        {
+            var catalog = SiliconAlleyState.GetInstalledBase(key);
+            if (catalog > 0 && TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key) >= PatchIntervalDays)
+            {
+                var patchRevenue = marketPrice * catalog * PatchRevenueFraction * MarketFactor(buildingRegistration);
+                CreditRevenue(product, patchRevenue, 1f);
+                SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay);
+                AnnouncePatch(businessType, key, catalog, patchRevenue);
+            }
+        }
+
         // 4) Complete any finished projects.
         while (programmers > 0 && product != null && marketPrice > 0f
                && SiliconAlleyState.GetProgress(key) >= SiliconAlleyState.ProjectSize)
@@ -92,6 +111,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var payout = marketPrice * (0.5f + quality) * reputationFactor * marketFactor * SiliconAlleyState.PayoutMultiplier;
             CreditRevenue(product, payout, quality);
             SiliconAlleyState.OnProjectCompleted(key, quality);
+            SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock
             Debug.Log($"[SiliconAlley] {key} completed a project (quality {quality:F2}, payout {payout:F0}, reputation {SiliconAlleyState.GetReputation(key):F2}).");
             ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor);
         }
@@ -159,6 +179,19 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["phase"] = SiliconAlleyState.PhaseNameKey(newPhase).GetLocalization(),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_phase", data, 5f, key + ":" + newPhase);
+    }
+
+    // Step 3 (support/updates): announce a periodic patch shipped to the studio's live catalog.
+    private void AnnouncePatch(BusinessType businessType, string key, int catalog, float revenue)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["product"] = ProductDisplayName(businessType),
+            ["catalog"] = catalog.ToString(CultureInfo.InvariantCulture),
+            ["revenue"] = "$" + Mathf.RoundToInt(revenue).ToString("N0", CultureInfo.InvariantCulture),
+        };
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_patch", data, 5f, key + ":patch");
     }
 
     // Localized display name of the business's primary product (themes the toast per business type:

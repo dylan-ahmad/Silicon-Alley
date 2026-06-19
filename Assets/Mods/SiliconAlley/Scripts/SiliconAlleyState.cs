@@ -16,6 +16,7 @@ public static class SiliconAlleyState
         public float SupportAccrual; // fractional support income carried between hours
         public float QualitySum;     // accumulated (staff-quality x phase-weight) over the project
         public float QualityWeight;  // total accumulated weight (Testing hours weigh more)
+        public int LastPatchDay;     // game-day the live catalog was last patched (post-release updates)
     }
 
     private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
@@ -83,6 +84,8 @@ public static class SiliconAlleyState
     public static float GetProgress(string key) => Get(key).Progress;
     public static float GetReputation(string key) => Get(key).Reputation;
     public static int GetInstalledBase(string key) => Get(key).InstalledBase;
+    public static int GetLastPatchDay(string key) => Get(key).LastPatchDay;
+    public static void SetLastPatchDay(string key, int day) => Get(key).LastPatchDay = day;
 
     public static void OnProjectCompleted(string key, float quality)
     {
@@ -133,8 +136,9 @@ public static class SiliconAlleyState
     public static void Reset() => States.Clear();
 
     // --- persistence (stored in GameInstance.modData by SiliconAlleyPersistence) ---
-    // One entry per building: key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight,
-    // joined by ';'. Older saves omit the last two fields; LoadFrom tolerates their absence.
+    // One entry per building:
+    // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay, joined
+    // by ';'. Older saves omit the trailing fields; LoadFrom tolerates their absence.
     // InvariantCulture is required so a locale with comma decimals (e.g. nl-NL) cannot corrupt it.
     public static string Serialize()
     {
@@ -148,7 +152,8 @@ public static class SiliconAlleyState
                 .Append(state.InstalledBase.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.SupportAccrual.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.QualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.QualityWeight.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.QualityWeight.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.LastPatchDay.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -175,6 +180,8 @@ public static class SiliconAlleyState
                 float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out state.QualitySum);
                 float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out state.QualityWeight);
             }
+            if (parts.Length > 7) // and the post-release patch clock
+                int.TryParse(parts[7], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.LastPatchDay);
             States[parts[0]] = state;
         }
     }
