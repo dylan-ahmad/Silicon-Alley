@@ -1,0 +1,19 @@
+{
+  "siliconalley:businesstype_softwarestudio": "Software Engineering Studio",
+  "siliconalley:businesstype_softwarestudio_alias": "Software Studio",
+  "siliconalley:businesstype_cybersecurity": "Cyber Security Firm",
+  "siliconalley:businesstype_cybersecurity_alias": "Cyber Security",
+  "siliconalley:businesstype_gamestudio": "Game Developer Studio",
+  "siliconalley:businesstype_gamestudio_alias": "Game Studio",
+  "siliconalley:itemname_softwarelicense": "Software License",
+  "siliconalley:itemname_securityaudit": "Security Audit",
+  "siliconalley:itemname_videogame": "Video Game",
+  "siliconalley:options_header": "Silicon Alley",
+  "siliconalley:options_projectspeed": "Project speed (%)",
+  "siliconalley:options_payout": "Payout multiplier (%)",
+  "siliconalley:options_support": "Support income (%)",
+  "siliconalley-clientname": "Silicon Alley Clients",
+  "siliconalley:client_description": "Your IT clients",
+  "siliconalley:client_welcome": "Heard you run a sharp IT shop. Keep delivering quality and we'll keep sending work your way.",
+  "siliconalley:client_greeting": "Good to hear from you. Keep shipping quality and the contracts will keep coming."
+}

@@ -1,0 +1,29 @@
+using BAModAPI;
+using BigAmbitions.Mods;
+
+// Tier 3: in-game options panel to tune the project simulator. Slider values persist via the
+// game's settings store. Values feed the tunables in SiliconAlleyState.
+public static class SiliconAlleyOptions
+{
+    public static void Register(ModContext context)
+    {
+        var options = new ModOptions()
+            .AddHeader("siliconalley:options_header")
+            .AddSlider("siliconalley_projectspeed", "siliconalley:options_projectspeed", 10, 500, 100, OnProjectSpeed)
+            .AddSlider("siliconalley_payout", "siliconalley:options_payout", 10, 500, 100, OnPayout)
+            .AddSlider("siliconalley_support", "siliconalley:options_support", 0, 100, 20, OnSupport)
+            .AddSplitter();
+
+        OptionsService.Register(context.ModId, options);
+        context.Logger.Info("SiliconAlley: options registered.");
+    }
+
+    public static void Unregister(ModContext context)
+    {
+        OptionsService.RemoveModOptions(context.ModId);
+    }
+
+    private static void OnProjectSpeed(int value) => SiliconAlleyState.ProjectSpeed = value / 100f;
+    private static void OnPayout(int value) => SiliconAlleyState.PayoutMultiplier = value / 100f;
+    private static void OnSupport(int value) => SiliconAlleyState.SupportRatePerDay = value / 1000f;
+}

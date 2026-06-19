@@ -1,0 +1,115 @@
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using UnityEngine;
+
+// Tier 2/3: per-building state + tunables for the Silicon Alley project simulator. Persisted in the
+// game save via GameInstance.modData (see SiliconAlleyPersistence): progress, reputation and the
+// installed base survive save/reload.
+public static class SiliconAlleyState
+{
+    private sealed class BusinessState
+    {
+        public float Progress;       // accumulated work toward the next project
+        public float Reputation;     // 0..~3, grows with high-quality deliveries
+        public int InstalledBase;    // completed projects still earning support income
+        public float SupportAccrual; // fractional support income carried between hours
+    }
+
+    private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
+
+    // ---- tunables (driven by the in-game options panel; defaults match a 100/100/20 slider) ----
+    public static float ProjectSpeed = 1f;         // progress per programmer skill-point per hour
+    public static float ProjectSize = 400f;        // progress required to complete one project
+    public static float PayoutMultiplier = 1f;     // global payout scale
+    public static float SupportRatePerDay = 0.02f; // support income per installed unit per day, as a fraction of market price
+
+    private static BusinessState Get(string key)
+    {
+        if (!States.TryGetValue(key, out var state))
+        {
+            state = new BusinessState();
+            States[key] = state;
+        }
+        return state;
+    }
+
+    public static string KeyFor(BuildingRegistration registration)
+    {
+        var address = registration.Address;
+        return address.streetName + ":" + address.streetNumber;
+    }
+
+    public static void AddProgress(string key, float amount) => Get(key).Progress += amount;
+    public static float GetProgress(string key) => Get(key).Progress;
+    public static float GetReputation(string key) => Get(key).Reputation;
+    public static int GetInstalledBase(string key) => Get(key).InstalledBase;
+
+    public static void OnProjectCompleted(string key, float quality)
+    {
+        var state = Get(key);
+        state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f);
+        state.InstalledBase++;
+    }
+
+    public static void DecayReputation(string key, float amount)
+    {
+        var state = Get(key);
+        state.Reputation = Mathf.Max(0f, state.Reputation - amount);
+    }
+
+    // Accrue recurring support income; returns a whole-currency payout once it crosses 1.
+    public static float AccrueSupport(string key, float marketPrice)
+    {
+        var state = Get(key);
+        state.SupportAccrual += state.InstalledBase * marketPrice * (SupportRatePerDay / 24f);
+        if (state.SupportAccrual >= 1f)
+        {
+            float payout = Mathf.Floor(state.SupportAccrual);
+            state.SupportAccrual -= payout;
+            return payout;
+        }
+        return 0f;
+    }
+
+    public static void Reset() => States.Clear();
+
+    // --- persistence (stored in GameInstance.modData by SiliconAlleyPersistence) ---
+    // One entry per building: key|progress|reputation|installedBase|supportAccrual, joined by ';'.
+    // InvariantCulture is required so a locale with comma decimals (e.g. nl-NL) cannot corrupt it.
+    public static string Serialize()
+    {
+        var builder = new StringBuilder();
+        foreach (var pair in States)
+        {
+            var state = pair.Value;
+            builder.Append(pair.Key).Append('|')
+                .Append(state.Progress.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.Reputation.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.InstalledBase.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.SupportAccrual.ToString(CultureInfo.InvariantCulture)).Append(';');
+        }
+        return builder.ToString();
+    }
+
+    public static void LoadFrom(string data)
+    {
+        States.Clear();
+        if (string.IsNullOrEmpty(data))
+            return;
+        foreach (var entry in data.Split(';'))
+        {
+            if (string.IsNullOrEmpty(entry))
+                continue;
+            var parts = entry.Split('|');
+            if (parts.Length < 5)
+                continue;
+            var state = new BusinessState();
+            float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Progress);
+            float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Reputation);
+            int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.InstalledBase);
+            float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out state.SupportAccrual);
+            States[parts[0]] = state;
+        }
+    }
+}
