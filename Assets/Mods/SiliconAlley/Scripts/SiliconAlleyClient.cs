@@ -23,6 +23,15 @@ public class SiliconAlleyClient : IModBigAmbitions
 {
     private const string ContactName = "siliconalley-clientname";
     private const string ContactDescription = "siliconalley:client_description";
+    private const string WelcomeMessageKey = "siliconalley:client_welcome";
+
+    // Identifier prefix shared by all three Silicon Alley business types; the ownership rule lives in
+    // IsPlayerOwned so the client gating and the dashboard agree on what "the player's studio" means.
+    public const string BusinessTypePrefix = "siliconalley:";
+
+    // One-time "welcome delivered" flag, persisted in GameInstance.modData (which the game serializes
+    // with the save) so the welcome is never re-sent on a later load.
+    private const string WelcomeSentKey = "SiliconAlley.ClientWelcomeSent";
 
     private Contact _contact;
 
@@ -35,14 +44,79 @@ public class SiliconAlleyClient : IModBigAmbitions
         _contact.callDialogTypeOverride = dialogType;
         CallDialogFactory.RegisterDialog(dialogType, () => new SiliconAlleyClientDialog());
 
-        if (_contact.messagesQueue == null || _contact.messagesQueue.Count == 0)
-            _contact.SendMessage(new TextMessage("siliconalley:client_welcome"), sendNotificationInstantly: true);
+        // The welcome is gated on the player actually owning a Silicon Alley business and is sent
+        // once. Defer it to the hourly tick so it lands shortly after the studio is founded (reads
+        // like a client reaching out) instead of firing instantly on every city load. Static handler
+        // + remove-then-add de-duplicates the subscription across repeated city loads (mirrors
+        // SiliconAlleyPersistence).
+        if (!WelcomeAlreadySent())
+        {
+            GlobalEvents.onNewHour -= TrySendWelcome;
+            GlobalEvents.onNewHour += TrySendWelcome;
+        }
 
         context.Logger.Info("SiliconAlley: client contact registered.");
         return Task.CompletedTask;
     }
 
-    public Task OnUnloadAsync() => Task.CompletedTask;
+    public Task OnUnloadAsync()
+    {
+        GlobalEvents.onNewHour -= TrySendWelcome;
+        return Task.CompletedTask;
+    }
+
+    // Each in-game hour, send the welcome the first time the player owns at least one Silicon Alley
+    // business, then persist a flag and unsubscribe so it never re-sends (this session or a later one).
+    private static void TrySendWelcome()
+    {
+        if (SaveGameManager.Current == null)
+            return;
+        if (WelcomeAlreadySent())
+        {
+            GlobalEvents.onNewHour -= TrySendWelcome;
+            return;
+        }
+        if (!PlayerOwnsStudio())
+            return;
+
+        var contact = Contact.GetContact(ContactName, ContactCategoryName.Business, ContactDescription);
+        contact.SendMessage(new TextMessage(WelcomeMessageKey), sendNotificationInstantly: true);
+        MarkWelcomeSent();
+        GlobalEvents.onNewHour -= TrySendWelcome;
+    }
+
+    // A business is the player's when its type is ours and it has no rival owner (businessOwnerRivalId
+    // empty) — the same rule the client dashboard uses (SiliconAlleyClientDialog.BuildStatus).
+    public static bool IsPlayerOwned(BuildingRegistration registration)
+        => registration?.businessTypeName != null
+           && registration.businessTypeName.StartsWith(BusinessTypePrefix)
+           && string.IsNullOrEmpty(registration.businessOwnerRivalId);
+
+    private static bool PlayerOwnsStudio()
+    {
+        var current = SaveGameManager.Current;
+        if (current?.BuildingRegistrations == null)
+            return false;
+        foreach (var registration in current.BuildingRegistrations)
+            if (IsPlayerOwned(registration))
+                return true;
+        return false;
+    }
+
+    private static bool WelcomeAlreadySent()
+    {
+        var current = SaveGameManager.Current;
+        return current?.modData != null
+               && current.modData.TryGetValue(WelcomeSentKey, out var value)
+               && value == "true";
+    }
+
+    private static void MarkWelcomeSent()
+    {
+        var current = SaveGameManager.Current;
+        if (current?.modData != null)
+            current.modData[WelcomeSentKey] = "true";
+    }
 }
 
 public class SiliconAlleyClientDialog : Dialog
@@ -77,9 +151,7 @@ public class SiliconAlleyClientDialog : Dialog
         var any = false;
         foreach (var registration in current.BuildingRegistrations)
         {
-            if (registration?.businessTypeName == null
-                || !registration.businessTypeName.StartsWith("siliconalley:")
-                || !string.IsNullOrEmpty(registration.businessOwnerRivalId))
+            if (!SiliconAlleyClient.IsPlayerOwned(registration))
                 continue;
 
             any = true;
