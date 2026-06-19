@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using BigAmbitions.Characters.Skills;
 using BigAmbitions.DayNightCycle;
@@ -7,6 +9,7 @@ using Buildings.BuildingTypes.Shared.Dirtiness;
 using Entities;
 using Helpers;
 using Helpers.BusinessSimulation;
+using UI.Notification;
 using UnityEngine;
 
 // Tier 2/3: software-project business simulator (mod-defined, assigned in code by SiliconAlleyMod).
@@ -76,6 +79,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             CreditRevenue(product, payout, quality);
             SiliconAlleyState.OnProjectCompleted(key, quality);
             Debug.Log($"[SiliconAlley] {key} completed a project (quality {quality:F2}, payout {payout:F0}, reputation {SiliconAlleyState.GetReputation(key):F2}).");
+            ShowProjectCompleteNotification(key, quality, payout);
         }
     }
 
@@ -103,6 +107,24 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             priceAccceptable = true,
         });
         buildingRegistration.unprocessedCompletedOrders.Add(order);
+    }
+
+    // Step 1 (visibility): announce a completed project to the player via the game's notification
+    // system (the same path the base game uses for business events). Values mirror the Debug.Log
+    // above; numbers use InvariantCulture (dev machine is nl-NL). duplicateIdentifier = key coalesces
+    // a burst of same-business completions (e.g. during time-machine catch-up) into a single toast,
+    // while completions in normal play still each show.
+    private void ShowProjectCompleteNotification(string key, float quality, float payout)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["quality"] = Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%",
+            ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
+            ["reputation"] = SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture),
+            ["installedbase"] = SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture),
+        };
+        Notifications.Show(NotificationType.Success, "siliconalley:notify_projectcomplete", data, 6f, key);
     }
 
     private static string PrimaryProduct(BusinessType businessType)
