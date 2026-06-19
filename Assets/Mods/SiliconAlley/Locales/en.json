@@ -9,7 +9,7 @@
   "siliconalley:itemname_securityaudit": "Security Audit",
   "siliconalley:itemname_videogame": "Video Game",
   "siliconalley:options_header": "Silicon Alley",
-  "siliconalley:options_projectspeed": "Project speed (%)",
+  "siliconalley:options_projectspeed": "Project speed (%, 100 = normal)",
   "siliconalley:options_payout": "Payout multiplier (%)",
   "siliconalley:options_support": "Support income (%)",
   "siliconalley-clientname": "Silicon Alley Clients",

@@ -23,7 +23,7 @@ public static class SiliconAlleyState
 
     // ---- tunables (driven by the in-game options panel; defaults match a 100/100/20 slider) ----
     public static float ProjectSpeed = 1f;         // progress per programmer skill-point per hour
-    public static float ProjectSize = 400f;        // progress required to complete one project
+    public static float ProjectSize = 2800f;       // progress to complete one project (~2800 ≈ a skill-70 solo programmer over ~7 in-game calendar days full-time; the Project-speed slider tunes the pace)
     public static float PayoutMultiplier = 1f;     // global payout scale
     public static float SupportRatePerDay = 0.02f; // support income per installed unit per day, as a fraction of market price
 
