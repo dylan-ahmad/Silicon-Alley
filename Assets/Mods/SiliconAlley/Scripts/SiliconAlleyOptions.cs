@@ -9,6 +9,9 @@ public static class SiliconAlleyOptions
     {
         var options = new ModOptions()
             .AddHeader("siliconalley:options_header")
+            .AddDropdown("siliconalley_projecttype", "siliconalley:options_projecttype",
+                new[] { "siliconalley:projecttype_quick", "siliconalley:projecttype_standard", "siliconalley:projecttype_ambitious" },
+                1, OnProjectType)
             .AddSlider("siliconalley_projectspeed", "siliconalley:options_projectspeed", 10, 500, 100, OnProjectSpeed)
             .AddSlider("siliconalley_payout", "siliconalley:options_payout", 10, 500, 100, OnPayout)
             .AddSlider("siliconalley_support", "siliconalley:options_support", 0, 100, 20, OnSupport)
@@ -23,6 +26,7 @@ public static class SiliconAlleyOptions
         OptionsService.RemoveModOptions(context.ModId);
     }
 
+    private static void OnProjectType(int value) => SiliconAlleyState.GlobalProjectType = value;
     private static void OnProjectSpeed(int value) => SiliconAlleyState.ProjectSpeed = value / 100f;
     private static void OnPayout(int value) => SiliconAlleyState.PayoutMultiplier = value / 100f;
     private static void OnSupport(int value) => SiliconAlleyState.SupportRatePerDay = value / 1000f;

@@ -52,18 +52,22 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             programmers++;
         }
 
+        // Issue #3: lock the project type when work begins; the locked type scales size/payout/competition.
+        var kind = programmers > 0 ? SiliconAlleyState.EnsureProjectTypeLocked(key) : SiliconAlleyState.GetProjectType(key);
+        var size = SiliconAlleyState.EffectiveProjectSize(key);
+
         // 2) Accrue project progress through the lifecycle phases (or slowly lose reputation when idle).
         if (programmers > 0)
         {
             var progressBefore = SiliconAlleyState.GetProgress(key);
             SiliconAlleyState.AddProgress(key, totalSkill * SiliconAlleyState.ProjectSpeed);
             var progressAfter = SiliconAlleyState.GetProgress(key);
-            AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter);
+            AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter, size);
             // Step 3 (quality): sample this hour's staff quality; Testing-phase work counts double.
             var hourQuality = Mathf.Clamp01(totalSkill / programmers / 100f) * Mathf.Clamp01(totalSatisfaction / programmers / 100f);
-            var phaseWeight = SiliconAlleyState.PhaseOf(progressBefore) == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
+            var phaseWeight = SiliconAlleyState.PhaseOf(progressBefore, size) == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
             SiliconAlleyState.AccumulateQuality(key, hourQuality, phaseWeight);
-            Debug.Log($"[SiliconAlley] {key} h{currentHour}: {programmers} programmer(s), {SiliconAlleyState.PhaseOf(progressAfter)} progress {progressAfter:F0}/{SiliconAlleyState.ProjectSize:F0}");
+            Debug.Log($"[SiliconAlley] {key} h{currentHour}: {programmers} programmer(s), {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
         }
         else
         {
@@ -88,18 +92,22 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var catalog = SiliconAlleyState.GetInstalledBase(key);
             if (catalog > 0 && TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key) >= PatchIntervalDays)
             {
-                var patchRevenue = marketPrice * catalog * PatchRevenueFraction * MarketFactor(buildingRegistration);
+                var patchRevenue = marketPrice * catalog * PatchRevenueFraction * MarketFactor(buildingRegistration, kind);
                 CreditRevenue(product, patchRevenue, 1f);
                 SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay);
                 AnnouncePatch(businessType, key, catalog, patchRevenue);
             }
         }
 
-        // 4) Complete any finished projects.
-        while (programmers > 0 && product != null && marketPrice > 0f
-               && SiliconAlleyState.GetProgress(key) >= SiliconAlleyState.ProjectSize)
+        // 4) Complete any finished projects. Each project's type was locked at its start (issue #3), so
+        // read it per iteration — OnProjectCompleted re-locks the NEXT project to the current selection.
+        while (programmers > 0 && product != null && marketPrice > 0f)
         {
-            SiliconAlleyState.AddProgress(key, -SiliconAlleyState.ProjectSize);
+            var projectKind = SiliconAlleyState.GetProjectType(key);
+            var projectSize = SiliconAlleyState.EffectiveProjectSize(key);
+            if (SiliconAlleyState.GetProgress(key) < projectSize)
+                break;
+            SiliconAlleyState.AddProgress(key, -projectSize);
             var cleanliness = Mathf.Clamp01(buildingRegistration.GetCleanliness() / 100f);
             // Step 3 (quality): ship at the quality accrued across all phases (Testing weighted heavier),
             // not just the final hour's staffing. Fall back to this hour if nothing has accrued.
@@ -108,12 +116,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 accruedQuality = Mathf.Clamp01(totalSkill / programmers / 100f) * Mathf.Clamp01(totalSatisfaction / programmers / 100f);
             var quality = accruedQuality * Mathf.Max(0.25f, cleanliness);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
-            var marketFactor = MarketFactor(buildingRegistration);
-            var payout = marketPrice * (0.5f + quality) * reputationFactor * marketFactor * SiliconAlleyState.PayoutMultiplier;
+            var marketFactor = MarketFactor(buildingRegistration, projectKind);
+            var payout = marketPrice * (0.5f + quality) * reputationFactor * marketFactor * SiliconAlleyState.PayoutMultiplier * SiliconAlleyState.PayoutMultiplierFor(projectKind);
             CreditRevenue(product, payout, quality);
             SiliconAlleyState.OnProjectCompleted(key, quality);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock
-            Debug.Log($"[SiliconAlley] {key} completed a project (quality {quality:F2}, payout {payout:F0}, reputation {SiliconAlleyState.GetReputation(key):F2}).");
+            Debug.Log($"[SiliconAlley] {key} completed a {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, payout {payout:F0}, reputation {SiliconAlleyState.GetReputation(key):F2}).");
             ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor);
         }
     }
@@ -167,10 +175,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // Step 2 (lifecycle): announce entry into Development or Testing. Release is announced by the
     // completion toast above; Design is the implicit start of each project (shown in the dashboard).
     // duplicateIdentifier is per business + phase so each transition shows once.
-    private void AnnouncePhaseTransition(BusinessType businessType, string key, float before, float after)
+    private void AnnouncePhaseTransition(BusinessType businessType, string key, float before, float after, float size)
     {
-        var oldPhase = SiliconAlleyState.PhaseOf(before);
-        var newPhase = SiliconAlleyState.PhaseOf(after);
+        var oldPhase = SiliconAlleyState.PhaseOf(before, size);
+        var newPhase = SiliconAlleyState.PhaseOf(after, size);
         if (newPhase <= oldPhase || newPhase == SiliconAlleyState.ProjectPhase.Release)
             return;
         var data = new Dictionary<string, string>
@@ -233,10 +241,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         return Mathf.Max(0, sameType - 1); // exclude this business itself
     }
 
-    // More neighborhood competitors trims the per-project payout.
-    public static float MarketFactor(BuildingRegistration registration)
+    // More neighborhood competitors trims the per-project payout; the project type sets how sensitive
+    // it is (issue #3) — quick wins shrug rivals off, ambitious premium work is hit harder.
+    public static float MarketFactor(BuildingRegistration registration, int kind)
     {
-        return 1f / (1f + CompetitorCount(registration) * 0.25f);
+        return 1f / (1f + CompetitorCount(registration) * SiliconAlleyState.CompetitionCoefficient(kind));
     }
 
     // Project progress this studio accrues per in-game hour at the current hour's staffing

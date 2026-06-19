@@ -9,6 +9,10 @@
   "siliconalley:itemname_securityaudit": "Security Audit",
   "siliconalley:itemname_videogame": "Video Game",
   "siliconalley:options_header": "Silicon Alley",
+  "siliconalley:options_projecttype": "Project type (next project)",
+  "siliconalley:projecttype_quick": "Quick win",
+  "siliconalley:projecttype_standard": "Standard",
+  "siliconalley:projecttype_ambitious": "Ambitious",
   "siliconalley:options_projectspeed": "Project speed (%, 100 = normal)",
   "siliconalley:options_payout": "Payout multiplier (%)",
   "siliconalley:options_support": "Support income (%)",
@@ -26,7 +30,7 @@
   "siliconalley:client_status": "{status}",
   "siliconalley:client_status_intro": "Your Silicon Alley studios:",
   "siliconalley:client_status_none": "No Silicon Alley studios running yet — found one in an office, staff it with Programmers at a Computer Workstation, then check back here.",
-  "siliconalley:client_status_line": "━ {business}\n   {phase} · {progress}% — next phase {phaseeta}, ship {shipeta}\n   Quality (live): {quality}   Reputation: {reputation}\n   Installed base: {installedbase} — support {support}, next update {patcheta}\n   Market: {rivals} rival(s), payout x{market}",
+  "siliconalley:client_status_line": "━ {business} · {type}\n   {phase} · {progress}% — next phase {phaseeta}, ship {shipeta}\n   Quality (live): {quality}   Reputation: {reputation}\n   Installed base: {installedbase} — support {support}, next update {patcheta}\n   Market: {rivals} rival(s), payout x{market}",
   "siliconalley:client_eta_idle": "needs staff",
   "siliconalley:client_eta_due": "due now"
 }

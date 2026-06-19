@@ -157,22 +157,25 @@ public class SiliconAlleyClientDialog : Dialog
             any = true;
             var key = SiliconAlleyState.KeyFor(registration);
             var rawProgress = SiliconAlleyState.GetProgress(key);
-            var phase = SiliconAlleyState.PhaseOf(rawProgress);
+            var kind = SiliconAlleyState.GetProjectType(key);
+            var size = SiliconAlleyState.EffectiveProjectSize(key);
+            var phase = SiliconAlleyState.PhaseOf(rawProgress, size);
             var perHour = SiliconAlleyOfficeSimulator.CurrentHourlyProgress(registration);
             var line = "siliconalley:client_status_line".Localize(new Dictionary<string, string>
             {
                 ["business"] = registration.GetDisplayName(),
+                ["type"] = SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization(),
                 ["phase"] = SiliconAlleyState.PhaseNameKey(phase).GetLocalization(),
-                ["progress"] = Mathf.RoundToInt(SiliconAlleyState.PhaseProgressFraction(rawProgress) * 100f).ToString(CultureInfo.InvariantCulture),
-                ["phaseeta"] = FormatEta(SiliconAlleyState.PhaseEndProgress(phase) - rawProgress, perHour),
-                ["shipeta"] = FormatEta(SiliconAlleyState.ProjectSize - rawProgress, perHour),
+                ["progress"] = Mathf.RoundToInt(SiliconAlleyState.PhaseProgressFraction(rawProgress, size) * 100f).ToString(CultureInfo.InvariantCulture),
+                ["phaseeta"] = FormatEta(SiliconAlleyState.PhaseEndProgress(phase, size) - rawProgress, perHour),
+                ["shipeta"] = FormatEta(size - rawProgress, perHour),
                 ["quality"] = FormatQuality(SiliconAlleyState.GetAverageQuality(key)),
                 ["reputation"] = SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture),
                 ["installedbase"] = SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture),
                 ["support"] = SupportPerDay(registration, key),
                 ["patcheta"] = PatchEta(registration, key),
                 ["rivals"] = SiliconAlleyOfficeSimulator.CompetitorCount(registration).ToString(CultureInfo.InvariantCulture),
-                ["market"] = SiliconAlleyOfficeSimulator.MarketFactor(registration).ToString("F2", CultureInfo.InvariantCulture),
+                ["market"] = SiliconAlleyOfficeSimulator.MarketFactor(registration, kind).ToString("F2", CultureInfo.InvariantCulture),
             }).ToString();
             builder.Append("\n\n").Append(line);
         }
