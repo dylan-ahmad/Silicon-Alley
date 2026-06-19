@@ -24,6 +24,43 @@ public static class SiliconAlleyState
     public static float PayoutMultiplier = 1f;     // global payout scale
     public static float SupportRatePerDay = 0.02f; // support income per installed unit per day, as a fraction of market price
 
+    // ---- project lifecycle phases (derived from Progress, so they need no extra persisted state) ----
+    // A project advances Design -> Development -> Testing -> Release as Progress climbs to ProjectSize.
+    public enum ProjectPhase { Design, Development, Testing, Release }
+    private const float DesignFraction = 0.15f;      // Design occupies 0%..15% of ProjectSize
+    private const float DevelopmentFraction = 0.70f; // Development 15%..70%, Testing 70%..100%
+
+    public static ProjectPhase PhaseOf(float progress)
+    {
+        var fraction = progress / Mathf.Max(1f, ProjectSize);
+        if (fraction >= 1f) return ProjectPhase.Release;
+        if (fraction >= DevelopmentFraction) return ProjectPhase.Testing;
+        if (fraction >= DesignFraction) return ProjectPhase.Development;
+        return ProjectPhase.Design;
+    }
+
+    // Progress within the current phase, 0..1 (for display).
+    public static float PhaseProgressFraction(float progress)
+    {
+        var fraction = Mathf.Clamp01(progress / Mathf.Max(1f, ProjectSize));
+        float lo, hi;
+        if (fraction >= DevelopmentFraction) { lo = DevelopmentFraction; hi = 1f; }
+        else if (fraction >= DesignFraction) { lo = DesignFraction; hi = DevelopmentFraction; }
+        else { lo = 0f; hi = DesignFraction; }
+        return Mathf.Clamp01((fraction - lo) / Mathf.Max(0.0001f, hi - lo));
+    }
+
+    public static string PhaseNameKey(ProjectPhase phase)
+    {
+        switch (phase)
+        {
+            case ProjectPhase.Design: return "siliconalley:phase_design";
+            case ProjectPhase.Development: return "siliconalley:phase_development";
+            case ProjectPhase.Testing: return "siliconalley:phase_testing";
+            default: return "siliconalley:phase_release";
+        }
+    }
+
     private static BusinessState Get(string key)
     {
         if (!States.TryGetValue(key, out var state))

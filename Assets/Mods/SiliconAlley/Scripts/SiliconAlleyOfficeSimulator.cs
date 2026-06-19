@@ -9,6 +9,7 @@ using Buildings.BuildingTypes.Shared.Dirtiness;
 using Entities;
 using Helpers;
 using Helpers.BusinessSimulation;
+using Localizor;
 using UI.Notification;
 using UnityEngine;
 
@@ -45,14 +46,19 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             programmers++;
         }
 
-        // 2) Accrue project progress (or slowly lose reputation when idle).
+        // 2) Accrue project progress through the lifecycle phases (or slowly lose reputation when idle).
         if (programmers > 0)
+        {
+            var progressBefore = SiliconAlleyState.GetProgress(key);
             SiliconAlleyState.AddProgress(key, totalSkill * SiliconAlleyState.ProjectSpeed);
+            var progressAfter = SiliconAlleyState.GetProgress(key);
+            AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter);
+            Debug.Log($"[SiliconAlley] {key} h{currentHour}: {programmers} programmer(s), {SiliconAlleyState.PhaseOf(progressAfter)} progress {progressAfter:F0}/{SiliconAlleyState.ProjectSize:F0}");
+        }
         else
+        {
             SiliconAlleyState.DecayReputation(key, 0.001f);
-
-        if (programmers > 0)
-            Debug.Log($"[SiliconAlley] {key} h{currentHour}: {programmers} programmer(s), progress {SiliconAlleyState.GetProgress(key):F0}/{SiliconAlleyState.ProjectSize:F0}");
+        }
 
         var product = PrimaryProduct(businessType);
         var marketPrice = product != null ? MarketPrice(product) : 0f;
@@ -79,7 +85,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             CreditRevenue(product, payout, quality);
             SiliconAlleyState.OnProjectCompleted(key, quality);
             Debug.Log($"[SiliconAlley] {key} completed a project (quality {quality:F2}, payout {payout:F0}, reputation {SiliconAlleyState.GetReputation(key):F2}).");
-            ShowProjectCompleteNotification(key, quality, payout);
+            ShowProjectCompleteNotification(businessType, key, quality, payout);
         }
     }
 
@@ -114,17 +120,44 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // above; numbers use InvariantCulture (dev machine is nl-NL). duplicateIdentifier = key coalesces
     // a burst of same-business completions (e.g. during time-machine catch-up) into a single toast,
     // while completions in normal play still each show.
-    private void ShowProjectCompleteNotification(string key, float quality, float payout)
+    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout)
     {
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
+            ["product"] = ProductDisplayName(businessType),
             ["quality"] = Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%",
             ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
             ["reputation"] = SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture),
             ["installedbase"] = SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture),
         };
         Notifications.Show(NotificationType.Success, "siliconalley:notify_projectcomplete", data, 6f, key);
+    }
+
+    // Step 2 (lifecycle): announce entry into Development or Testing. Release is announced by the
+    // completion toast above; Design is the implicit start of each project (shown in the dashboard).
+    // duplicateIdentifier is per business + phase so each transition shows once.
+    private void AnnouncePhaseTransition(BusinessType businessType, string key, float before, float after)
+    {
+        var oldPhase = SiliconAlleyState.PhaseOf(before);
+        var newPhase = SiliconAlleyState.PhaseOf(after);
+        if (newPhase <= oldPhase || newPhase == SiliconAlleyState.ProjectPhase.Release)
+            return;
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["product"] = ProductDisplayName(businessType),
+            ["phase"] = SiliconAlleyState.PhaseNameKey(newPhase).GetLocalization(),
+        };
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_phase", data, 5f, key + ":" + newPhase);
+    }
+
+    // Localized display name of the business's primary product (themes the toast per business type:
+    // a Game Studio ships "Video Game", a Cyber Security Firm a "Security Audit", etc.).
+    private static string ProductDisplayName(BusinessType businessType)
+    {
+        var product = PrimaryProduct(businessType);
+        return product != null ? product.GetLocalization() : "project";
     }
 
     private static string PrimaryProduct(BusinessType businessType)

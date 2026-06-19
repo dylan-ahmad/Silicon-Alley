@@ -84,11 +84,13 @@ public class SiliconAlleyClientDialog : Dialog
 
             any = true;
             var key = SiliconAlleyState.KeyFor(registration);
-            var progress = Mathf.Clamp01(SiliconAlleyState.GetProgress(key) / Mathf.Max(1f, SiliconAlleyState.ProjectSize));
+            var rawProgress = SiliconAlleyState.GetProgress(key);
+            var phase = SiliconAlleyState.PhaseOf(rawProgress);
             var line = "siliconalley:client_status_line".Localize(new Dictionary<string, string>
             {
                 ["business"] = registration.GetDisplayName(),
-                ["progress"] = Mathf.RoundToInt(progress * 100f).ToString(CultureInfo.InvariantCulture),
+                ["phase"] = SiliconAlleyState.PhaseNameKey(phase).GetLocalization(),
+                ["progress"] = Mathf.RoundToInt(SiliconAlleyState.PhaseProgressFraction(rawProgress) * 100f).ToString(CultureInfo.InvariantCulture),
                 ["reputation"] = SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture),
                 ["installedbase"] = SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture),
                 ["support"] = SupportPerDay(registration, key),
