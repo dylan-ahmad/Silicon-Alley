@@ -94,6 +94,8 @@ public class SiliconAlleyClientDialog : Dialog
                 ["reputation"] = SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture),
                 ["installedbase"] = SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture),
                 ["support"] = SupportPerDay(registration, key),
+                ["rivals"] = SiliconAlleyOfficeSimulator.CompetitorCount(registration).ToString(CultureInfo.InvariantCulture),
+                ["market"] = SiliconAlleyOfficeSimulator.MarketFactor(registration).ToString("F2", CultureInfo.InvariantCulture),
             }).ToString();
             builder.Append('\n').Append(line);
         }

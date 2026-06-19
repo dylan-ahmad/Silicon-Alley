@@ -16,7 +16,7 @@
   "siliconalley:client_description": "Your IT clients",
   "siliconalley:client_welcome": "Heard you run a sharp IT shop. Keep delivering quality and we'll keep sending work your way.",
   "siliconalley:client_greeting": "Good to hear from you. Keep shipping quality and the contracts will keep coming.",
-  "siliconalley:notify_projectcomplete": "{business} shipped {product} — quality {quality}, +{payout} (reputation {reputation}, installed base {installedbase})",
+  "siliconalley:notify_projectcomplete": "{business} shipped {product} — quality {quality}, +{payout} (reputation x{repmult}, market x{marketmult})",
   "siliconalley:notify_phase": "{business}: {product} entered {phase}",
   "siliconalley:phase_design": "Design",
   "siliconalley:phase_development": "Development",
@@ -25,5 +25,5 @@
   "siliconalley:client_status": "{status}",
   "siliconalley:client_status_intro": "Your Silicon Alley studios:",
   "siliconalley:client_status_none": "No Silicon Alley studios running yet — found one in an office, staff it with Programmers at a Computer Workstation, then check back here.",
-  "siliconalley:client_status_line": "• {business}: {phase} {progress}%, reputation {reputation}, installed base {installedbase}, support {support}"
+  "siliconalley:client_status_line": "• {business}: {phase} {progress}%, reputation {reputation}, installed base {installedbase}, support {support}, rivals {rivals} (market x{market})"
 }

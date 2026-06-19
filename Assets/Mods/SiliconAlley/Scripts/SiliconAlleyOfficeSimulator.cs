@@ -88,11 +88,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 accruedQuality = Mathf.Clamp01(totalSkill / programmers / 100f) * Mathf.Clamp01(totalSatisfaction / programmers / 100f);
             var quality = accruedQuality * Mathf.Max(0.25f, cleanliness);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
-            var payout = marketPrice * (0.5f + quality) * reputationFactor * MarketFactor(businessType) * SiliconAlleyState.PayoutMultiplier;
+            var marketFactor = MarketFactor(buildingRegistration);
+            var payout = marketPrice * (0.5f + quality) * reputationFactor * marketFactor * SiliconAlleyState.PayoutMultiplier;
             CreditRevenue(product, payout, quality);
             SiliconAlleyState.OnProjectCompleted(key, quality);
             Debug.Log($"[SiliconAlley] {key} completed a project (quality {quality:F2}, payout {payout:F0}, reputation {SiliconAlleyState.GetReputation(key):F2}).");
-            ShowProjectCompleteNotification(businessType, key, quality, payout);
+            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor);
         }
     }
 
@@ -127,7 +128,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // above; numbers use InvariantCulture (dev machine is nl-NL). duplicateIdentifier = key coalesces
     // a burst of same-business completions (e.g. during time-machine catch-up) into a single toast,
     // while completions in normal play still each show.
-    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout)
+    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout, float reputationFactor, float marketFactor)
     {
         var data = new Dictionary<string, string>
         {
@@ -135,8 +136,9 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["product"] = ProductDisplayName(businessType),
             ["quality"] = Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%",
             ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
-            ["reputation"] = SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture),
-            ["installedbase"] = SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture),
+            // Show why the payout is what it is: reputation lifts it, neighborhood competition trims it.
+            ["repmult"] = reputationFactor.ToString("F2", CultureInfo.InvariantCulture),
+            ["marketmult"] = marketFactor.ToString("F2", CultureInfo.InvariantCulture),
         };
         Notifications.Show(NotificationType.Success, "siliconalley:notify_projectcomplete", data, 6f, key);
     }
@@ -180,17 +182,26 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         return item != null ? item.DefaultMarketPrice : 0f;
     }
 
-    // Tier 3 market modifier: more competing businesses of the same type in the same neighborhood
-    // trims the per-project payout. Same competitor definition as the founding UI (StartBusinessUI).
-    private float MarketFactor(BusinessType businessType)
+    // Tier 3 market modifier: competing businesses of the same type in the same neighborhood. Same
+    // competitor definition as the founding UI (StartBusinessUI). Static so the phone dashboard can
+    // show the player the same figure that scales the payout.
+    public static int CompetitorCount(BuildingRegistration registration)
     {
-        var neighborhood = buildingRegistration.Neighborhood;
-        var typeName = businessType.businessTypeName;
-        int competitors = 0;
-        foreach (var registration in SaveGameManager.Current.BuildingRegistrations)
-            if (registration.businessTypeName == typeName && registration.Neighborhood == neighborhood)
-                competitors++;
-        competitors = Mathf.Max(0, competitors - 1); // exclude this business itself
-        return 1f / (1f + competitors * 0.25f);
+        var current = SaveGameManager.Current;
+        if (current == null || current.BuildingRegistrations == null)
+            return 0;
+        var neighborhood = registration.Neighborhood;
+        var typeName = registration.businessTypeName;
+        int sameType = 0;
+        foreach (var other in current.BuildingRegistrations)
+            if (other.businessTypeName == typeName && other.Neighborhood == neighborhood)
+                sameType++;
+        return Mathf.Max(0, sameType - 1); // exclude this business itself
+    }
+
+    // More neighborhood competitors trims the per-project payout.
+    public static float MarketFactor(BuildingRegistration registration)
+    {
+        return 1f / (1f + CompetitorCount(registration) * 0.25f);
     }
 }
