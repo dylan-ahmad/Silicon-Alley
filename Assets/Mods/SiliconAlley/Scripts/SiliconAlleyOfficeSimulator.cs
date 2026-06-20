@@ -170,6 +170,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock
             Debug.Log($"[SiliconAlley] {key} completed a {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, payout {payout:F0}, reputation {SiliconAlleyState.GetReputation(key):F2}).");
             ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor);
+            // Issue #12: remember this ship so the screen can show a "ship report" (transient).
+            SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor);
         }
     }
 
@@ -216,7 +218,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["repmult"] = reputationFactor.ToString("F2", CultureInfo.InvariantCulture),
             ["marketmult"] = marketFactor.ToString("F2", CultureInfo.InvariantCulture),
         };
-        Notifications.Show(NotificationType.Success, "siliconalley:notify_projectcomplete", data, 6f, key);
+        Notifications.Show(NotificationType.Success, "siliconalley:notify_projectcomplete", data, 6f, key,
+            () => SiliconAlleyProjectScreen.Open(key));
     }
 
     // Step 2 (lifecycle): announce entry into Development or Testing. Release is announced by the

@@ -74,7 +74,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // Control references rebuilt once in Build().
     private Text _titleText, _studioText, _phaseText, _summaryText;
-    private GameObject _designSection, _developmentSection, _testingSection;
+    private GameObject _designSection, _developmentSection, _testingSection, _releaseSection;
     // Design section
     private Text _designQualityText, _leadText, _etaText, _statusText;
     private readonly Image[] _scopeImages = new Image[3];
@@ -87,6 +87,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Testing section
     private Text _testBugsText, _testStaffText, _holdLabel;
     private Image _holdImage;
+    // Release section (transient ship report)
+    private Text _relQualityText, _relRevenueText, _relRepText, _relSupportText, _relPatchText;
 
     private static readonly Color PanelColor = new Color(0.10f, 0.11f, 0.14f, 0.98f);
     private static readonly Color ButtonColor = new Color(0.20f, 0.22f, 0.28f, 1f);
@@ -196,6 +198,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _designSection.SetActive(false);
             _developmentSection.SetActive(false);
             _testingSection.SetActive(false);
+            _releaseSection.SetActive(false);
             return;
         }
 
@@ -230,6 +233,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             RefreshDevelopment(reg, key, size, rawProgress, perHour);
         else if (inTesting)
             RefreshTesting(reg, key, perHour);
+
+        // Release "ship report" shows independently of the current phase whenever a recent ship exists.
+        var report = SiliconAlleyState.GetLastShip(key);
+        _releaseSection.SetActive(report.Has);
+        if (report.Has)
+            RefreshRelease(businessType, key, report);
     }
 
     private void RefreshDesign(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
@@ -293,6 +302,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _holdImage.color = held ? ButtonSelected : ButtonColor;
     }
 
+    private void RefreshRelease(BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
+    {
+        _relQualityText.text = Compose("siliconalley:screen_rel_quality", ("quality", Pct(report.Quality) + "%"));
+        _relRevenueText.text = Compose("siliconalley:screen_rel_revenue",
+            ("payout", Money(report.Payout)),
+            ("repmult", report.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
+            ("marketmult", report.MarketMult.ToString("F2", CultureInfo.InvariantCulture)));
+        _relRepText.text = Compose("siliconalley:screen_rel_rep",
+            ("reputation", SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
+            ("base", SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture)));
+        _relSupportText.text = Compose("siliconalley:screen_rel_support", ("support", SupportPerDay(businessType, key)));
+        _relPatchText.text = Compose("siliconalley:screen_rel_patch", ("patcheta", PatchEta(key)));
+    }
+
     private void SetControlsInteractable(bool editable)
     {
         for (var i = 0; i < 3; i++)
@@ -340,6 +363,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         Refresh();
     }
 
+    private void OnStartNext()
+    {
+        SiliconAlleyState.ClearLastShip(_currentKey);
+        Refresh();
+    }
+
     private void CycleStudio(int delta)
     {
         if (_studioKeys.Count == 0)
@@ -360,6 +389,34 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
             return "project";
         return businessType.businessProducts[0].itemName.GetLocalization();
+    }
+
+    private static string Money(float amount) =>
+        "$" + Mathf.RoundToInt(amount).ToString("N0", CultureInfo.InvariantCulture);
+
+    // Estimated recurring support income per day — mirrors the phone dashboard (SiliconAlleyClient).
+    private static string SupportPerDay(BusinessType businessType, string key)
+    {
+        var installed = SiliconAlleyState.GetInstalledBase(key);
+        var perDay = 0f;
+        if (installed > 0 && businessType?.businessProducts != null && businessType.businessProducts.Length > 0)
+        {
+            var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
+            if (item != null)
+                perDay = installed * item.DefaultMarketPrice * SiliconAlleyState.SupportRatePerDay;
+        }
+        return Money(perDay) + "/day";
+    }
+
+    // Days until the next post-release patch — mirrors the phone dashboard. "—" before anything ships.
+    private static string PatchEta(string key)
+    {
+        if (SiliconAlleyState.GetInstalledBase(key) <= 0)
+            return "—";
+        var days = SiliconAlleyOfficeSimulator.PatchIntervalDays - (TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key));
+        return days <= 0
+            ? "siliconalley:client_eta_due".GetLocalization()
+            : "~" + days.ToString(CultureInfo.InvariantCulture) + "d";
     }
 
     private static string Compose(string key, params (string, string)[] args)
@@ -504,6 +561,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _holdImage = holdButton.GetComponent<Image>();
         _holdLabel = holdButton.GetComponentInChildren<Text>();
         MakeButton(testRow.transform, "siliconalley:screen_ship".GetLocalization(), OnShipNow);
+
+        // ---- Release section (transient ship report; shown independently of phase) ----
+        _releaseSection = MakeSection(panel.transform);
+        MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
+        _relQualityText = MakeText(_releaseSection.transform, "RelQuality", 16, TextAnchor.MiddleLeft);
+        _relRevenueText = MakeText(_releaseSection.transform, "RelRevenue", 15, TextAnchor.MiddleLeft);
+        _relRepText = MakeText(_releaseSection.transform, "RelRep", 15, TextAnchor.MiddleLeft);
+        _relSupportText = MakeText(_releaseSection.transform, "RelSupport", 15, TextAnchor.MiddleLeft);
+        _relPatchText = MakeText(_releaseSection.transform, "RelPatch", 15, TextAnchor.MiddleLeft);
+        MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext);
 
         // ---- Footer (common) ----
         var footer = MakeRow(panel.transform, 10f, 40);

@@ -41,6 +41,10 @@ public static class SiliconAlleyState
         // default; auto-ship at 100% as before). Per-project: reset on completion. Appended (absent => 0).
         public int Hold;             // 0 = ship at 100% (default), 1 = keep testing (don't auto-ship)
         public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
+        // Issue #12 (Release): a transient (NOT persisted) snapshot of the most recent ship so the screen
+        // can show a "ship report". Momentary by design — lost on reload, re-set on the next ship.
+        public bool HasLastShip;
+        public float LastShipQuality, LastShipPayout, LastShipRepMult, LastShipMarketMult;
     }
 
     private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
@@ -324,6 +328,36 @@ public static class SiliconAlleyState
         state.Hold = 0;
         state.Progress = EffectiveProjectSize(key);
     }
+
+    // Issue #12 (Release): a transient snapshot of the most recent ship for the screen's ship report.
+    public readonly struct ShipReport
+    {
+        public readonly bool Has;
+        public readonly float Quality, Payout, RepMult, MarketMult;
+        public ShipReport(bool has, float quality, float payout, float repMult, float marketMult)
+        {
+            Has = has; Quality = quality; Payout = payout; RepMult = repMult; MarketMult = marketMult;
+        }
+    }
+
+    // Record the just-shipped project's headline numbers (the same values the success toast encodes).
+    public static void SetLastShip(string key, float quality, float payout, float repMult, float marketMult)
+    {
+        var state = Get(key);
+        state.HasLastShip = true;
+        state.LastShipQuality = quality;
+        state.LastShipPayout = payout;
+        state.LastShipRepMult = repMult;
+        state.LastShipMarketMult = marketMult;
+    }
+
+    public static ShipReport GetLastShip(string key)
+    {
+        var s = Get(key);
+        return new ShipReport(s.HasLastShip, s.LastShipQuality, s.LastShipPayout, s.LastShipRepMult, s.LastShipMarketMult);
+    }
+
+    public static void ClearLastShip(string key) => Get(key).HasLastShip = false;
 
     // Returns true exactly once per project (per session) so the simulator nudges the player to set the
     // concept just once. Transient (not persisted): a reload may re-nudge once, which is harmless.
