@@ -271,7 +271,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _designQualityText.text = Compose("siliconalley:screen_designquality",
             ("value", designQ < 0f ? "—" : Pct(designQ) + "%"));
 
-        var hasDesigner = businessType != null && businessType.employeePrimarySkills.Contains("ba:skill_graphicdesigner");
+        var hasDesigner = businessType != null
+            && System.Array.IndexOf(businessType.employeePrimarySkills, "ba:skill_graphicdesigner") >= 0;
         var leadKey = hasDesigner ? "siliconalley:screen_lead_designer" : "siliconalley:screen_lead_programmer";
         _leadText.text = Compose("siliconalley:screen_lead",
             ("lead", leadKey.GetLocalization()), ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)));
