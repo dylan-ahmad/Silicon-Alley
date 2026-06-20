@@ -1,5 +1,6 @@
 using BAModAPI;
 using BigAmbitions.Mods;
+using UnityEngine;
 
 // Tier 3: in-game options panel to tune the project simulator. Slider values persist via the
 // game's settings store. Values feed the tunables in SiliconAlleyState.
@@ -15,6 +16,10 @@ public static class SiliconAlleyOptions
             .AddSlider("siliconalley_projectspeed", "siliconalley:options_projectspeed", 10, 500, 100, OnProjectSpeed)
             .AddSlider("siliconalley_payout", "siliconalley:options_payout", 10, 500, 100, OnPayout)
             .AddSlider("siliconalley_support", "siliconalley:options_support", 0, 100, 20, OnSupport)
+            .AddDropdown("siliconalley_screenkey", "siliconalley:options_key",
+                new[] { "siliconalley:key_f9", "siliconalley:key_f10", "siliconalley:key_f11",
+                        "siliconalley:key_f12", "siliconalley:key_tab", "siliconalley:key_backquote" },
+                0, OnScreenKey)
             .AddSplitter();
 
         OptionsService.Register(context.ModId, options);
@@ -30,4 +35,9 @@ public static class SiliconAlleyOptions
     private static void OnProjectSpeed(int value) => SiliconAlleyState.ProjectSpeed = value / 100f;
     private static void OnPayout(int value) => SiliconAlleyState.PayoutMultiplier = value / 100f;
     private static void OnSupport(int value) => SiliconAlleyState.SupportRatePerDay = value / 1000f;
+
+    // Issue #14: the key that opens/closes the project screen (machine-local; index maps to KeyChoices).
+    private static void OnScreenKey(int value) =>
+        SiliconAlleyProjectScreen.ToggleKey =
+            SiliconAlleyProjectScreen.KeyChoices[Mathf.Clamp(value, 0, SiliconAlleyProjectScreen.KeyChoices.Length - 1)];
 }

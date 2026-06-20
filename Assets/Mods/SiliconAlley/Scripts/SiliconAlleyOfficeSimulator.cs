@@ -265,7 +265,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["catalog"] = catalog.ToString(CultureInfo.InvariantCulture),
             ["revenue"] = "$" + Mathf.RoundToInt(revenue).ToString("N0", CultureInfo.InvariantCulture),
         };
-        Notifications.Show(NotificationType.Info, "siliconalley:notify_patch", data, 5f, key + ":patch");
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_patch", data, 5f, key + ":patch",
+            () => SiliconAlleyProjectScreen.Open(key));
     }
 
     // Localized display name of the business's primary product (themes the toast per business type:

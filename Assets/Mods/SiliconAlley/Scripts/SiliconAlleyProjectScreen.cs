@@ -51,9 +51,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 {
     public static SiliconAlleyProjectScreen Instance { get; private set; }
 
-    // The hotkey that toggles the screen. Legacy Input works here (ProjectSettings activeInputHandler=2);
-    // rebinding is future work.
-    private const KeyCode ToggleKey = KeyCode.F9;
+    // The hotkey that toggles the screen (legacy Input; ProjectSettings activeInputHandler=2). Rebindable
+    // via the options panel (machine-local); KeyChoices is the dropdown's index→KeyCode mapping.
+    public static KeyCode ToggleKey = KeyCode.F9;
+    public static readonly KeyCode[] KeyChoices =
+        { KeyCode.F9, KeyCode.F10, KeyCode.F11, KeyCode.F12, KeyCode.Tab, KeyCode.BackQuote };
+
+    private const float WindowWidth = 560f;
+    private const float MaxHeight = 900f; // window caps here (at the 1080 reference) and scrolls beyond
 
     private static readonly int[] ScopeKinds =
     {
@@ -64,6 +69,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private Font _font;
     private GameObject _root;
+    private RectTransform _windowRt, _contentRt; // window = clamped panel; content = scrollable stack
     private bool _built;
     private bool _visible;
     private bool _suppress;     // ignore control callbacks while we set values programmatically
@@ -94,6 +100,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private static readonly Color ButtonColor = new Color(0.20f, 0.22f, 0.28f, 1f);
     private static readonly Color ButtonSelected = new Color(0.30f, 0.55f, 0.85f, 1f);
     private static readonly Color TextColor = new Color(0.92f, 0.92f, 0.95f, 1f);
+    private static readonly Color HeaderColor = new Color(0.55f, 0.75f, 1f, 1f);   // section-header accent
+    private static readonly Color DividerColor = new Color(1f, 1f, 1f, 0.08f);     // thin separator line
 
     private void Awake()
     {
@@ -119,6 +127,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (Input.GetKeyDown(ToggleKey))
             Toggle();
+        else if (_visible && Input.GetKeyDown(KeyCode.Escape))
+            Close();
 
         if (_visible)
         {
@@ -199,6 +209,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _developmentSection.SetActive(false);
             _testingSection.SetActive(false);
             _releaseSection.SetActive(false);
+            ClampHeight();
             return;
         }
 
@@ -239,6 +250,17 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _releaseSection.SetActive(report.Has);
         if (report.Has)
             RefreshRelease(businessType, key, report);
+
+        ClampHeight();
+    }
+
+    // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
+    private void ClampHeight()
+    {
+        if (_contentRt == null || _windowRt == null)
+            return;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(_contentRt);
+        _windowRt.sizeDelta = new Vector2(WindowWidth, Mathf.Min(_contentRt.rect.height, MaxHeight));
     }
 
     private void RefreshDesign(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
@@ -492,35 +514,61 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         backdropButton.transition = Selectable.Transition.None;
         backdropButton.onClick.AddListener(Close);
 
-        // Centered panel with a vertical layout.
-        var panel = MakeImage(_root.transform, "Panel", PanelColor);
-        var panelRt = panel.rectTransform;
-        panelRt.anchorMin = panelRt.anchorMax = new Vector2(0.5f, 0.5f);
-        panelRt.sizeDelta = new Vector2(560f, 0f); // height auto-fits the active section (ContentSizeFitter)
-        panelRt.anchoredPosition = Vector2.zero;
-        var layout = panel.gameObject.AddComponent<VerticalLayoutGroup>();
+        // Window: fixed-width panel, centred, height clamped each Refresh; hosts a vertical ScrollRect so
+        // tall content (e.g. the ship report + Design stacked) scrolls instead of overflowing the screen.
+        var window = MakeImage(_root.transform, "Window", PanelColor);
+        _windowRt = window.rectTransform;
+        _windowRt.anchorMin = _windowRt.anchorMax = new Vector2(0.5f, 0.5f);
+        _windowRt.sizeDelta = new Vector2(WindowWidth, 600f);
+        _windowRt.anchoredPosition = Vector2.zero;
+        var scroll = window.gameObject.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.scrollSensitivity = 24f;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+
+        var viewport = new GameObject("Viewport", typeof(RectTransform), typeof(RectMask2D));
+        viewport.transform.SetParent(window.transform, false);
+        var viewportRt = (RectTransform)viewport.transform;
+        Stretch(viewportRt);
+        scroll.viewport = viewportRt;
+
+        var contentGo = new GameObject("Content", typeof(RectTransform));
+        contentGo.transform.SetParent(viewport.transform, false);
+        _contentRt = (RectTransform)contentGo.transform;
+        _contentRt.anchorMin = new Vector2(0f, 1f);
+        _contentRt.anchorMax = new Vector2(1f, 1f);
+        _contentRt.pivot = new Vector2(0.5f, 1f);
+        _contentRt.anchoredPosition = Vector2.zero;
+        var layout = contentGo.AddComponent<VerticalLayoutGroup>();
         layout.padding = new RectOffset(22, 22, 18, 18);
         layout.spacing = 9f;
         layout.childControlWidth = layout.childControlHeight = true;
         layout.childForceExpandWidth = true;
         layout.childForceExpandHeight = false;
         layout.childAlignment = TextAnchor.UpperCenter;
-        var fitter = panel.gameObject.AddComponent<ContentSizeFitter>();
+        var fitter = contentGo.AddComponent<ContentSizeFitter>();
         fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        scroll.content = _contentRt;
+        var root = contentGo.transform;
 
-        _titleText = MakeText(panel.transform, "Title", 22, TextAnchor.MiddleCenter, FontStyle.Bold);
+        // Title row: title (flexible) + [X] close.
+        var titleRow = MakeRow(root, 6f, 30);
+        _titleText = MakeText(titleRow.transform, "Title", 22, TextAnchor.MiddleLeft, FontStyle.Bold);
+        FixWidth(MakeButton(titleRow.transform, "X", Close), 34f);
 
         // Studio selector: [<]  name  [>]
-        var studioRow = MakeRow(panel.transform);
+        var studioRow = MakeRow(root);
         FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 44f);
         _studioText = MakeText(studioRow.transform, "Studio", 17, TextAnchor.MiddleCenter);
         FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 44f);
 
-        _phaseText = MakeText(panel.transform, "Phase", 16, TextAnchor.MiddleLeft);
-        _summaryText = MakeText(panel.transform, "Summary", 15, TextAnchor.MiddleLeft);
+        _phaseText = MakeText(root, "Phase", 16, TextAnchor.MiddleLeft);
+        _summaryText = MakeText(root, "Summary", 15, TextAnchor.MiddleLeft);
 
         // ---- Design section (shown in the Design phase) ----
-        _designSection = MakeSection(panel.transform);
+        _designSection = MakeSection(root);
+        MakeDivider(_designSection.transform);
         MakeHeader(_designSection.transform, "siliconalley:screen_scope");
         var scopeRow = MakeRow(_designSection.transform);
         var scopeKeys = new[] { "siliconalley:projecttype_quick", "siliconalley:projecttype_standard", "siliconalley:projecttype_ambitious" };
@@ -544,7 +592,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _lockButton = MakeButton(_designSection.transform, "siliconalley:screen_lock".GetLocalization(), OnLock);
 
         // ---- Development section (shown in the Development phase) ----
-        _developmentSection = MakeSection(panel.transform);
+        _developmentSection = MakeSection(root);
+        MakeDivider(_developmentSection.transform);
         _devThroughputText = MakeText(_developmentSection.transform, "DevThroughput", 15, TextAnchor.MiddleLeft);
         _devBuildText = MakeText(_developmentSection.transform, "DevBuild", 16, TextAnchor.MiddleLeft);
         _devEtaText = MakeText(_developmentSection.transform, "DevEta", 15, TextAnchor.MiddleLeft);
@@ -553,7 +602,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _overtimeLabel = overtimeButton.GetComponentInChildren<Text>();
 
         // ---- Testing section (shown in the Testing phase) ----
-        _testingSection = MakeSection(panel.transform);
+        _testingSection = MakeSection(root);
+        MakeDivider(_testingSection.transform);
         _testBugsText = MakeText(_testingSection.transform, "TestBugs", 16, TextAnchor.MiddleLeft);
         _testStaffText = MakeText(_testingSection.transform, "TestStaff", 15, TextAnchor.MiddleLeft);
         var testRow = MakeRow(_testingSection.transform, 10f, 40);
@@ -563,7 +613,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeButton(testRow.transform, "siliconalley:screen_ship".GetLocalization(), OnShipNow);
 
         // ---- Release section (transient ship report; shown independently of phase) ----
-        _releaseSection = MakeSection(panel.transform);
+        _releaseSection = MakeSection(root);
+        MakeDivider(_releaseSection.transform);
         MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
         _relQualityText = MakeText(_releaseSection.transform, "RelQuality", 16, TextAnchor.MiddleLeft);
         _relRevenueText = MakeText(_releaseSection.transform, "RelRevenue", 15, TextAnchor.MiddleLeft);
@@ -573,14 +624,27 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext);
 
         // ---- Footer (common) ----
-        var footer = MakeRow(panel.transform, 10f, 40);
+        MakeDivider(root);
+        var footer = MakeRow(root, 10f, 40);
         MakeButton(footer.transform, "siliconalley:screen_close".GetLocalization(), Close);
 
         _root.SetActive(false);
     }
 
-    private void MakeHeader(Transform parent, string key) =>
-        MakeText(parent, "Header", 15, TextAnchor.MiddleLeft, FontStyle.Bold).text = key.GetLocalization();
+    private void MakeHeader(Transform parent, string key)
+    {
+        var header = MakeText(parent, "Header", 15, TextAnchor.MiddleLeft, FontStyle.Bold);
+        header.color = HeaderColor;
+        header.text = key.GetLocalization();
+    }
+
+    // A thin separator line for visual grouping between sections.
+    private void MakeDivider(Transform parent)
+    {
+        var divider = MakeImage(parent, "Divider", DividerColor);
+        var le = divider.gameObject.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = 2f;
+    }
 
     private Text MakeText(Transform parent, string name, int size, TextAnchor anchor, FontStyle style = FontStyle.Normal)
     {
@@ -614,6 +678,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         image.color = ButtonColor;
         var button = go.AddComponent<Button>();
         button.targetGraphic = image;
+        // Hover/press/disabled feedback. normalColor stays white so each button's own image.color shows
+        // through (the scope/overtime/hold buttons recolour their image to signal state); the others tint.
+        var colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.82f, 0.82f, 0.82f, 1f);
+        colors.pressedColor = new Color(0.66f, 0.66f, 0.66f, 1f);
+        colors.selectedColor = Color.white;
+        colors.disabledColor = new Color(0.5f, 0.5f, 0.5f, 0.6f);
+        colors.fadeDuration = 0.08f;
+        button.colors = colors;
         var le = go.AddComponent<LayoutElement>();
         le.minHeight = 34f;
         le.preferredHeight = 34f;
