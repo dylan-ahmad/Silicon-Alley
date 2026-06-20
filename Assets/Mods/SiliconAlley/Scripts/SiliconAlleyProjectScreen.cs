@@ -7,6 +7,7 @@ using BigAmbitions.Items;
 using Entities;
 using Helpers;
 using Localizor;
+using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -57,8 +58,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     public static readonly KeyCode[] KeyChoices =
         { KeyCode.F9, KeyCode.F10, KeyCode.F11, KeyCode.F12, KeyCode.Tab, KeyCode.BackQuote };
 
-    private const float WindowWidth = 560f;
-    private const float MaxHeight = 900f; // window caps here (at the 1080 reference) and scrolls beyond
+    private const float WindowWidth = 620f;
+    private const float MaxHeight = 940f; // window caps here (at the 1080 reference) and scrolls beyond
 
     private static readonly int[] ScopeKinds =
     {
@@ -67,7 +68,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         (int)SiliconAlleyState.ProjectKind.Ambitious,
     };
 
-    private Font _font;
+    private TMP_FontAsset _font;
     private GameObject _root;
     private RectTransform _windowRt, _contentRt; // window = clamped panel; content = scrollable stack
     private bool _built;
@@ -79,28 +80,28 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private string _currentKey;
 
     // Control references rebuilt once in Build().
-    private Text _titleText, _studioText, _phaseText, _summaryText;
+    private TMP_Text _titleText, _studioText, _phaseText, _summaryText;
     private GameObject _designSection, _developmentSection, _testingSection, _releaseSection;
     // Design section
-    private Text _designQualityText, _leadText, _etaText, _statusText;
+    private TMP_Text _designQualityText, _leadText, _etaText, _statusText;
     private readonly Image[] _scopeImages = new Image[3];
     private readonly Button[] _scopeButtons = new Button[3];
     private Slider _focusSlider;
     private Button _lockButton;
     // Development section
-    private Text _devThroughputText, _devBuildText, _devEtaText, _overtimeLabel;
+    private TMP_Text _devThroughputText, _devBuildText, _devEtaText, _overtimeLabel;
     private Image _overtimeImage;
     // Testing section
-    private Text _testBugsText, _testStaffText, _holdLabel;
+    private TMP_Text _testBugsText, _testStaffText, _holdLabel;
     private Image _holdImage;
     // Release section (transient ship report)
-    private Text _relQualityText, _relRevenueText, _relRepText, _relSupportText, _relPatchText;
+    private TMP_Text _relQualityText, _relRevenueText, _relRepText, _relSupportText, _relPatchText;
 
-    private static readonly Color PanelColor = new Color(0.10f, 0.11f, 0.14f, 0.98f);
-    private static readonly Color ButtonColor = new Color(0.20f, 0.22f, 0.28f, 1f);
-    private static readonly Color ButtonSelected = new Color(0.30f, 0.55f, 0.85f, 1f);
-    private static readonly Color TextColor = new Color(0.92f, 0.92f, 0.95f, 1f);
-    private static readonly Color HeaderColor = new Color(0.55f, 0.75f, 1f, 1f);   // section-header accent
+    private static readonly Color PanelColor = new Color(0.086f, 0.098f, 0.125f, 0.98f); // deep navy HUD
+    private static readonly Color ButtonColor = new Color(0.18f, 0.21f, 0.27f, 1f);       // slate
+    private static readonly Color ButtonSelected = new Color(0.20f, 0.50f, 0.86f, 1f);    // game blue
+    private static readonly Color TextColor = new Color(0.90f, 0.92f, 0.96f, 1f);
+    private static readonly Color HeaderColor = new Color(0.52f, 0.72f, 1f, 1f);   // section-header accent
     private static readonly Color DividerColor = new Color(1f, 1f, 1f, 0.08f);     // thin separator line
 
     private void Awake()
@@ -492,8 +493,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void Build()
     {
-        _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")
-                ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+        _font = ResolveFont();
 
         _root = new GameObject("SiliconAlleyProjectCanvas",
             typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -540,10 +540,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _contentRt.anchorMin = new Vector2(0f, 1f);
         _contentRt.anchorMax = new Vector2(1f, 1f);
         _contentRt.pivot = new Vector2(0.5f, 1f);
+        // Pin horizontally to the viewport so content width == viewport width (otherwise an uninitialized
+        // sizeDelta.x leaves the content wider than the viewport and the left edge gets clipped).
+        _contentRt.offsetMin = new Vector2(0f, _contentRt.offsetMin.y);
+        _contentRt.offsetMax = new Vector2(0f, _contentRt.offsetMax.y);
         _contentRt.anchoredPosition = Vector2.zero;
         var layout = contentGo.AddComponent<VerticalLayoutGroup>();
-        layout.padding = new RectOffset(22, 22, 18, 18);
-        layout.spacing = 9f;
+        layout.padding = new RectOffset(26, 26, 22, 22);
+        layout.spacing = 11f;
         layout.childControlWidth = layout.childControlHeight = true;
         layout.childForceExpandWidth = true;
         layout.childForceExpandHeight = false;
@@ -590,7 +594,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _leadText = MakeText(_designSection.transform, "Lead", 15, TextAnchor.MiddleLeft);
         _etaText = MakeText(_designSection.transform, "Eta", 15, TextAnchor.MiddleLeft);
         _statusText = MakeText(_designSection.transform, "Status", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
-        _lockButton = MakeButton(_designSection.transform, "siliconalley:screen_lock".GetLocalization(), OnLock);
+        _lockButton = MakeButton(_designSection.transform, "siliconalley:screen_lock".GetLocalization(), OnLock, primary: true);
 
         // ---- Development section (shown in the Development phase) ----
         _developmentSection = MakeSection(root);
@@ -600,7 +604,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _devEtaText = MakeText(_developmentSection.transform, "DevEta", 15, TextAnchor.MiddleLeft);
         var overtimeButton = MakeButton(_developmentSection.transform, "", OnToggleOvertime);
         _overtimeImage = overtimeButton.GetComponent<Image>();
-        _overtimeLabel = overtimeButton.GetComponentInChildren<Text>();
+        _overtimeLabel = overtimeButton.GetComponentInChildren<TMP_Text>();
 
         // ---- Testing section (shown in the Testing phase) ----
         _testingSection = MakeSection(root);
@@ -610,8 +614,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var testRow = MakeRow(_testingSection.transform, 10f, 40);
         var holdButton = MakeButton(testRow.transform, "", OnToggleHold);
         _holdImage = holdButton.GetComponent<Image>();
-        _holdLabel = holdButton.GetComponentInChildren<Text>();
-        MakeButton(testRow.transform, "siliconalley:screen_ship".GetLocalization(), OnShipNow);
+        _holdLabel = holdButton.GetComponentInChildren<TMP_Text>();
+        MakeButton(testRow.transform, "siliconalley:screen_ship".GetLocalization(), OnShipNow, primary: true);
 
         // ---- Release section (transient ship report; shown independently of phase) ----
         _releaseSection = MakeSection(root);
@@ -622,7 +626,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _relRepText = MakeText(_releaseSection.transform, "RelRep", 15, TextAnchor.MiddleLeft);
         _relSupportText = MakeText(_releaseSection.transform, "RelSupport", 15, TextAnchor.MiddleLeft);
         _relPatchText = MakeText(_releaseSection.transform, "RelPatch", 15, TextAnchor.MiddleLeft);
-        MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext);
+        MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);
 
         // ---- Footer (common) ----
         MakeDivider(root);
@@ -647,36 +651,58 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         le.minHeight = le.preferredHeight = 2f;
     }
 
-    private Text MakeText(Transform parent, string name, int size, TextAnchor anchor, FontStyle style = FontStyle.Normal)
+    // Resolve the game's TMP font (Exo2) so our text matches the game's typography. Falls back to any
+    // loaded TMP font asset (preferring the "Exo" family) if no project default is set.
+    private static TMP_FontAsset ResolveFont()
+    {
+        if (TMP_Settings.defaultFontAsset != null)
+            return TMP_Settings.defaultFontAsset;
+        TMP_FontAsset first = null;
+        foreach (var fa in Resources.FindObjectsOfTypeAll<TMP_FontAsset>())
+        {
+            if (fa == null)
+                continue;
+            first ??= fa;
+            if (fa.name.IndexOf("Exo", StringComparison.OrdinalIgnoreCase) >= 0)
+                return fa;
+        }
+        return first;
+    }
+
+    private TMP_Text MakeText(Transform parent, string name, int size, TextAnchor anchor, FontStyle style = FontStyle.Normal)
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        var text = go.AddComponent<Text>();
-        text.font = _font;
+        var text = go.AddComponent<TextMeshProUGUI>();
+        if (_font != null)
+            text.font = _font;
         text.fontSize = size;
-        text.fontStyle = style;
-        text.alignment = anchor;
+        text.fontStyle = style == FontStyle.Bold ? FontStyles.Bold
+            : style == FontStyle.Italic ? FontStyles.Italic
+            : FontStyles.Normal;
+        text.alignment = anchor == TextAnchor.MiddleCenter ? TextAlignmentOptions.Center : TextAlignmentOptions.Left;
         text.color = TextColor;
-        text.horizontalOverflow = HorizontalWrapMode.Wrap;
-        text.verticalOverflow = VerticalWrapMode.Overflow;
+        text.enableWordWrapping = true;
+        text.overflowMode = TextOverflowModes.Overflow;
+        text.raycastTarget = false;
         go.AddComponent<LayoutElement>().minHeight = size + 10;
         return text;
     }
 
     // A standalone label inside a horizontal row (no button behaviour).
-    private Text MakeTextButtonless(Transform parent, string value)
+    private TMP_Text MakeTextButtonless(Transform parent, string value)
     {
         var t = MakeText(parent, "Label", 14, TextAnchor.MiddleCenter);
         t.text = value;
         return t;
     }
 
-    private Button MakeButton(Transform parent, string label, UnityAction onClick)
+    private Button MakeButton(Transform parent, string label, UnityAction onClick, bool primary = false)
     {
         var go = new GameObject("Button", typeof(RectTransform));
         go.transform.SetParent(parent, false);
         var image = go.AddComponent<Image>();
-        image.color = ButtonColor;
+        image.color = primary ? ButtonSelected : ButtonColor;
         var button = go.AddComponent<Button>();
         button.targetGraphic = image;
         // Hover/press/disabled feedback. normalColor stays white so each button's own image.color shows
@@ -690,8 +716,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         colors.fadeDuration = 0.08f;
         button.colors = colors;
         var le = go.AddComponent<LayoutElement>();
-        le.minHeight = 34f;
-        le.preferredHeight = 34f;
+        le.minHeight = 38f;
+        le.preferredHeight = 38f;
         le.flexibleWidth = 1f;
 
         var text = MakeText(go.transform, "Label", 16, TextAnchor.MiddleCenter, FontStyle.Bold);
