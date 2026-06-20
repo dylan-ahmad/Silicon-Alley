@@ -82,7 +82,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Step 3 (quality): sample this hour's effective staff quality; Testing-phase work counts double.
             var hourQuality = Mathf.Clamp01(effectiveSkill / staffCount / 100f) * Mathf.Clamp01(totalSatisfaction / staffCount / 100f);
             var phaseWeight = phase == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
-            SiliconAlleyState.AccumulateQuality(key, hourQuality, phaseWeight);
+            SiliconAlleyState.AccumulateQuality(key, phase, hourQuality, phaseWeight);
             Debug.Log($"[SiliconAlley] {key} h{currentHour}: {staffCount} staff, {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
         }
         else

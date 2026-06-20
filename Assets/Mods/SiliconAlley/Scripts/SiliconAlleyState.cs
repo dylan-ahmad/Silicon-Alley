@@ -16,6 +16,14 @@ public static class SiliconAlleyState
         public float SupportAccrual; // fractional support income carried between hours
         public float QualitySum;     // accumulated (staff-quality x phase-weight) over the project
         public float QualityWeight;  // total accumulated weight (Testing hours weigh more)
+        // Per-phase quality breakdown (issue #8): the same (sample x weight) accrual as the aggregate
+        // above, split by the phase the work happened in, so each phase's contribution to the shipped
+        // quality is explicit for the per-phase screens. The aggregate pair stays the source of truth
+        // for overall quality (GetAverageQuality); these are purely additive. Release never accrues (it
+        // is the completion instant). Appended to the save as trailing fields (absent in old saves => 0).
+        public float DesignQualitySum, DesignQualityWeight;
+        public float DevQualitySum, DevQualityWeight;
+        public float TestQualitySum, TestQualityWeight;
         public int LastPatchDay;     // game-day the live catalog was last patched (post-release updates)
         public int ProjectType = -1; // ProjectKind locked in for the current project; -1 = not yet locked
     }
@@ -184,17 +192,33 @@ public static class SiliconAlleyState
         state.InstalledBase++;
         state.QualitySum = 0f;     // the next project's quality accrues fresh
         state.QualityWeight = 0f;
+        // Issue #8: per-phase accumulators reset with the aggregate so the next project's phases accrue
+        // from zero (they mirror the aggregate, never replace it).
+        state.DesignQualitySum = 0f; state.DesignQualityWeight = 0f;
+        state.DevQualitySum = 0f; state.DevQualityWeight = 0f;
+        state.TestQualitySum = 0f; state.TestQualityWeight = 0f;
         state.ProjectType = GlobalProjectType; // the next project uses the current global selection
     }
 
     // Step 3 (quality): sample this hour's staff quality (0..1), weighted by phase so Testing-phase
     // staffing matters more — under-skilled testing lowers the shipped quality ("bugs"). Averaged at
-    // release via GetAverageQuality.
-    public static void AccumulateQuality(string key, float sample, float weight)
+    // release via GetAverageQuality. Issue #8: the same sample is also recorded against the phase the
+    // work happened in, so each phase's contribution is available to the per-phase screens; the
+    // aggregate pair stays the source of truth for overall quality (so the payout and legacy saves are
+    // unaffected). Within a phase the weight is constant, so its per-phase average is just the mean sample.
+    public static void AccumulateQuality(string key, ProjectPhase phase, float sample, float weight)
     {
         var state = Get(key);
-        state.QualitySum += Mathf.Clamp01(sample) * weight;
+        var clamped = Mathf.Clamp01(sample) * weight;
+        state.QualitySum += clamped;
         state.QualityWeight += weight;
+        switch (phase)
+        {
+            case ProjectPhase.Design: state.DesignQualitySum += clamped; state.DesignQualityWeight += weight; break;
+            case ProjectPhase.Development: state.DevQualitySum += clamped; state.DevQualityWeight += weight; break;
+            case ProjectPhase.Testing: state.TestQualitySum += clamped; state.TestQualityWeight += weight; break;
+            // Release accrues no work — it is the completion instant.
+        }
     }
 
     // Average accrued quality (0..1), or -1 when nothing has accrued yet (caller falls back).
@@ -203,6 +227,25 @@ public static class SiliconAlleyState
         var state = Get(key);
         return state.QualityWeight > 0f ? state.QualitySum / state.QualityWeight : -1f;
     }
+
+    // Issue #8: average quality accrued during a single phase (0..1), or -1 when that phase has not
+    // accrued any work yet — a legacy save carrying only the aggregate, a phase not yet reached, or
+    // Release (which never accrues) — so callers fall back to the aggregate or show "—".
+    public static float GetPhaseQuality(string key, ProjectPhase phase)
+    {
+        var state = Get(key);
+        switch (phase)
+        {
+            case ProjectPhase.Design: return state.DesignQualityWeight > 0f ? state.DesignQualitySum / state.DesignQualityWeight : -1f;
+            case ProjectPhase.Development: return state.DevQualityWeight > 0f ? state.DevQualitySum / state.DevQualityWeight : -1f;
+            case ProjectPhase.Testing: return state.TestQualityWeight > 0f ? state.TestQualitySum / state.TestQualityWeight : -1f;
+            default: return -1f;
+        }
+    }
+
+    // Convenience for the per-phase screens: the building's current derived phase, from its progress and
+    // locked effective size (same as PhaseOf, without the caller re-fetching both).
+    public static ProjectPhase CurrentPhase(string key) => PhaseOf(GetProgress(key), EffectiveProjectSize(key));
 
     public static void DecayReputation(string key, float amount)
     {
@@ -231,9 +274,13 @@ public static class SiliconAlleyState
     // CLAUDE.md). Never change the meaning/format of an existing field or reorder a persisted enum's
     // values; to change semantics, add a NEW field/key, bump CurrentSchemaVersion, and add a Migrate step.
     //
-    // One entry per building:
-    // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType,
-    // joined by ';'. Two reserved "~"-prefixed header entries lead the blob:
+    // One entry per building (fields are APPEND-ONLY; older saves omit trailing fields, which default):
+    // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
+    //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight,
+    // joined by ';'. The six per-phase quality fields (issue #8) were appended at schema v1; a pre-#8 save
+    // omits them and they default to 0 (per-phase quality then reads as "not accrued" via GetPhaseQuality,
+    // while the aggregate qualitySum/qualityWeight still yields the real shipped quality). Two reserved
+    // "~"-prefixed header entries lead the blob:
     //   "~schema|<version>" — the save schema version (added in v1; absent ⇒ the v1 baseline);
     //   "~global|<index>"   — the player's project-type pre-selection, so it survives a session before
     //                          the options menu (which re-applies the PlayerPrefs value) is opened.
@@ -271,7 +318,13 @@ public static class SiliconAlleyState
                 .Append(state.QualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.QualityWeight.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.LastPatchDay.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.ProjectType.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.ProjectType.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.DesignQualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.DesignQualityWeight.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.DevQualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.DevQualityWeight.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.TestQualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.TestQualityWeight.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -325,6 +378,21 @@ public static class SiliconAlleyState
                     int.TryParse(parts[7], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.LastPatchDay);
                 if (parts.Length > 8) // and the locked project type (issue #3)
                     int.TryParse(parts[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ProjectType);
+                if (parts.Length > 10) // issue #8: per-phase quality — Design (absent in pre-#8 saves ⇒ 0)
+                {
+                    float.TryParse(parts[9], NumberStyles.Float, CultureInfo.InvariantCulture, out state.DesignQualitySum);
+                    float.TryParse(parts[10], NumberStyles.Float, CultureInfo.InvariantCulture, out state.DesignQualityWeight);
+                }
+                if (parts.Length > 12) // Development
+                {
+                    float.TryParse(parts[11], NumberStyles.Float, CultureInfo.InvariantCulture, out state.DevQualitySum);
+                    float.TryParse(parts[12], NumberStyles.Float, CultureInfo.InvariantCulture, out state.DevQualityWeight);
+                }
+                if (parts.Length > 14) // Testing
+                {
+                    float.TryParse(parts[13], NumberStyles.Float, CultureInfo.InvariantCulture, out state.TestQualitySum);
+                    float.TryParse(parts[14], NumberStyles.Float, CultureInfo.InvariantCulture, out state.TestQualityWeight);
+                }
                 States[parts[0]] = state;
             }
             catch
