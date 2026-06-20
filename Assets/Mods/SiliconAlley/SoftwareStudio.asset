@@ -39,6 +39,7 @@ MonoBehaviour:
   - ba:businessproductsource_importer
   employeePrimarySkills:
   - ba:skill_programmer
+  - ba:skill_graphicdesigner
   employeeDefaultAppearanceTags: 02000000
   customerType: 2
   maxAmountPerProduct: 1

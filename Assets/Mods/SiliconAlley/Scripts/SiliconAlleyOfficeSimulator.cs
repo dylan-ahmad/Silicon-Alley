@@ -25,6 +25,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     public const int PatchIntervalDays = 7;
     private const float PatchRevenueFraction = 0.08f;
 
+    // Issue #2: the two existing game skills the businesses draw on. Programmers lead Development/Testing;
+    // graphic designers lead the Design phase (for the business types that list the designer skill).
+    private const string ProgrammerSkill = "ba:skill_programmer";
+    private const string GraphicDesignerSkill = "ba:skill_graphicdesigner";
+
     public override void SimulateCurrentHour()
     {
         var businessType = BusinessTypeHelper.GetData(buildingRegistration);
@@ -33,10 +38,9 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
 
         var key = SiliconAlleyState.KeyFor(buildingRegistration);
 
-        // 1) Gather the programmers working at a workstation this hour.
-        float totalSkill = 0f;
-        float totalSatisfaction = 0f;
-        int programmers = 0;
+        // 1) Gather the staff working at a workstation this hour, with each person's programmer and
+        // graphic-designer skill (issue #2). Only disciplines this business actually lists count.
+        var staff = new List<(float programmer, float designer, float satisfaction)>();
         foreach (var instance in buildingRegistration.itemInstances.Values)
         {
             if ((instance.ItemCached.type & ItemType.EmployeeWorkstation) == 0)
@@ -44,30 +48,42 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var employee = EmployeeHelper.GetEmployeeAtStationAndHour(buildingRegistration, instance.id, currentHour);
             if (employee == null)
                 continue;
-            var skill = employee.characterData.skills.FirstOrDefault(s => businessType.employeePrimarySkills.Contains(s.name));
-            if (skill == null)
-                continue;
-            totalSkill += skill.value;
-            totalSatisfaction += employee.satisfaction;
-            programmers++;
+            var programmer = SkillValue(employee, ProgrammerSkill, businessType);
+            var designer = SkillValue(employee, GraphicDesignerSkill, businessType);
+            if (programmer <= 0f && designer <= 0f)
+                continue; // not a discipline this business uses
+            staff.Add((programmer, designer, employee.satisfaction));
         }
+        var staffCount = staff.Count;
 
         // Issue #3: lock the project type when work begins; the locked type scales size/payout/competition.
-        var kind = programmers > 0 ? SiliconAlleyState.EnsureProjectTypeLocked(key) : SiliconAlleyState.GetProjectType(key);
+        var kind = staffCount > 0 ? SiliconAlleyState.EnsureProjectTypeLocked(key) : SiliconAlleyState.GetProjectType(key);
         var size = SiliconAlleyState.EffectiveProjectSize(key);
 
-        // 2) Accrue project progress through the lifecycle phases (or slowly lose reputation when idle).
-        if (programmers > 0)
+        // 2) Accrue progress, phase-weighted by discipline (issue #2): graphic designers drive the Design
+        // phase, programmers drive Development/Testing; the off-discipline cross-skills at a reduced rate.
+        float effectiveSkill = 0f;
+        float totalSatisfaction = 0f;
+        if (staffCount > 0)
         {
             var progressBefore = SiliconAlleyState.GetProgress(key);
-            SiliconAlleyState.AddProgress(key, totalSkill * SiliconAlleyState.ProjectSpeed);
+            var phase = SiliconAlleyState.PhaseOf(progressBefore, size);
+            var hasDesigner = businessType.employeePrimarySkills.Contains(GraphicDesignerSkill);
+            GetPhaseWeights(phase, hasDesigner, businessType.businessTypeName, out var designerWeight, out var programmerWeight);
+            foreach (var member in staff)
+            {
+                effectiveSkill += Mathf.Max(member.designer * designerWeight, member.programmer * programmerWeight);
+                totalSatisfaction += member.satisfaction;
+            }
+
+            SiliconAlleyState.AddProgress(key, effectiveSkill * SiliconAlleyState.ProjectSpeed);
             var progressAfter = SiliconAlleyState.GetProgress(key);
             AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter, size);
-            // Step 3 (quality): sample this hour's staff quality; Testing-phase work counts double.
-            var hourQuality = Mathf.Clamp01(totalSkill / programmers / 100f) * Mathf.Clamp01(totalSatisfaction / programmers / 100f);
-            var phaseWeight = SiliconAlleyState.PhaseOf(progressBefore, size) == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
+            // Step 3 (quality): sample this hour's effective staff quality; Testing-phase work counts double.
+            var hourQuality = Mathf.Clamp01(effectiveSkill / staffCount / 100f) * Mathf.Clamp01(totalSatisfaction / staffCount / 100f);
+            var phaseWeight = phase == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
             SiliconAlleyState.AccumulateQuality(key, hourQuality, phaseWeight);
-            Debug.Log($"[SiliconAlley] {key} h{currentHour}: {programmers} programmer(s), {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
+            Debug.Log($"[SiliconAlley] {key} h{currentHour}: {staffCount} staff, {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
         }
         else
         {
@@ -87,7 +103,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
 
         // 3b) Post-release updates: a staffed studio with shipped products patches its live catalog
         // every PatchIntervalDays for extra revenue — the "Support/Updates" stage of the lifecycle.
-        if (programmers > 0 && product != null && marketPrice > 0f)
+        if (staffCount > 0 && product != null && marketPrice > 0f)
         {
             var catalog = SiliconAlleyState.GetInstalledBase(key);
             if (catalog > 0 && TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key) >= PatchIntervalDays)
@@ -101,7 +117,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
 
         // 4) Complete any finished projects. Each project's type was locked at its start (issue #3), so
         // read it per iteration — OnProjectCompleted re-locks the NEXT project to the current selection.
-        while (programmers > 0 && product != null && marketPrice > 0f)
+        while (staffCount > 0 && product != null && marketPrice > 0f)
         {
             var projectKind = SiliconAlleyState.GetProjectType(key);
             var projectSize = SiliconAlleyState.EffectiveProjectSize(key);
@@ -113,7 +129,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // not just the final hour's staffing. Fall back to this hour if nothing has accrued.
             var accruedQuality = SiliconAlleyState.GetAverageQuality(key);
             if (accruedQuality < 0f)
-                accruedQuality = Mathf.Clamp01(totalSkill / programmers / 100f) * Mathf.Clamp01(totalSatisfaction / programmers / 100f);
+                accruedQuality = Mathf.Clamp01(effectiveSkill / Mathf.Max(1, staffCount) / 100f) * Mathf.Clamp01(totalSatisfaction / Mathf.Max(1, staffCount) / 100f);
             var quality = accruedQuality * Mathf.Max(0.25f, cleanliness);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
@@ -222,6 +238,45 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     {
         var item = ItemsGetter.GetByName(itemName);
         return item != null ? item.DefaultMarketPrice : 0f;
+    }
+
+    // Issue #2: an employee's value for a skill, but only if the business actually uses that discipline
+    // (so Cyber Security never counts graphic-design skill). 0 when the skill is absent or unused.
+    private static float SkillValue(EmployeeInstance employee, string skillName, BusinessType businessType)
+    {
+        if (!businessType.employeePrimarySkills.Contains(skillName))
+            return 0f;
+        var skill = employee.characterData.skills.FirstOrDefault(s => s.name == skillName);
+        return skill != null ? skill.value : 0f;
+    }
+
+    // Issue #2: who drives each phase. Design is led by graphic designers (full rate) with programmers
+    // cross-skilling at a per-type rate; a business with no design discipline (Cyber) has programmers
+    // plan the design at full rate. Development/Testing are programmer-led, designers cross-skill at 0.5.
+    private static void GetPhaseWeights(SiliconAlleyState.ProjectPhase phase, bool hasDesigner, string businessTypeName, out float designerWeight, out float programmerWeight)
+    {
+        if (phase == SiliconAlleyState.ProjectPhase.Design)
+        {
+            designerWeight = hasDesigner ? 1f : 0f;
+            programmerWeight = hasDesigner ? DesignProgrammerCrossRate(businessTypeName) : 1f;
+        }
+        else
+        {
+            designerWeight = 0.5f;
+            programmerWeight = 1f;
+        }
+    }
+
+    // How well programmers cross-skill into the Design phase, per business character: a Game Studio leans
+    // hard on designers (programmers weak at art), a Software Studio treats design as optional polish.
+    private static float DesignProgrammerCrossRate(string businessTypeName)
+    {
+        switch (businessTypeName)
+        {
+            case "siliconalley:businesstype_gamestudio": return 0.3f;
+            case "siliconalley:businesstype_softwarestudio": return 0.6f;
+            default: return 1f;
+        }
     }
 
     // Tier 3 market modifier: competing businesses of the same type in the same neighborhood. Same
