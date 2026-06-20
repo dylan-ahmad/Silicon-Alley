@@ -32,6 +32,10 @@ public static class SiliconAlleyState
         // the defaults here). Editable only while in the Design phase and not yet locked.
         public float DesignFocus = 0.5f;
         public int ConceptLocked;    // 0 = open (player may still set scope/focus), 1 = locked
+        // Issue #10 (Development): Overtime is a sticky per-studio policy — while ON it speeds the build
+        // (x1.5 progress) at the cost of quality (x0.85) during Development only. 0 = off (neutral), so old
+        // saves and untouched studios are unchanged. Appended to the save (absent in old saves => 0).
+        public int Overtime;         // 0 = off, 1 = on
         public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
     }
 
@@ -288,6 +292,11 @@ public static class SiliconAlleyState
             Get(key).ConceptLocked = 1;
     }
 
+    // Issue #10 (Development): the studio's Overtime policy — a sticky toggle that only takes effect in
+    // the Development phase (speeds the build, lowers quality). Settable any time; it just persists.
+    public static bool IsOvertime(string key) => Get(key).Overtime != 0;
+    public static void SetOvertime(string key, bool on) => Get(key).Overtime = on ? 1 : 0;
+
     // Returns true exactly once per project (per session) so the simulator nudges the player to set the
     // concept just once. Transient (not persisted): a reload may re-nudge once, which is harmless.
     public static bool TryMarkDesignPrompted(string key)
@@ -329,12 +338,12 @@ public static class SiliconAlleyState
     // One entry per building (fields are APPEND-ONLY; older saves omit trailing fields, which default):
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
     //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
-    //    |designFocus|conceptLocked,
-    // joined by ';'. The six per-phase quality fields (issue #8) and the two Design-screen fields (issue #9:
-    // designFocus default 0.5 = neutral, conceptLocked 0) were appended at schema v1; a save from before a
-    // given field omits it and it defaults (per-phase quality reads "not accrued" via GetPhaseQuality;
-    // designFocus stays 0.5; conceptLocked 0) while the aggregate qualitySum/qualityWeight still yields the
-    // real shipped quality. Two reserved
+    //    |designFocus|conceptLocked|overtime,
+    // joined by ';'. The six per-phase quality fields (issue #8) and the Design/Development screen fields
+    // (issue #9: designFocus default 0.5 = neutral, conceptLocked 0; issue #10: overtime 0 = off) were
+    // appended at schema v1; a save from before a given field omits it and it defaults (per-phase quality
+    // reads "not accrued" via GetPhaseQuality; designFocus stays 0.5; conceptLocked 0; overtime 0) while the
+    // aggregate qualitySum/qualityWeight still yields the real shipped quality. Two reserved
     // "~"-prefixed header entries lead the blob:
     //   "~schema|<version>" — the save schema version (added in v1; absent ⇒ the v1 baseline);
     //   "~global|<index>"   — the player's project-type pre-selection, so it survives a session before
@@ -381,7 +390,8 @@ public static class SiliconAlleyState
                 .Append(state.TestQualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.TestQualityWeight.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.DesignFocus.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.ConceptLocked.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.ConceptLocked.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.Overtime.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -454,6 +464,8 @@ public static class SiliconAlleyState
                     float.TryParse(parts[15], NumberStyles.Float, CultureInfo.InvariantCulture, out state.DesignFocus);
                 if (parts.Length > 16) // issue #9: concept-locked flag (absent ⇒ 0, open)
                     int.TryParse(parts[16], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ConceptLocked);
+                if (parts.Length > 17) // issue #10: overtime policy (absent ⇒ 0, off)
+                    int.TryParse(parts[17], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.Overtime);
                 States[parts[0]] = state;
             }
             catch

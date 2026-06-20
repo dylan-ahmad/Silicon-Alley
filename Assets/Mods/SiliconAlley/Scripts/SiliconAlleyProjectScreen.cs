@@ -73,11 +73,17 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private string _currentKey;
 
     // Control references rebuilt once in Build().
-    private Text _titleText, _studioText, _phaseText, _designQualityText, _leadText, _etaText, _statusText;
+    private Text _titleText, _studioText, _phaseText, _summaryText;
+    private GameObject _designSection, _developmentSection;
+    // Design section
+    private Text _designQualityText, _leadText, _etaText, _statusText;
     private readonly Image[] _scopeImages = new Image[3];
     private readonly Button[] _scopeButtons = new Button[3];
     private Slider _focusSlider;
     private Button _lockButton;
+    // Development section
+    private Text _devThroughputText, _devBuildText, _devEtaText, _overtimeLabel;
+    private Image _overtimeImage;
 
     private static readonly Color PanelColor = new Color(0.10f, 0.11f, 0.14f, 0.98f);
     private static readonly Color ButtonColor = new Color(0.20f, 0.22f, 0.28f, 1f);
@@ -177,17 +183,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void Refresh()
     {
-        _titleText.text = "siliconalley:screen_title".GetLocalization();
-
         var reg = FindRegistration(_currentKey);
         if (reg == null)
         {
+            _titleText.text = "siliconalley:screen_title_plain".GetLocalization();
             _studioText.text = "siliconalley:screen_nostudio".GetLocalization();
-            _phaseText.text = _designQualityText.text = _leadText.text = _etaText.text = "";
-            _statusText.text = "";
-            SetControlsInteractable(false);
-            for (var i = 0; i < 3; i++)
-                _scopeImages[i].color = ButtonColor;
+            _phaseText.text = "";
+            _summaryText.text = "";
+            _designSection.SetActive(false);
+            _developmentSection.SetActive(false);
             return;
         }
 
@@ -197,13 +201,32 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var rawProgress = SiliconAlleyState.GetProgress(key);
         var phase = SiliconAlleyState.PhaseOf(rawProgress, size);
         var perHour = SiliconAlleyOfficeSimulator.CurrentHourlyProgress(reg);
-        var editable = SiliconAlleyState.CanEditConcept(key);
+        var phaseName = SiliconAlleyState.PhaseNameKey(phase).GetLocalization();
 
-        var product = ProductName(businessType);
-        _studioText.text = Compose("siliconalley:screen_studio", ("business", reg.GetDisplayName()), ("product", product));
+        _titleText.text = Compose("siliconalley:screen_title", ("phase", phaseName));
+        _studioText.text = Compose("siliconalley:screen_studio",
+            ("business", reg.GetDisplayName()), ("product", ProductName(businessType)));
         _phaseText.text = Compose("siliconalley:screen_phase",
-            ("phase", SiliconAlleyState.PhaseNameKey(phase).GetLocalization()),
-            ("progress", Pct(SiliconAlleyState.PhaseProgressFraction(rawProgress, size))));
+            ("phase", phaseName), ("progress", Pct(SiliconAlleyState.PhaseProgressFraction(rawProgress, size))));
+
+        var avgQ = SiliconAlleyState.GetAverageQuality(key);
+        _summaryText.text = Compose("siliconalley:screen_summary",
+            ("quality", avgQ < 0f ? "—" : Pct(avgQ) + "%"),
+            ("shipeta", EtaText(size - rawProgress, perHour)));
+
+        var inDesign = phase == SiliconAlleyState.ProjectPhase.Design;
+        var inDevelopment = phase == SiliconAlleyState.ProjectPhase.Development;
+        _designSection.SetActive(inDesign);
+        _developmentSection.SetActive(inDevelopment);
+        if (inDesign)
+            RefreshDesign(reg, businessType, key, size, rawProgress, perHour);
+        else if (inDevelopment)
+            RefreshDevelopment(reg, key, size, rawProgress, perHour);
+    }
+
+    private void RefreshDesign(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
+    {
+        var editable = SiliconAlleyState.CanEditConcept(key);
 
         var designQ = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
         _designQualityText.text = Compose("siliconalley:screen_designquality",
@@ -219,17 +242,32 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         _statusText.text = (editable ? "siliconalley:screen_editable" : "siliconalley:screen_locked").GetLocalization();
 
-        // Scope highlight reflects the locked/selected kind.
         var currentKind = SiliconAlleyState.GetProjectType(key);
         for (var i = 0; i < 3; i++)
             _scopeImages[i].color = ScopeKinds[i] == currentKind ? ButtonSelected : ButtonColor;
 
-        // Focus slider (suppress the callback so setting the value doesn't write back).
-        _suppress = true;
+        _suppress = true; // setting the value must not write back through OnFocusChanged
         _focusSlider.value = SiliconAlleyState.GetDesignFocus(key);
         _suppress = false;
 
         SetControlsInteractable(editable);
+    }
+
+    private void RefreshDevelopment(BuildingRegistration reg, string key, float size, float rawProgress, float perHour)
+    {
+        _devThroughputText.text = Compose("siliconalley:screen_dev_throughput",
+            ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
+            ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
+        _devBuildText.text = Compose("siliconalley:screen_dev_build",
+            ("progress", Mathf.RoundToInt(rawProgress).ToString(CultureInfo.InvariantCulture)),
+            ("size", Mathf.RoundToInt(size).ToString(CultureInfo.InvariantCulture)));
+        var remaining = SiliconAlleyState.PhaseEndProgress(SiliconAlleyState.ProjectPhase.Development, size) - rawProgress;
+        _devEtaText.text = Compose("siliconalley:screen_dev_eta", ("eta", EtaText(remaining, perHour)));
+
+        var on = SiliconAlleyState.IsOvertime(key);
+        _overtimeLabel.text = Compose("siliconalley:screen_overtime",
+            ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()));
+        _overtimeImage.color = on ? ButtonSelected : ButtonColor;
     }
 
     private void SetControlsInteractable(bool editable)
@@ -258,6 +296,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OnLock()
     {
         SiliconAlleyState.LockConcept(_currentKey);
+        Refresh();
+    }
+
+    private void OnToggleOvertime()
+    {
+        SiliconAlleyState.SetOvertime(_currentKey, !SiliconAlleyState.IsOvertime(_currentKey));
         Refresh();
     }
 
@@ -360,7 +404,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var panel = MakeImage(_root.transform, "Panel", PanelColor);
         var panelRt = panel.rectTransform;
         panelRt.anchorMin = panelRt.anchorMax = new Vector2(0.5f, 0.5f);
-        panelRt.sizeDelta = new Vector2(560f, 540f);
+        panelRt.sizeDelta = new Vector2(560f, 0f); // height auto-fits the active section (ContentSizeFitter)
         panelRt.anchoredPosition = Vector2.zero;
         var layout = panel.gameObject.AddComponent<VerticalLayoutGroup>();
         layout.padding = new RectOffset(22, 22, 18, 18);
@@ -369,6 +413,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         layout.childForceExpandWidth = true;
         layout.childForceExpandHeight = false;
         layout.childAlignment = TextAnchor.UpperCenter;
+        var fitter = panel.gameObject.AddComponent<ContentSizeFitter>();
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
         _titleText = MakeText(panel.transform, "Title", 22, TextAnchor.MiddleCenter, FontStyle.Bold);
 
@@ -379,9 +425,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 44f);
 
         _phaseText = MakeText(panel.transform, "Phase", 16, TextAnchor.MiddleLeft);
+        _summaryText = MakeText(panel.transform, "Summary", 15, TextAnchor.MiddleLeft);
 
-        MakeHeader(panel.transform, "siliconalley:screen_scope");
-        var scopeRow = MakeRow(panel.transform);
+        // ---- Design section (shown in the Design phase) ----
+        _designSection = MakeSection(panel.transform);
+        MakeHeader(_designSection.transform, "siliconalley:screen_scope");
+        var scopeRow = MakeRow(_designSection.transform);
         var scopeKeys = new[] { "siliconalley:projecttype_quick", "siliconalley:projecttype_standard", "siliconalley:projecttype_ambitious" };
         for (var i = 0; i < 3; i++)
         {
@@ -390,23 +439,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _scopeButtons[i] = btn;
             _scopeImages[i] = btn.GetComponent<Image>();
         }
-
-        // Focus: Polish [====O====] Speed
-        MakeHeader(panel.transform, "siliconalley:screen_focus");
-        var focusRow = MakeRow(panel.transform, 10f, 28);
+        MakeHeader(_designSection.transform, "siliconalley:screen_focus");
+        var focusRow = MakeRow(_designSection.transform, 10f, 28);
         FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_polish".GetLocalization()), 70f);
         _focusSlider = MakeSlider(focusRow.transform);
         _focusSlider.onValueChanged.AddListener(OnFocusChanged);
         FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_speed".GetLocalization()), 70f);
+        _designQualityText = MakeText(_designSection.transform, "DesignQuality", 16, TextAnchor.MiddleLeft);
+        _leadText = MakeText(_designSection.transform, "Lead", 15, TextAnchor.MiddleLeft);
+        _etaText = MakeText(_designSection.transform, "Eta", 15, TextAnchor.MiddleLeft);
+        _statusText = MakeText(_designSection.transform, "Status", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _lockButton = MakeButton(_designSection.transform, "siliconalley:screen_lock".GetLocalization(), OnLock);
 
-        _designQualityText = MakeText(panel.transform, "DesignQuality", 16, TextAnchor.MiddleLeft);
-        _leadText = MakeText(panel.transform, "Lead", 15, TextAnchor.MiddleLeft);
-        _etaText = MakeText(panel.transform, "Eta", 15, TextAnchor.MiddleLeft);
-        _statusText = MakeText(panel.transform, "Status", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        // ---- Development section (shown in the Development phase) ----
+        _developmentSection = MakeSection(panel.transform);
+        _devThroughputText = MakeText(_developmentSection.transform, "DevThroughput", 15, TextAnchor.MiddleLeft);
+        _devBuildText = MakeText(_developmentSection.transform, "DevBuild", 16, TextAnchor.MiddleLeft);
+        _devEtaText = MakeText(_developmentSection.transform, "DevEta", 15, TextAnchor.MiddleLeft);
+        var overtimeButton = MakeButton(_developmentSection.transform, "", OnToggleOvertime);
+        _overtimeImage = overtimeButton.GetComponent<Image>();
+        _overtimeLabel = overtimeButton.GetComponentInChildren<Text>();
 
-        // Footer: [Lock concept]  [Close]
+        // ---- Footer (common) ----
         var footer = MakeRow(panel.transform, 10f, 40);
-        _lockButton = MakeButton(footer.transform, "siliconalley:screen_lock".GetLocalization(), OnLock);
         MakeButton(footer.transform, "siliconalley:screen_close".GetLocalization(), Close);
 
         _root.SetActive(false);
@@ -467,6 +522,21 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         le.preferredWidth = width;
         le.minWidth = width;
         le.flexibleWidth = 0f;
+    }
+
+    // A vertical sub-container the screen toggles per phase (SetActive). It reports its own preferred
+    // height, so the panel's ContentSizeFitter shrinks to whichever section is active.
+    private GameObject MakeSection(Transform parent)
+    {
+        var go = new GameObject("Section", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var v = go.AddComponent<VerticalLayoutGroup>();
+        v.spacing = 8f;
+        v.childControlWidth = v.childControlHeight = true;
+        v.childForceExpandWidth = true;
+        v.childForceExpandHeight = false;
+        v.childAlignment = TextAnchor.UpperLeft;
+        return go;
     }
 
     private GameObject MakeRow(Transform parent, float spacing = 8f, int minHeight = 36)
