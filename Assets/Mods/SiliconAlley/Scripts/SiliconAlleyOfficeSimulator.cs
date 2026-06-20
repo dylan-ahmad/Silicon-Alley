@@ -97,6 +97,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             }
 
             SiliconAlleyState.AddProgress(key, effectiveSkill * SiliconAlleyState.ProjectSpeed * progressScale);
+            // Issue #11: a held project keeps testing — pin it just under completion so it stays in Testing
+            // (accruing the 2x quality) and never auto-ships. Ship now / toggling Hold off releases it.
+            if (SiliconAlleyState.IsHold(key))
+                SiliconAlleyState.HoldBelowCompletion(key, size);
             var progressAfter = SiliconAlleyState.GetProgress(key);
             AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter, size);
             // Step 3 (quality): sample this hour's effective staff quality; Testing-phase work counts double.
@@ -137,7 +141,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
 
         // 4) Complete any finished projects. Each project's type was locked at its start (issue #3), so
         // read it per iteration — OnProjectCompleted re-locks the NEXT project to the current selection.
-        while (staffCount > 0 && product != null && marketPrice > 0f)
+        // Issue #11: a held project never auto-ships (the player ships it via "Ship now").
+        while (staffCount > 0 && product != null && marketPrice > 0f && !SiliconAlleyState.IsHold(key))
         {
             var projectKind = SiliconAlleyState.GetProjectType(key);
             var projectSize = SiliconAlleyState.EffectiveProjectSize(key);

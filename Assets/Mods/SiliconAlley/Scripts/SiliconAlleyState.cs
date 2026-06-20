@@ -36,6 +36,10 @@ public static class SiliconAlleyState
         // (x1.5 progress) at the cost of quality (x0.85) during Development only. 0 = off (neutral), so old
         // saves and untouched studios are unchanged. Appended to the save (absent in old saves => 0).
         public int Overtime;         // 0 = off, 1 = on
+        // Issue #11 (Testing): Hold keeps QA running — it pins progress just under completion so the
+        // project stays in Testing (accruing the 2x quality) instead of auto-shipping. 0 = off (the
+        // default; auto-ship at 100% as before). Per-project: reset on completion. Appended (absent => 0).
+        public int Hold;             // 0 = ship at 100% (default), 1 = keep testing (don't auto-ship)
         public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
     }
 
@@ -210,6 +214,7 @@ public static class SiliconAlleyState
         state.TestQualitySum = 0f; state.TestQualityWeight = 0f;
         state.ProjectType = GlobalProjectType; // the next project uses the current global selection
         state.ConceptLocked = 0; // issue #9: the next project's concept reopens (DesignFocus stays sticky)
+        state.Hold = 0;          // issue #11: the next project isn't held
         state.DesignPrompted = false; // nudge again for the next project
     }
 
@@ -297,6 +302,29 @@ public static class SiliconAlleyState
     public static bool IsOvertime(string key) => Get(key).Overtime != 0;
     public static void SetOvertime(string key, bool on) => Get(key).Overtime = on ? 1 : 0;
 
+    // Issue #11 (Testing): the studio's "Hold" QA policy.
+    public static bool IsHold(string key) => Get(key).Hold != 0;
+    public static void SetHold(string key, bool on) => Get(key).Hold = on ? 1 : 0;
+
+    // While held, pin progress just inside the Testing band so the project doesn't auto-ship and keeps
+    // accruing the 2x Testing quality. No-op until progress is near completion.
+    public static void HoldBelowCompletion(string key, float size)
+    {
+        var state = Get(key);
+        var cap = size - 1f;
+        if (state.Progress > cap)
+            state.Progress = cap;
+    }
+
+    // "Ship now": release the hold and complete the project at its current accrued quality via the normal
+    // completion path (the simulator's next staffed tick ships it). Only on explicit player action.
+    public static void ShipNow(string key)
+    {
+        var state = Get(key);
+        state.Hold = 0;
+        state.Progress = EffectiveProjectSize(key);
+    }
+
     // Returns true exactly once per project (per session) so the simulator nudges the player to set the
     // concept just once. Transient (not persisted): a reload may re-nudge once, which is harmless.
     public static bool TryMarkDesignPrompted(string key)
@@ -338,9 +366,10 @@ public static class SiliconAlleyState
     // One entry per building (fields are APPEND-ONLY; older saves omit trailing fields, which default):
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
     //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
-    //    |designFocus|conceptLocked|overtime,
-    // joined by ';'. The six per-phase quality fields (issue #8) and the Design/Development screen fields
-    // (issue #9: designFocus default 0.5 = neutral, conceptLocked 0; issue #10: overtime 0 = off) were
+    //    |designFocus|conceptLocked|overtime|hold,
+    // joined by ';'. The six per-phase quality fields (issue #8) and the Design/Development/Testing screen
+    // fields (issue #9: designFocus default 0.5 = neutral, conceptLocked 0; issue #10: overtime 0 = off;
+    // issue #11: hold 0 = off) were
     // appended at schema v1; a save from before a given field omits it and it defaults (per-phase quality
     // reads "not accrued" via GetPhaseQuality; designFocus stays 0.5; conceptLocked 0; overtime 0) while the
     // aggregate qualitySum/qualityWeight still yields the real shipped quality. Two reserved
@@ -391,7 +420,8 @@ public static class SiliconAlleyState
                 .Append(state.TestQualityWeight.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.DesignFocus.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.ConceptLocked.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.Overtime.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.Overtime.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.Hold.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -466,6 +496,8 @@ public static class SiliconAlleyState
                     int.TryParse(parts[16], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ConceptLocked);
                 if (parts.Length > 17) // issue #10: overtime policy (absent ⇒ 0, off)
                     int.TryParse(parts[17], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.Overtime);
+                if (parts.Length > 18) // issue #11: hold-testing flag (absent ⇒ 0, off)
+                    int.TryParse(parts[18], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.Hold);
                 States[parts[0]] = state;
             }
             catch

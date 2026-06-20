@@ -74,7 +74,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // Control references rebuilt once in Build().
     private Text _titleText, _studioText, _phaseText, _summaryText;
-    private GameObject _designSection, _developmentSection;
+    private GameObject _designSection, _developmentSection, _testingSection;
     // Design section
     private Text _designQualityText, _leadText, _etaText, _statusText;
     private readonly Image[] _scopeImages = new Image[3];
@@ -84,6 +84,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Development section
     private Text _devThroughputText, _devBuildText, _devEtaText, _overtimeLabel;
     private Image _overtimeImage;
+    // Testing section
+    private Text _testBugsText, _testStaffText, _holdLabel;
+    private Image _holdImage;
 
     private static readonly Color PanelColor = new Color(0.10f, 0.11f, 0.14f, 0.98f);
     private static readonly Color ButtonColor = new Color(0.20f, 0.22f, 0.28f, 1f);
@@ -192,6 +195,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _summaryText.text = "";
             _designSection.SetActive(false);
             _developmentSection.SetActive(false);
+            _testingSection.SetActive(false);
             return;
         }
 
@@ -216,12 +220,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         var inDesign = phase == SiliconAlleyState.ProjectPhase.Design;
         var inDevelopment = phase == SiliconAlleyState.ProjectPhase.Development;
+        var inTesting = phase == SiliconAlleyState.ProjectPhase.Testing;
         _designSection.SetActive(inDesign);
         _developmentSection.SetActive(inDevelopment);
+        _testingSection.SetActive(inTesting);
         if (inDesign)
             RefreshDesign(reg, businessType, key, size, rawProgress, perHour);
         else if (inDevelopment)
             RefreshDevelopment(reg, key, size, rawProgress, perHour);
+        else if (inTesting)
+            RefreshTesting(reg, key, perHour);
     }
 
     private void RefreshDesign(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
@@ -270,6 +278,21 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _overtimeImage.color = on ? ButtonSelected : ButtonColor;
     }
 
+    private void RefreshTesting(BuildingRegistration reg, string key, float perHour)
+    {
+        var avgQ = SiliconAlleyState.GetAverageQuality(key);
+        var bugs = avgQ < 0f ? "—" : Mathf.CeilToInt((1f - Mathf.Clamp01(avgQ)) * 20f).ToString(CultureInfo.InvariantCulture);
+        _testBugsText.text = Compose("siliconalley:screen_test_bugs", ("bugs", bugs));
+        _testStaffText.text = Compose("siliconalley:screen_test_staff",
+            ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
+            ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
+
+        var held = SiliconAlleyState.IsHold(key);
+        _holdLabel.text = Compose("siliconalley:screen_hold",
+            ("state", (held ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()));
+        _holdImage.color = held ? ButtonSelected : ButtonColor;
+    }
+
     private void SetControlsInteractable(bool editable)
     {
         for (var i = 0; i < 3; i++)
@@ -302,6 +325,18 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OnToggleOvertime()
     {
         SiliconAlleyState.SetOvertime(_currentKey, !SiliconAlleyState.IsOvertime(_currentKey));
+        Refresh();
+    }
+
+    private void OnToggleHold()
+    {
+        SiliconAlleyState.SetHold(_currentKey, !SiliconAlleyState.IsHold(_currentKey));
+        Refresh();
+    }
+
+    private void OnShipNow()
+    {
+        SiliconAlleyState.ShipNow(_currentKey);
         Refresh();
     }
 
@@ -459,6 +494,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var overtimeButton = MakeButton(_developmentSection.transform, "", OnToggleOvertime);
         _overtimeImage = overtimeButton.GetComponent<Image>();
         _overtimeLabel = overtimeButton.GetComponentInChildren<Text>();
+
+        // ---- Testing section (shown in the Testing phase) ----
+        _testingSection = MakeSection(panel.transform);
+        _testBugsText = MakeText(_testingSection.transform, "TestBugs", 16, TextAnchor.MiddleLeft);
+        _testStaffText = MakeText(_testingSection.transform, "TestStaff", 15, TextAnchor.MiddleLeft);
+        var testRow = MakeRow(_testingSection.transform, 10f, 40);
+        var holdButton = MakeButton(testRow.transform, "", OnToggleHold);
+        _holdImage = holdButton.GetComponent<Image>();
+        _holdLabel = holdButton.GetComponentInChildren<Text>();
+        MakeButton(testRow.transform, "siliconalley:screen_ship".GetLocalization(), OnShipNow);
 
         // ---- Footer (common) ----
         var footer = MakeRow(panel.transform, 10f, 40);
