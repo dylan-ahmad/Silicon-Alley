@@ -227,17 +227,37 @@ public static class SiliconAlleyState
     public static void Reset() => States.Clear();
 
     // --- persistence (stored in GameInstance.modData by SiliconAlleyPersistence) ---
+    // SAVE COMPATIBILITY: this format is FORWARD-COMPATIBLE ONLY (see the Save Compatibility Policy in
+    // CLAUDE.md). Never change the meaning/format of an existing field or reorder a persisted enum's
+    // values; to change semantics, add a NEW field/key, bump CurrentSchemaVersion, and add a Migrate step.
+    //
     // One entry per building:
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType,
-    // joined by ';'. A leading "~global|<index>" entry carries the player's project-type pre-selection so
-    // it survives a session before the options menu (which re-applies the PlayerPrefs value) is opened.
-    // Older saves omit the trailing fields; LoadFrom tolerates their absence.
+    // joined by ';'. Two reserved "~"-prefixed header entries lead the blob:
+    //   "~schema|<version>" — the save schema version (added in v1; absent ⇒ the v1 baseline);
+    //   "~global|<index>"   — the player's project-type pre-selection, so it survives a session before
+    //                          the options menu (which re-applies the PlayerPrefs value) is opened.
+    // Building keys are "streetName:streetNumber" and never start with '~', so '~' is a safe sentinel
+    // namespace; LoadFrom ignores any other unknown "~"-header (forward-compat with newer saves).
+    // Persisted enum ordinals (ProjectKind {Quick=0,Standard=1,Ambitious=2}) are APPEND-ONLY: never
+    // renumber them. ProjectPhase is derived from Progress and is NOT persisted, so it is free to change.
+    // Older saves omit the trailing fields; LoadFrom tolerates their absence and defaults them.
     // InvariantCulture is required so a locale with comma decimals (e.g. nl-NL) cannot corrupt it.
     private const string GlobalTypeKey = "~global";
+
+    // Save schema version. The CURRENT shipped format is the v1 baseline; a save written before the
+    // "~schema" header existed has no such entry and loads as v1 (BaselineSchemaVersion). Bump
+    // CurrentSchemaVersion ONLY when the MEANING/format of an existing field changes, and add a matching
+    // step in Migrate() so older saves migrate forward.
+    private const string SchemaKey = "~schema";
+    private const int BaselineSchemaVersion = 1; // saves with no "~schema" header are this version
+    private const int CurrentSchemaVersion = 1;  // the version we write today
 
     public static string Serialize()
     {
         var builder = new StringBuilder();
+        builder.Append(SchemaKey).Append('|')
+            .Append(CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)).Append(';');
         builder.Append(GlobalTypeKey).Append('|')
             .Append(GlobalProjectType.ToString(CultureInfo.InvariantCulture)).Append(';');
         foreach (var pair in States)
@@ -262,34 +282,76 @@ public static class SiliconAlleyState
         GlobalProjectType = (int)ProjectKind.Standard; // headerless (older) saves default cleanly
         if (string.IsNullOrEmpty(data))
             return;
+
+        // A save written before the "~schema" header existed has no such entry: it IS the v1 baseline.
+        int schemaVersion = BaselineSchemaVersion;
         foreach (var entry in data.Split(';'))
         {
             if (string.IsNullOrEmpty(entry))
                 continue;
-            var parts = entry.Split('|');
-            if (parts[0] == GlobalTypeKey) // the project-type pre-selection header, not a building
+            // Each record is parsed in isolation: a single malformed/old/corrupt entry must degrade
+            // gracefully (be skipped, defaulting that building lazily via Get) rather than abort the
+            // whole save load. TryParse never throws, but the guard keeps any future field shapes safe.
+            try
             {
-                if (parts.Length > 1)
-                    int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out GlobalProjectType);
-                continue;
+                var parts = entry.Split('|');
+                if (parts[0] == SchemaKey) // the schema-version header, not a building
+                {
+                    if (parts.Length > 1)
+                        int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaVersion);
+                    continue;
+                }
+                if (parts[0] == GlobalTypeKey) // the project-type pre-selection header, not a building
+                {
+                    if (parts.Length > 1)
+                        int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out GlobalProjectType);
+                    continue;
+                }
+                if (parts[0].Length > 0 && parts[0][0] == '~')
+                    continue; // unknown reserved header (e.g. from a newer save): ignore for forward-compat
+                if (parts.Length < 5)
+                    continue;
+                var state = new BusinessState();
+                float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Progress);
+                float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Reputation);
+                int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.InstalledBase);
+                float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out state.SupportAccrual);
+                if (parts.Length > 6) // newer saves also carry the quality accumulator
+                {
+                    float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out state.QualitySum);
+                    float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out state.QualityWeight);
+                }
+                if (parts.Length > 7) // and the post-release patch clock
+                    int.TryParse(parts[7], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.LastPatchDay);
+                if (parts.Length > 8) // and the locked project type (issue #3)
+                    int.TryParse(parts[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ProjectType);
+                States[parts[0]] = state;
             }
-            if (parts.Length < 5)
-                continue;
-            var state = new BusinessState();
-            float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Progress);
-            float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Reputation);
-            int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.InstalledBase);
-            float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out state.SupportAccrual);
-            if (parts.Length > 6) // newer saves also carry the quality accumulator
+            catch
             {
-                float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out state.QualitySum);
-                float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out state.QualityWeight);
+                // Skip this record; the building it described falls back to a fresh default state.
             }
-            if (parts.Length > 7) // and the post-release patch clock
-                int.TryParse(parts[7], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.LastPatchDay);
-            if (parts.Length > 8) // and the locked project type (issue #3)
-                int.TryParse(parts[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ProjectType);
-            States[parts[0]] = state;
+        }
+
+        Migrate(schemaVersion);
+    }
+
+    // Forward-migrate the in-memory state just loaded from an older schema up to CurrentSchemaVersion,
+    // one version at a time. Today v1 == current, so this is a no-op; a future bump adds a `case` that
+    // transforms the already-parsed state (e.g. remap a field whose meaning changed) before play resumes.
+    // Keep migrations idempotent and order-independent of how records were parsed above.
+    private static void Migrate(int fromVersion)
+    {
+        var version = fromVersion < BaselineSchemaVersion ? BaselineSchemaVersion : fromVersion;
+        while (version < CurrentSchemaVersion)
+        {
+            switch (version)
+            {
+                // case 1: /* migrate v1 -> v2 here */ version = 2; break;
+                default:
+                    version = CurrentSchemaVersion; // newer-than-known or no step defined: stop cleanly
+                    break;
+            }
         }
     }
 }

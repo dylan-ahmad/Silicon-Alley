@@ -47,3 +47,68 @@ Workforce Inc.** (other agencies don't offer them).
   assume an API.
 - **Not moddable** (confirmed): new employee skills, new building types, custom Factory recipes, AI
   running modded businesses. Reuse existing game systems instead.
+
+## Save Compatibility Policy (ENFORCED — overrides convenience)
+
+Subscribers install new mod versions **on top of existing savegames**. A save must NEVER break because
+of a mod update. These are hard rules, not guidelines: **check every one of them on every change**, even
+when a shortcut looks harmless. They override convenience. If a change cannot satisfy them, it must be
+done via migration (below) or not at all.
+
+### 1. Persisted state (`GameInstance.modData`) is forward-compatible only
+- The serialized blob carries an explicit **schema version** (`~schema|<n>` header in the
+  `"SiliconAlley"` value; see `SiliconAlleyState.Serialize/LoadFrom`). A save **without** the header is
+  the **v1 baseline** — do not treat its absence as an error.
+- Loading must handle **every shipped version**: missing fields **default** to sensible values;
+  unknown/extra fields (and unknown `~`-headers) are **ignored**; deserialization of **each record is
+  wrapped in try/catch** so one bad/old entry is defaulted/skipped instead of crashing the save load.
+- **Never change the meaning or format of an existing key/field.** To change semantics, add a **NEW**
+  key/field, bump `CurrentSchemaVersion`, and add an explicit old→new step in `Migrate()`.
+- When adding new per-project/per-business state, **default it for old saves** to a value that maps the
+  old state sensibly (e.g. an in-flight project with accrued progress ⇒ `ProjectKind.Standard`, as
+  `EnsureProjectTypeLocked` already does — don't suddenly rescale a legacy project).
+- Simple flags follow the same rule by being absence-tolerant, e.g. `SiliconAlley.ClientWelcomeSent`
+  (absent ⇒ "not sent"). `PlayerPrefs`/options are machine-local and out of scope (not in the save).
+
+### 2. Enum / identifier values are append-only
+- Once an enum value or registered identifier has **shipped in a release**, **never rename, remove, or
+  reorder it**. Saves reference content by its hashed/string value and persisted enum **ordinals**, so
+  renaming/renumbering breaks them. Deprecate by leaving it in place and not using it for new content.
+- This covers: `businessTypeName`, `itemName`, the `ModEnumHash.GetSafeHash(...)` string, and any
+  **persisted enum ordinal** (`ProjectKind {Quick=0,Standard=1,Ambitious=2}`). Derived, non-persisted
+  enums (`ProjectPhase`, computed from `Progress`) are exempt.
+- **Display names / localization may change freely**; the underlying identifier/ordinal may NOT.
+
+### 3. Release gate (run before anything ships)
+Verify the change does **not**:
+- (a) rename / remove / reorder a shipped enum value or identifier (§2),
+- (b) change an existing `modData` key's format or meaning (§1),
+- (c) remove registered content (business type / item) a save could reference.
+
+If a change requires any of (a)–(c), it **must** be handled via a schema bump + `Migrate()` step (and the
+ledger below updated), or the change must be avoided.
+
+### SHIPPED_ENUMS — append-only ledger (immutable once listed)
+
+**Current save schema version: `1`.** Add to this list when new content ships; never edit or remove a
+line that has shipped.
+
+- **Business types** (`businessTypeName`):
+  - `siliconalley:businesstype_softwarestudio`
+  - `siliconalley:businesstype_cybersecurity`
+  - `siliconalley:businesstype_gamestudio`
+- **Items** (`itemName`):
+  - `siliconalley:itemname_softwarelicense`
+  - `siliconalley:itemname_securityaudit`
+  - `siliconalley:itemname_videogame`
+- **CallDialogType** (minted via `ModEnumHash.GetSafeHash`): `siliconalley_clientdialog`
+- **Persisted enum ordinals** (inside the `"SiliconAlley"` blob): `ProjectKind { Quick=0, Standard=1,
+  Ambitious=2 }`
+- **modData keys:** `SiliconAlley` (versioned state blob), `SiliconAlley.ClientWelcomeSent` (bool flag)
+- **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
+  `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →
+  `ba:itemname_toiletstall`, `Sink` → `ba:itemname_sink`.
+
+> Ledger lives here (not in a mod-folder file) on purpose: the packager sweeps loose files in
+> `Assets/Mods/SiliconAlley/` into the AssetBundle, and a functional `Enums.txt` could alter
+> build/registration. `CLAUDE.md` is where future sessions look and is the single source of truth.
