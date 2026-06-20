@@ -26,6 +26,13 @@ public static class SiliconAlleyState
         public float TestQualitySum, TestQualityWeight;
         public int LastPatchDay;     // game-day the live catalog was last patched (post-release updates)
         public int ProjectType = -1; // ProjectKind locked in for the current project; -1 = not yet locked
+        // Issue #9 (Design screen): player-set, per-project Design controls. DesignFocus 0=polish..1=speed
+        // (0.5 = neutral, so old saves and untouched projects behave exactly as before); ConceptLocked
+        // freezes scope+focus once the player commits. Both appended to the save (absent in old saves =>
+        // the defaults here). Editable only while in the Design phase and not yet locked.
+        public float DesignFocus = 0.5f;
+        public int ConceptLocked;    // 0 = open (player may still set scope/focus), 1 = locked
+        public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
     }
 
     private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
@@ -198,6 +205,8 @@ public static class SiliconAlleyState
         state.DevQualitySum = 0f; state.DevQualityWeight = 0f;
         state.TestQualitySum = 0f; state.TestQualityWeight = 0f;
         state.ProjectType = GlobalProjectType; // the next project uses the current global selection
+        state.ConceptLocked = 0; // issue #9: the next project's concept reopens (DesignFocus stays sticky)
+        state.DesignPrompted = false; // nudge again for the next project
     }
 
     // Step 3 (quality): sample this hour's staff quality (0..1), weighted by phase so Testing-phase
@@ -247,6 +256,49 @@ public static class SiliconAlleyState
     // locked effective size (same as PhaseOf, without the caller re-fetching both).
     public static ProjectPhase CurrentPhase(string key) => PhaseOf(GetProgress(key), EffectiveProjectSize(key));
 
+    // ---- issue #9 (Design screen): per-project Design controls -------------------------------------
+    // The player edits scope/focus only while the project is still in its Design phase and the concept
+    // is not yet locked; the setters are no-ops otherwise, so a mid-project screen can't rescale a
+    // project that has moved on (mirrors the EnsureProjectTypeLocked "don't rescale a legacy project" rule).
+    public static bool IsConceptLocked(string key) => Get(key).ConceptLocked != 0;
+    public static float GetDesignFocus(string key) => Get(key).DesignFocus;
+
+    // True while the player may still shape the concept: in the Design phase and not yet locked.
+    public static bool CanEditConcept(string key) =>
+        Get(key).ConceptLocked == 0 && CurrentPhase(key) == ProjectPhase.Design;
+
+    // Set this studio's scope for the current project — a per-studio override of the global pre-selection.
+    public static void SetScope(string key, int kind)
+    {
+        if (CanEditConcept(key))
+            Get(key).ProjectType = (int)ToKind(kind);
+    }
+
+    // Set the Design focus (0 = polish .. 1 = speed), clamped.
+    public static void SetDesignFocus(string key, float value)
+    {
+        if (CanEditConcept(key))
+            Get(key).DesignFocus = Mathf.Clamp01(value);
+    }
+
+    // Commit the concept: freeze scope + focus for the rest of this project.
+    public static void LockConcept(string key)
+    {
+        if (CurrentPhase(key) == ProjectPhase.Design)
+            Get(key).ConceptLocked = 1;
+    }
+
+    // Returns true exactly once per project (per session) so the simulator nudges the player to set the
+    // concept just once. Transient (not persisted): a reload may re-nudge once, which is harmless.
+    public static bool TryMarkDesignPrompted(string key)
+    {
+        var state = Get(key);
+        if (state.DesignPrompted)
+            return false;
+        state.DesignPrompted = true;
+        return true;
+    }
+
     public static void DecayReputation(string key, float amount)
     {
         var state = Get(key);
@@ -276,10 +328,13 @@ public static class SiliconAlleyState
     //
     // One entry per building (fields are APPEND-ONLY; older saves omit trailing fields, which default):
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
-    //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight,
-    // joined by ';'. The six per-phase quality fields (issue #8) were appended at schema v1; a pre-#8 save
-    // omits them and they default to 0 (per-phase quality then reads as "not accrued" via GetPhaseQuality,
-    // while the aggregate qualitySum/qualityWeight still yields the real shipped quality). Two reserved
+    //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
+    //    |designFocus|conceptLocked,
+    // joined by ';'. The six per-phase quality fields (issue #8) and the two Design-screen fields (issue #9:
+    // designFocus default 0.5 = neutral, conceptLocked 0) were appended at schema v1; a save from before a
+    // given field omits it and it defaults (per-phase quality reads "not accrued" via GetPhaseQuality;
+    // designFocus stays 0.5; conceptLocked 0) while the aggregate qualitySum/qualityWeight still yields the
+    // real shipped quality. Two reserved
     // "~"-prefixed header entries lead the blob:
     //   "~schema|<version>" — the save schema version (added in v1; absent ⇒ the v1 baseline);
     //   "~global|<index>"   — the player's project-type pre-selection, so it survives a session before
@@ -324,7 +379,9 @@ public static class SiliconAlleyState
                 .Append(state.DevQualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.DevQualityWeight.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.TestQualitySum.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.TestQualityWeight.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.TestQualityWeight.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.DesignFocus.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.ConceptLocked.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -393,6 +450,10 @@ public static class SiliconAlleyState
                     float.TryParse(parts[13], NumberStyles.Float, CultureInfo.InvariantCulture, out state.TestQualitySum);
                     float.TryParse(parts[14], NumberStyles.Float, CultureInfo.InvariantCulture, out state.TestQualityWeight);
                 }
+                if (parts.Length > 15) // issue #9: Design focus (absent in pre-#9 saves ⇒ field default 0.5)
+                    float.TryParse(parts[15], NumberStyles.Float, CultureInfo.InvariantCulture, out state.DesignFocus);
+                if (parts.Length > 16) // issue #9: concept-locked flag (absent ⇒ 0, open)
+                    int.TryParse(parts[16], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ConceptLocked);
                 States[parts[0]] = state;
             }
             catch

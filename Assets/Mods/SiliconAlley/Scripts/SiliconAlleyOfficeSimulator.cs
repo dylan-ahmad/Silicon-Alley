@@ -76,11 +76,25 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 totalSatisfaction += member.satisfaction;
             }
 
-            SiliconAlleyState.AddProgress(key, effectiveSkill * SiliconAlleyState.ProjectSpeed);
+            // Issue #9: in the Design phase the player's Design focus trades progress speed against the
+            // design-quality baseline. Balanced (0.5) is exactly neutral, so default/legacy behaviour is
+            // unchanged; polish slows Design but lifts its quality, speed does the reverse.
+            float designProgressScale = 1f, designQualityScale = 1f;
+            if (phase == SiliconAlleyState.ProjectPhase.Design)
+            {
+                var focus = SiliconAlleyState.GetDesignFocus(key);
+                designProgressScale = 1f + (focus - 0.5f) * 0.5f; // 0.75x (polish) .. 1.25x (speed)
+                designQualityScale = 1f - (focus - 0.5f) * 0.4f;  // 1.2x (polish) .. 0.8x (speed)
+                // Nudge the player once per project to set the concept (unless they already locked it).
+                if (!SiliconAlleyState.IsConceptLocked(key) && SiliconAlleyState.TryMarkDesignPrompted(key))
+                    AnnounceDesignPrompt(businessType, key);
+            }
+
+            SiliconAlleyState.AddProgress(key, effectiveSkill * SiliconAlleyState.ProjectSpeed * designProgressScale);
             var progressAfter = SiliconAlleyState.GetProgress(key);
             AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter, size);
             // Step 3 (quality): sample this hour's effective staff quality; Testing-phase work counts double.
-            var hourQuality = Mathf.Clamp01(effectiveSkill / staffCount / 100f) * Mathf.Clamp01(totalSatisfaction / staffCount / 100f);
+            var hourQuality = Mathf.Clamp01(effectiveSkill / staffCount / 100f) * Mathf.Clamp01(totalSatisfaction / staffCount / 100f) * designQualityScale;
             var phaseWeight = phase == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
             SiliconAlleyState.AccumulateQuality(key, phase, hourQuality, phaseWeight);
             Debug.Log($"[SiliconAlley] {key} h{currentHour}: {staffCount} staff, {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
@@ -130,6 +144,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var accruedQuality = SiliconAlleyState.GetAverageQuality(key);
             if (accruedQuality < 0f)
                 accruedQuality = Mathf.Clamp01(effectiveSkill / Mathf.Max(1, staffCount) / 100f) * Mathf.Clamp01(totalSatisfaction / Mathf.Max(1, staffCount) / 100f);
+            // Issue #9: a weak Design phase caps the shipped quality even if later phases were strong — the
+            // design baseline sets the ceiling. Skipped when no Design quality accrued (legacy saves), so
+            // old in-flight projects are unaffected.
+            var designQuality = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
+            if (designQuality >= 0f)
+                accruedQuality = Mathf.Min(accruedQuality, 0.5f + 0.5f * designQuality);
             var quality = accruedQuality * Mathf.Max(0.25f, cleanliness);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
@@ -204,6 +224,20 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["phase"] = SiliconAlleyState.PhaseNameKey(newPhase).GetLocalization(),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_phase", data, 5f, key + ":" + newPhase);
+    }
+
+    // Issue #9: nudge the player to open the Design screen and set the concept for a fresh project. The
+    // toast is clickable — clicking it opens the project screen focused on this studio. Fired once per
+    // project (gated by SiliconAlleyState.TryMarkDesignPrompted), so it never spams.
+    private void AnnounceDesignPrompt(BusinessType businessType, string key)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["product"] = ProductDisplayName(businessType),
+        };
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_design", data, 6f, key + ":design",
+            () => SiliconAlleyProjectScreen.Open(key));
     }
 
     // Step 3 (support/updates): announce a periodic patch shipped to the studio's live catalog.
