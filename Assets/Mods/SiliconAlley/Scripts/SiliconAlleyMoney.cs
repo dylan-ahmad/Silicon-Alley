@@ -1,62 +1,54 @@
-using BigAmbitions.DayNightCycle;
+using System.Collections.Generic;
 using Entities;
-using Helpers;
 using UnityEngine;
 
 // Issue #21 (Marketing): the SINGLE place the mod spends cash. Marketing campaigns deduct money here;
 // project revenue/support keep using the simulator's CreditRevenue (the order path). Centralising the
 // debit means there is exactly one symbol to verify against the decompiled game DLLs (the API source of
-// truth per CLAUDE.md) and one place to swap in a first-class BA money/expense API if a cleaner one is
-// confirmed in-engine.
+// truth per CLAUDE.md) and one place to swap implementations.
 //
-// IMPLEMENTATION NOTE (verify in the Unity dev env, where the game DLLs are imported): cash leaves the
-// studio's account as a business EXPENSE, mirroring how CreditRevenue books income — a completed order on
-// the building, but with a negative amount. This reuses the one money channel already proven in this mod
-// (BuildingRegistration.unprocessedCompletedOrders), so it compiles against the same types. If BA exposes
-// a dedicated transaction/expense API, replace the body of Spend() with it — callers don't change.
+// VERIFIED against decompiled/BigAmbitions: cash leaves the player's account via GameManager.ChangeMoneySafe
+// — the SAME first-class money API the base game uses for casino tickets, entrance fees and seller-stand
+// buys (it negates the amount, books a labelled Transaction, plays the spend sound, and shows the
+// insufficient-money toast itself). GameManager / TransactionInfo / SaveGameManager / Address live in the
+// global namespace. This replaces the earlier "negative-price completed Order" workaround, which only netted
+// against the building's *daily* revenue (deferred, mislabelled as revenue, and silently dropped a whole
+// building's order processing if the net day went negative while near-broke).
 public static class SiliconAlleyMoney
 {
-    // True if the studio can pay `amount`. Best-effort: without a verified balance-read API we don't block
-    // the player (an overdraft falls to the game's own handling). Wire a real balance check here once the
-    // BA money API is confirmed in-engine; callers already gate their buttons on this.
+    // Localized label shown in the financial transaction log (Locales/en.json: siliconalley:transaction_marketing).
+    private const string MarketingTransactionType = "siliconalley:transaction_marketing";
+
+    // True if the player can pay `amount` right now. Reads the SAME live balance ChangeMoneySafe debits, so
+    // the button gate in SiliconAlleyProjectScreen matches exactly what TrySpend will actually allow.
     public static bool CanAfford(BuildingRegistration registration, float amount)
     {
-        return registration != null && amount >= 0f;
+        if (registration == null || amount < 0f)
+            return false;
+        return SaveGameManager.Current.Money >= amount;
     }
 
-    // Deduct `amount` from the studio as a marketing expense. Returns false (and spends nothing) if it
-    // can't be afforded or the registration is missing, so callers can refuse the campaign cleanly.
+    // Deduct `amount` from the player's account as a marketing expense — immediately and atomically — via the
+    // base-game money API. Returns false (and spends nothing) if the registration is missing or the player
+    // can't afford it, so callers can refuse the campaign cleanly and never charge for one that didn't land.
     public static bool TrySpend(BuildingRegistration registration, float amount, string reason)
     {
-        if (registration == null || amount <= 0f || !CanAfford(registration, amount))
+        if (registration == null || amount <= 0f)
             return false;
-        try
+
+        var data = new Dictionary<string, string>
         {
-            // Book a completed, paid expense order (negative amount) on the studio — the inverse of the
-            // revenue the simulator credits, so marketing cost shows in the business's books.
-            var order = new Order
-            {
-                completed = true,
-                cleanliness = registration.GetCleanliness(),
-                customerServiceSkill = 0f,
-                customerDemandScore = 1f,
-                timestamp = new Timestamp(TimeHelper.CurrentDay, TimeHelper.CurrentHour, 0f),
-            };
-            order.entries.Add(new OrderEntry
-            {
-                itemName = registration.businessTypeName, // bookkeeping label for the expense line
-                price = -Mathf.Abs(amount),
-                available = true,
-                paid = true,
-                priceAccceptable = true,
-            });
-            registration.unprocessedCompletedOrders.Add(order);
+            ["businessName"] = registration.BusinessName,
+            ["reason"] = reason ?? string.Empty,
+        };
+        var info = new TransactionInfo(MarketingTransactionType, data);
+
+        // amount<0 with force:false ⇒ ChangeMoneySafe books the expense, plays the spend sound and shows the
+        // insufficient-money toast itself, returning false (and changing nothing) if the player can't afford it.
+        bool spent = GameManager.ChangeMoneySafe(0f - amount, info, null, registration.Address,
+            force: false, showNotification: true);
+        if (spent)
             Debug.Log($"[SiliconAlley] {SiliconAlleyState.KeyFor(registration)} spent ${amount:F0} on {reason}.");
-            return true;
-        }
-        catch
-        {
-            return false; // never let a marketing buy corrupt the studio's books
-        }
+        return spent;
     }
 }

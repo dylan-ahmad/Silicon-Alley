@@ -29,6 +29,7 @@
   "siliconalley:client_greeting": "Good to hear from you. Keep shipping quality and the contracts will keep coming.",
   "siliconalley:notify_projectcomplete": "{business} shipped {product} — review {review}/10, quality {quality}, +{payout} (reputation x{repmult}, market x{marketmult})",
   "siliconalley:notify_marketing": "{business}: {channel} landed — awareness now {awareness}",
+  "siliconalley:transaction_marketing": "Marketing campaign",
   "siliconalley:notify_phase": "{business}: {product} entered {phase}",
   "siliconalley:notify_patch": "{business} shipped an update for {product} — {catalog} live, +{revenue}",
   "siliconalley:phase_design": "Design",
