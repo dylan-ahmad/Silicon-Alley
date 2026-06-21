@@ -191,7 +191,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // 4) Complete any finished projects. Each project's type was locked at its start (issue #3), so
         // read it per iteration — OnProjectCompleted re-locks the NEXT project to the current selection.
         // Issue #11: a held project never auto-ships (the player ships it via "Ship now").
-        while (staffCount > 0 && product != null && marketPrice > 0f && !SiliconAlleyState.IsHold(key))
+        // NOTE: this does NOT require staff this hour. Progress only ever reaches completion through staffed
+        // work, so a project that is already at 100% should release even if the studio is momentarily
+        // unstaffed (e.g. outside working hours) — otherwise a finished product sits unshipped until someone
+        // is next at a desk, which also let a publisher deadline (#23) lapse on a build that was actually
+        // ready. The body still bails via `progress < size`, so nothing ships early.
+        while (product != null && marketPrice > 0f && !SiliconAlleyState.IsHold(key))
         {
             var projectKind = SiliconAlleyState.GetProjectType(key);
             var projectSize = SiliconAlleyState.EffectiveProjectSize(key);
