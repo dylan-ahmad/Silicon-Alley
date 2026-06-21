@@ -258,9 +258,14 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 }
                 SiliconAlleyState.ClearDeal(key);
             }
-            SiliconAlleyState.OnProjectCompleted(key, quality, 1 + launchBonus, review);
+            // Issue #37: the target platforms widen the launch installed-base jump (reach = Σ selected share
+            // weights; 1.0 for the single home platform, so a legacy/default launch is unchanged). Layered on the
+            // launch units only — payout/MarketFactor untouched. OnProjectCompleted still floors at Max(1, …).
+            var reach = SiliconAlleyState.LaunchReach(key, businessType.businessTypeName);
+            var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach);
+            SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
-            Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, +{1 + launchBonus} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
+            Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, +{launchUnits} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
             ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review, version);
             // Issue #12: remember this ship so the screen can show a "ship report" (transient).
             SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor, review);

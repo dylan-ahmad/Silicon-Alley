@@ -111,6 +111,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private Image[] _featureImages;
     private TMP_Text[] _featureLabels;
     private TMP_Text _featuresReadout;
+    // Operating-systems page (issue #37): same toggle-pool pattern as features; bit i toggles a PlatformMask bit.
+    private GameObject _platformsPage;
+    private Button[] _platformButtons;
+    private Image[] _platformImages;
+    private TMP_Text[] _platformLabels;
+    private TMP_Text _platformsReadout;
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -438,6 +444,49 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         return Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
     }
 
+    // Operating-systems page (issue #37): the current type's platform list as toggles; each selected platform
+    // widens launch reach and adds porting work, so the projected size/ETA + reach in the readout move as bits
+    // flip. Unused slots (types with fewer platforms) are hidden.
+    private void RefreshPlatformsPage()
+    {
+        var key = _currentKey;
+        var type = _ctxBusinessType?.businessTypeName;
+        var plats = SiliconAlleyPlatforms.PlatformsFor(type);
+        var mask = SiliconAlleyState.GetPlatformMask(key);
+        for (var i = 0; i < _platformButtons.Length; i++)
+        {
+            var has = i < plats.Length;
+            _platformButtons[i].gameObject.SetActive(has);
+            if (!has)
+                continue;
+            var p = plats[i];
+            _platformLabels[i].text = Compose("siliconalley:wiz_platform_row",
+                ("name", p.NameKey.GetLocalization()),
+                ("share", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture)),
+                ("scope", Mathf.RoundToInt(p.ScopeCost * 100f).ToString(CultureInfo.InvariantCulture)));
+            _platformImages[i].color = (mask & (1 << p.Bit)) != 0 ? ButtonSelected : ButtonColor;
+        }
+        _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
+            ("market", PlatformMarketText(key, type)),
+            ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
+            ("eta", EtaText(_ctxSize - _ctxProgress, _ctxPerHour)));
+    }
+
+    // Shared "reach ×N.N · K platform(s)" phrase for the OS page readout and the Summary market row. PlatformMask
+    // 0 reads as the single implicit home platform (reach ×1.0 · 1).
+    private string PlatformMarketText(string key, string businessTypeName)
+    {
+        var mask = SiliconAlleyState.GetPlatformMask(key);
+        var reach = SiliconAlleyPlatforms.ReachMultiplier(mask, businessTypeName);
+        var count = 0;
+        foreach (var p in SiliconAlleyPlatforms.PlatformsFor(businessTypeName))
+            if ((mask & (1 << p.Bit)) != 0) count++;
+        if (count == 0) count = 1; // the implicit single home platform
+        return Compose("siliconalley:wiz_market_reach",
+            ("reach", reach.ToString("0.0", CultureInfo.InvariantCulture)),
+            ("count", count.ToString(CultureInfo.InvariantCulture)));
+    }
+
     // Summary page: a read-only review aggregated before commit. Today only scope/ETA and a design-quality
     // baseline are computable; the remaining rows show neutral placeholders that the sub-issues fill in.
     private void RefreshSummaryPage()
@@ -459,9 +508,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("value", "siliconalley:wiz_placeholder_none".GetLocalization()));
         _sumRoyaltiesText.text = Compose("siliconalley:wiz_sum_royalties",
             ("value", "siliconalley:wiz_placeholder_noroyalties".GetLocalization()));
-        // #37 operating systems × #38 audience segment: reachable market.
+        // #37 operating systems (reach from the targeted platforms); #38 audience segment will extend this.
         _sumMarketText.text = Compose("siliconalley:wiz_sum_market",
-            ("value", "siliconalley:wiz_placeholder_allmarket".GetLocalization()));
+            ("value", PlatformMarketText(key, _ctxBusinessType?.businessTypeName)));
     }
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
@@ -650,6 +699,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var feats = SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName);
         if (slot >= 0 && slot < feats.Length)
             SiliconAlleyState.ToggleFeature(_currentKey, feats[slot].Bit);
+        Refresh();
+    }
+
+    // Issue #37: toggle the platform shown in this OS-page slot for the current business type (same slot→bit
+    // resolution as features).
+    private void OnTogglePlatform(int slot)
+    {
+        var plats = SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName);
+        if (slot >= 0 && slot < plats.Length)
+            SiliconAlleyState.TogglePlatform(_currentKey, plats[slot].Bit);
         Refresh();
     }
 
@@ -989,6 +1048,24 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         }
         _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
+        // Operating-systems page (issue #37): the platform checklist. Same reusable toggle-button pool as the
+        // features page, sized to the largest platform table; RefreshPlatformsPage relabels + shows the type.
+        _platformsPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_platformsPage.transform, "siliconalley:wiz_platforms_header");
+        var platformSlots = SiliconAlleyPlatforms.MaxCount;
+        _platformButtons = new Button[platformSlots];
+        _platformImages = new Image[platformSlots];
+        _platformLabels = new TMP_Text[platformSlots];
+        for (var i = 0; i < platformSlots; i++)
+        {
+            var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
+            var btn = MakeButton(_platformsPage.transform, "", () => OnTogglePlatform(slot));
+            _platformButtons[i] = btn;
+            _platformImages[i] = btn.GetComponent<Image>();
+            _platformLabels[i] = btn.GetComponentInChildren<TMP_Text>();
+        }
+        _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+
         // Register pages in display order: Concept first, Summary last. A sub-issue (#26/#36/#37/#38) inserts
         // its page just before Summary with an IsPresent that gates it on its feature.
         _wizardPages.Add(new WizardPage { Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage });
@@ -1000,6 +1077,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             Root = _featuresPage,
             IsPresent = () => SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshFeaturesPage,
+        });
+        // Issue #37: the Operating systems page follows Features, still just before Summary.
+        _wizardPages.Insert(_wizardPages.Count - 1, new WizardPage
+        {
+            Root = _platformsPage,
+            IsPresent = () => SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName).Length > 0,
+            Refresh = RefreshPlatformsPage,
         });
 
         // Nav row: Back · Next/Confirm (Next's label flips to Confirm on the Summary page).

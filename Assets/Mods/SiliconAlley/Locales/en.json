@@ -134,5 +134,21 @@
   "siliconalley:feature_game_physics": "Physics Engine",
   "siliconalley:feature_game_multiplayer": "Multiplayer Netcode",
   "siliconalley:feature_game_procedural": "Procedural Generation",
-  "siliconalley:feature_game_modsupport": "Mod Support"
+  "siliconalley:feature_game_modsupport": "Mod Support",
+  "siliconalley:wiz_platforms_header": "Operating systems — target platforms (reach & porting)",
+  "siliconalley:wiz_platform_row": "{name}  (share {share}, +{scope}% size)",
+  "siliconalley:wiz_platforms_readout": "{market} · size {size} · ship in {eta}",
+  "siliconalley:wiz_market_reach": "reach ×{reach} · {count} platform(s)",
+  "siliconalley:platform_office_desktop": "Desktop",
+  "siliconalley:platform_office_web": "Web",
+  "siliconalley:platform_office_mobile": "Mobile",
+  "siliconalley:platform_office_cloud": "Cloud / SaaS",
+  "siliconalley:platform_security_desktop": "Desktop",
+  "siliconalley:platform_security_server": "Server",
+  "siliconalley:platform_security_cloud": "Cloud",
+  "siliconalley:platform_security_mobile": "Mobile",
+  "siliconalley:platform_game_pc": "PC",
+  "siliconalley:platform_game_console": "Console",
+  "siliconalley:platform_game_mobile": "Mobile",
+  "siliconalley:platform_game_web": "Web"
 }

@@ -361,13 +361,15 @@ public static class SiliconAlleyState
         return state.ProjectType;
     }
 
-    // Progress required to complete this building's current project, scaled by its locked type and (issue #26)
-    // the features selected in the design wizard. FeatureMask 0 ⇒ SizeMultiplier 1.0 ⇒ unchanged from before.
+    // Progress required to complete this building's current project, scaled by its locked type, the features
+    // selected in the design wizard (issue #26) and the target platforms (issue #37 — extra platforms add
+    // porting work). FeatureMask/PlatformMask 0 ⇒ both multipliers 1.0 ⇒ unchanged from before.
     public static float EffectiveProjectSize(string key)
     {
         var state = Get(key);
         return ProjectSize * DurationMultiplier(state.ProjectType < 0 ? (int)ProjectKind.Standard : state.ProjectType)
-            * SiliconAlleyFeatures.SizeMultiplier(state.FeatureMask, state.BusinessTypeName);
+            * SiliconAlleyFeatures.SizeMultiplier(state.FeatureMask, state.BusinessTypeName)
+            * SiliconAlleyPlatforms.SizeMultiplier(state.PlatformMask, state.BusinessTypeName);
     }
 
     // Issue #20/#21: complete the current project. The shipped quality already carries the bug penalty
@@ -403,6 +405,7 @@ public static class SiliconAlleyState
         state.ConceptLocked = 0; // issue #9: the next project's concept reopens (DesignFocus stays sticky)
         state.Hold = 0;          // issue #11: the next project isn't held
         state.FeatureMask = 0;   // issue #26: features are chosen per product — the next project starts feature-free
+        state.PlatformMask = 0;  // issue #37: target platforms are chosen per product too — reset for the next
         state.DesignPrompted = false; // nudge again for the next project
     }
 
@@ -508,6 +511,25 @@ public static class SiliconAlleyState
         var bonus = SiliconAlleyFeatures.QualityBonus(Get(key).FeatureMask, businessTypeName);
         return Mathf.Min(1f, 0.5f + 0.5f * designQuality + bonus);
     }
+
+    // ---- issue #37 (Platforms): per-project target operating systems ---------------------------------
+    // The bitmask of platforms targeted by the current project (bit = SiliconAlleyPlatforms Bit, per business
+    // type). Edited only while the concept is editable, like features; reset per product on completion. More
+    // platforms widen reach (LaunchReach) and add porting work (folded into EffectiveProjectSize).
+    public static int GetPlatformMask(string key) => Get(key).PlatformMask;
+    public static bool HasPlatform(string key, int bit) => (Get(key).PlatformMask & (1 << bit)) != 0;
+
+    public static void TogglePlatform(string key, int bit)
+    {
+        if (CanEditConcept(key))
+            Get(key).PlatformMask ^= 1 << bit;
+    }
+
+    // The launch reach multiplier from the project's selected platforms (issue #37): Σ selected share weights,
+    // 1.0 for the default single "home" platform (PlatformMask 0). Scales the launch installed-base jump only;
+    // the payout / MarketFactor are untouched. PlatformMask 0 ⇒ 1.0 ⇒ launch identical to before.
+    public static float LaunchReach(string key, string businessTypeName)
+        => SiliconAlleyPlatforms.ReachMultiplier(Get(key).PlatformMask, businessTypeName);
 
     // Issue #10 (Development): the studio's Overtime policy — a sticky toggle that only takes effect in
     // the Development phase (speeds the build, lowers quality). Settable any time; it just persists.
