@@ -193,6 +193,9 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #36: licensed tools take a recurring royalty cut of support income too (0 when no tool is
             // licensed / legacy save, so support is unchanged). Layered on top — SupportRatePerDay is untouched.
             support *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
+            // Issue #28: recurring support breathes with the category's market demand too (a new factor; the
+            // competition MarketFactor / SupportRatePerDay are untouched). Derived from the day — no state.
+            support *= SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
             if (support > 0f)
                 CreditRevenue(product, support, 1f);
         }
@@ -204,7 +207,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var catalog = SiliconAlleyState.GetInstalledBase(key);
             if (catalog > 0 && TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key) >= PatchIntervalDays)
             {
-                var patchRevenue = marketPrice * catalog * PatchRevenueFraction * MarketFactor(buildingRegistration, kind);
+                var patchRevenue = marketPrice * catalog * PatchRevenueFraction * MarketFactor(buildingRegistration, kind)
+                    * SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay); // issue #28: dynamic demand
                 CreditRevenue(product, patchRevenue, 1f);
                 SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay);
                 AnnouncePatch(businessType, key, catalog, patchRevenue);
@@ -265,6 +269,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // legacy/default ship is unchanged). A new multiplier layered on top — MarketFactor / reputationFactor
             // / the project-kind multiplier are untouched; the volume side feeds the installed base below.
             payout *= SiliconAlleyState.SegmentPriceFactor(key);
+            // Issue #28: the category's current market demand scales the launch revenue too — a new factor
+            // layered on top (the competition MarketFactor is untouched), derived from the day so it matches the
+            // dashboard. Bounded ±Amplitude, so the same product earns more in a hot market and less in a cold one.
+            var demand = SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
+            payout *= demand;
             CreditRevenue(product, payout, quality);
             // Issue #23 (Publisher deals): if this product was under a deal, fulfil it on this ship. On-time
             // (shipped on/before the deadline day) pays the locked bonus ON TOP of the normal payout, scaled by
@@ -296,7 +305,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach * SiliconAlleyState.SegmentVolumeFactor(key));
             SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
-            Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, +{launchUnits} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
+            Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, market demand x{demand:F2}, +{launchUnits} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
             ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review, version);
             // Issue #12: remember this ship so the screen can show a "ship report" (transient).
             SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor, review);
