@@ -183,8 +183,10 @@ line that has shipped.
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /
-  support / patch revenue alongside `MarketFactor`). Both compute from existing state + the game day, so old
-  saves gain them with no field added.
+  support / patch revenue alongside `MarketFactor`); and the **marketing synergy** (#29,
+  `SiliconAlleyOfficeSimulator.OwnedMarketingAgencies`, free `Awareness`/hour to the IT studios while the player
+  operates a base-game `ba:businesstype_marketingagency`, detected via `RentedByPlayer`). All compute from
+  existing state / building ownership + the game day, so old saves gain them with no field added.
 - **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
   `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →
   `ba:itemname_toiletstall`, `Sink` → `ba:itemname_sink`.
