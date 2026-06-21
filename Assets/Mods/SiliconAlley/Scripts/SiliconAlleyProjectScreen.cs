@@ -87,7 +87,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Pages are shown one at a time; sub-issues (#26 features / #36 tools / #37 OS / #38 market) insert their
     // own page before Summary via _wizardPages, with an IsPresent that returns false until the feature ships
     // (the wizard skips absent pages, so today it reduces to Concept → Summary).
-    private struct WizardPage { public GameObject Root; public Func<bool> IsPresent; public Action Refresh; }
+    // Order = canonical wizard step (Concept 0, Features 10, Tools 20, OS 30, Market 40, Summary 100); pages sort
+    // by it in RebuildVisiblePages so siblings display in step order regardless of which PR/merge registered them.
+    private struct WizardPage { public int Order; public GameObject Root; public Func<bool> IsPresent; public Action Refresh; }
     private readonly List<WizardPage> _wizardPages = new List<WizardPage>();
     private readonly List<WizardPage> _visiblePages = new List<WizardPage>(); // present pages, rebuilt per refresh
     private int _wizardPage; // index into _visiblePages
@@ -117,6 +119,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private Image[] _platformImages;
     private TMP_Text[] _platformLabels;
     private TMP_Text _platformsReadout;
+    // Editors & tools page (issue #36): one CYCLE button per tool (Off → Licensed → Owned); the studio-level
+    // OwnedToolsMask + per-project UsedToolsMask back it. Building (own) charges R&D cash via SiliconAlleyMoney.
+    private GameObject _toolsPage;
+    private Button[] _toolButtons;
+    private Image[] _toolImages;
+    private TMP_Text[] _toolLabels;
+    private TMP_Text _toolsReadout;
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -147,6 +156,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private static readonly Color PanelColor = new Color(0.086f, 0.098f, 0.125f, 0.98f); // deep navy HUD
     private static readonly Color ButtonColor = new Color(0.18f, 0.21f, 0.27f, 1f);       // slate
     private static readonly Color ButtonSelected = new Color(0.20f, 0.50f, 0.86f, 1f);    // game blue
+    private static readonly Color ButtonWarn = new Color(0.80f, 0.55f, 0.20f, 1f);        // amber — licensed (paying royalty) (issue #36)
     private static readonly Color TextColor = new Color(0.90f, 0.92f, 0.96f, 1f);
     private static readonly Color HeaderColor = new Color(0.52f, 0.72f, 1f, 1f);   // section-header accent
     private static readonly Color DividerColor = new Color(1f, 1f, 1f, 0.08f);     // thin separator line
@@ -377,6 +387,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         foreach (var page in _wizardPages)
             if (page.IsPresent == null || page.IsPresent())
                 _visiblePages.Add(page);
+        _visiblePages.Sort((a, b) => a.Order.CompareTo(b.Order)); // issue #36: show pages in canonical step order
     }
 
     // Concept page: today's scope + focus controls plus read-only product name and baseline readouts.
@@ -435,12 +446,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     }
 
     // A display estimate of the achievable quality ceiling: the design baseline (clamped, so it reads sensibly
-    // before any Design work) raised by the selected features. Matches the simulator's DesignQualityCeiling for
-    // a real design quality; purely for the wizard preview.
+    // before any Design work) raised by the selected features (#26) and the tools used (#36). Matches the
+    // simulator's DesignQualityCeiling for a real design quality; purely for the wizard preview.
     private float ProjectedCeiling(string key)
     {
+        var type = _ctxBusinessType?.businessTypeName;
         var dq = Mathf.Max(0f, SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design));
-        var bonus = SiliconAlleyFeatures.QualityBonus(SiliconAlleyState.GetFeatureMask(key), _ctxBusinessType?.businessTypeName);
+        var bonus = SiliconAlleyFeatures.QualityBonus(SiliconAlleyState.GetFeatureMask(key), type)
+            + SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type);
         return Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
     }
 
@@ -487,6 +500,73 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("count", count.ToString(CultureInfo.InvariantCulture)));
     }
 
+    // Editors & tools page (issue #36): one cycle button per tool. Off → Licensed (royalty) → Owned (pay R&D
+    // cash once, then free). Owned tools toggle in/out of the current product; the bonus + royalty in the readout
+    // move as the player cycles. Unused slots (types with fewer tools) are hidden.
+    private void RefreshToolsPage()
+    {
+        var key = _currentKey;
+        var type = _ctxBusinessType?.businessTypeName;
+        var tools = SiliconAlleyTools.ToolsFor(type);
+        for (var i = 0; i < _toolButtons.Length; i++)
+        {
+            var has = i < tools.Length;
+            _toolButtons[i].gameObject.SetActive(has);
+            if (!has)
+                continue;
+            var t = tools[i];
+            var owned = SiliconAlleyState.IsToolOwned(key, t.Bit);
+            var used = SiliconAlleyState.IsToolUsed(key, t.Bit);
+            var quality = Mathf.RoundToInt(t.QualityBonus * 100f).ToString(CultureInfo.InvariantCulture);
+            var royalty = Mathf.RoundToInt(t.RoyaltyRate * 100f).ToString(CultureInfo.InvariantCulture);
+            var cost = Mathf.RoundToInt(t.BuildCost).ToString(CultureInfo.InvariantCulture);
+            string state;
+            Color color;
+            if (owned)
+            {
+                state = Compose(used ? "siliconalley:wiz_tool_owned_used" : "siliconalley:wiz_tool_owned_off", ("quality", quality));
+                color = used ? ButtonSelected : ButtonColor;
+            }
+            else if (used)
+            {
+                state = Compose("siliconalley:wiz_tool_licensed",
+                    ("vendor", t.LicensorNameKey.GetLocalization()), ("royalty", royalty), ("quality", quality), ("cost", cost));
+                color = ButtonWarn;
+            }
+            else
+            {
+                state = Compose("siliconalley:wiz_tool_off", ("royalty", royalty), ("cost", cost));
+                color = ButtonColor;
+            }
+            _toolLabels[i].text = Compose("siliconalley:wiz_tool_row", ("name", t.NameKey.GetLocalization()), ("state", state));
+            _toolImages[i].color = color;
+        }
+        _toolsReadout.text = Compose("siliconalley:wiz_tools_readout",
+            ("quality", Mathf.RoundToInt(SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type) * 100f).ToString(CultureInfo.InvariantCulture)),
+            ("royalty", Mathf.RoundToInt(SiliconAlleyState.ToolRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+            ("licensed", LicensedToolCount(key, type).ToString(CultureInfo.InvariantCulture)));
+    }
+
+    // Count of licensed tools (used but not owned) on the current project — drives the Summary royalty row.
+    private int LicensedToolCount(string key, string businessTypeName)
+    {
+        var licensed = SiliconAlleyState.GetUsedToolsMask(key) & ~SiliconAlleyState.GetOwnedToolsMask(key);
+        var count = 0;
+        foreach (var t in SiliconAlleyTools.ToolsFor(businessTypeName))
+            if ((licensed & (1 << t.Bit)) != 0) count++;
+        return count;
+    }
+
+    // Total R&D cash sunk into the owned tools used on this product — drives the Summary up-front-cost row.
+    private float OwnedToolsRnd(string key, string businessTypeName)
+    {
+        var ownedUsed = SiliconAlleyState.GetUsedToolsMask(key) & SiliconAlleyState.GetOwnedToolsMask(key);
+        var sum = 0f;
+        foreach (var t in SiliconAlleyTools.ToolsFor(businessTypeName))
+            if ((ownedUsed & (1 << t.Bit)) != 0) sum += t.BuildCost;
+        return sum;
+    }
+
     // Summary page: a read-only review aggregated before commit. Today only scope/ETA and a design-quality
     // baseline are computable; the remaining rows show neutral placeholders that the sub-issues fill in.
     private void RefreshSummaryPage()
@@ -503,11 +583,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _sumQualityText.text = Compose("siliconalley:wiz_sum_quality",
             ("value", Pct(ProjectedCeiling(key)) + "%"));
 
-        // #36 editors & tools: up-front R&D/build spend + ongoing licensed-tool royalties.
+        // #36 editors & tools: R&D sunk into the owned tools used here, and the ongoing licensed-tool royalty.
+        var type = _ctxBusinessType?.businessTypeName;
+        var ownedRnd = OwnedToolsRnd(key, type);
         _sumCostsText.text = Compose("siliconalley:wiz_sum_costs",
-            ("value", "siliconalley:wiz_placeholder_none".GetLocalization()));
+            ("value", ownedRnd <= 0f
+                ? "siliconalley:wiz_placeholder_none".GetLocalization()
+                : Compose("siliconalley:wiz_cost_value", ("amount", Mathf.RoundToInt(ownedRnd).ToString(CultureInfo.InvariantCulture)))));
+        var licensed = LicensedToolCount(key, type);
         _sumRoyaltiesText.text = Compose("siliconalley:wiz_sum_royalties",
-            ("value", "siliconalley:wiz_placeholder_noroyalties".GetLocalization()));
+            ("value", licensed <= 0
+                ? "siliconalley:wiz_placeholder_noroyalties".GetLocalization()
+                : Compose("siliconalley:wiz_royalty_value",
+                    ("royalty", Mathf.RoundToInt(SiliconAlleyState.ToolRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+                    ("count", licensed.ToString(CultureInfo.InvariantCulture)))));
         // #37 operating systems (reach from the targeted platforms); #38 audience segment will extend this.
         _sumMarketText.text = Compose("siliconalley:wiz_sum_market",
             ("value", PlatformMarketText(key, _ctxBusinessType?.businessTypeName)));
@@ -709,6 +798,28 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var plats = SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName);
         if (slot >= 0 && slot < plats.Length)
             SiliconAlleyState.TogglePlatform(_currentKey, plats[slot].Bit);
+        Refresh();
+    }
+
+    // Issue #36: cycle this tool slot. Off → Licensed (use it, pay royalty) → Build & Own (charge R&D cash once,
+    // then it's a free reusable studio asset). An owned tool just toggles in/out of the current product. The
+    // build cost is shown on the button before the spending tap; an unaffordable build leaves it Licensed (the
+    // base-game money API shows its own insufficient-funds toast). Gated to the editable Design phase.
+    private void OnCycleTool(int slot)
+    {
+        if (!SiliconAlleyState.CanEditConcept(_currentKey))
+            return;
+        var tools = SiliconAlleyTools.ToolsFor(_ctxBusinessType?.businessTypeName);
+        if (slot < 0 || slot >= tools.Length)
+            return;
+        var t = tools[slot];
+        if (SiliconAlleyState.IsToolOwned(_currentKey, t.Bit))
+            SiliconAlleyState.ToggleToolUsed(_currentKey, t.Bit);        // owned: toggle use on/off (can't un-own)
+        else if (!SiliconAlleyState.IsToolUsed(_currentKey, t.Bit))
+            SiliconAlleyState.ToggleToolUsed(_currentKey, t.Bit);        // Off → Licensed
+        else if (SiliconAlleyMoney.TrySpend(_ctxReg, t.BuildCost,        // Licensed → Build & Own (charge R&D)
+            t.NameKey.GetLocalization(), "siliconalley:transaction_tools"))
+            SiliconAlleyState.SetToolOwned(_currentKey, t.Bit);          // owned now (usedToolsMask stays set)
         Refresh();
     }
 
@@ -1066,21 +1177,48 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         }
         _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
-        // Register pages in display order: Concept first, Summary last. A sub-issue (#26/#36/#37/#38) inserts
-        // its page just before Summary with an IsPresent that gates it on its feature.
-        _wizardPages.Add(new WizardPage { Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage });
-        _wizardPages.Add(new WizardPage { Root = _summaryPage, IsPresent = () => true, Refresh = RefreshSummaryPage });
-        // Issue #26: the Features page sits just before Summary, present for any business type that has a
-        // feature list (all three Silicon Alley types do; an unknown type simply skips it).
-        _wizardPages.Insert(_wizardPages.Count - 1, new WizardPage
+        // Editors & tools page (issue #36): the dependency catalog. A reusable pool of CYCLE buttons (one per
+        // tool: Off → Licensed → Owned), sized to the largest tool table; RefreshToolsPage relabels per type.
+        _toolsPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_toolsPage.transform, "siliconalley:wiz_tools_header");
+        var toolSlots = SiliconAlleyTools.MaxCount;
+        _toolButtons = new Button[toolSlots];
+        _toolImages = new Image[toolSlots];
+        _toolLabels = new TMP_Text[toolSlots];
+        for (var i = 0; i < toolSlots; i++)
         {
+            var slot = i; // capture per-slot index for the cycle closure (the bit is resolved at click time)
+            var btn = MakeButton(_toolsPage.transform, "", () => OnCycleTool(slot));
+            _toolButtons[i] = btn;
+            _toolImages[i] = btn.GetComponent<Image>();
+            _toolLabels[i] = btn.GetComponentInChildren<TMP_Text>();
+        }
+        _toolsReadout = MakeText(_toolsPage.transform, "ToolsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+
+        // Register the wizard pages. RebuildVisiblePages sorts by Order (canonical step), so the order of these
+        // calls doesn't matter — each sibling just registers with its step number and gates with IsPresent.
+        _wizardPages.Add(new WizardPage { Order = 0, Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage });
+        _wizardPages.Add(new WizardPage { Order = 100, Root = _summaryPage, IsPresent = () => true, Refresh = RefreshSummaryPage });
+        // Issue #26: Features (step 2), present for any business type that has a feature list.
+        _wizardPages.Add(new WizardPage
+        {
+            Order = 10,
             Root = _featuresPage,
             IsPresent = () => SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshFeaturesPage,
         });
-        // Issue #37: the Operating systems page follows Features, still just before Summary.
-        _wizardPages.Insert(_wizardPages.Count - 1, new WizardPage
+        // Issue #36: Editors & tools (step 3).
+        _wizardPages.Add(new WizardPage
         {
+            Order = 20,
+            Root = _toolsPage,
+            IsPresent = () => SiliconAlleyTools.ToolsFor(_ctxBusinessType?.businessTypeName).Length > 0,
+            Refresh = RefreshToolsPage,
+        });
+        // Issue #37: Operating systems (step 4).
+        _wizardPages.Add(new WizardPage
+        {
+            Order = 30,
             Root = _platformsPage,
             IsPresent = () => SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshPlatformsPage,

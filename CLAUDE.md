@@ -124,7 +124,11 @@ line that has shipped.
     Intel Feed · `1` Compliance Reporting · `2` Automated Pen-Testing · `3` Zero-Trust Module · `4` Incident
     Response. Game (`gamestudio`): `0` Advanced Graphics · `1` Physics Engine · `2` Multiplayer Netcode ·
     `3` Procedural Generation · `4` Mod Support. (Display names live in `en.json` and may change freely.)
-  - `ToolId` — per business type; bit positions in `ownedToolsMask` / `usedToolsMask` (#36)
+  - `ToolId` — per business type; bit positions in `ownedToolsMask` / `usedToolsMask` (#36, **SHIPPED** —
+    `SiliconAlleyTools`, APPEND-ONLY by `Bit`). Office (`softwarestudio`): `0` App Framework · `1` Database Engine ·
+    `2` UI Toolkit. Security (`cybersecurity`): `0` Scan Engine · `1` Crypto Library · `2` SIEM Platform. Game
+    (`gamestudio`): `0` Game Engine · `1` Art Suite · `2` Audio Middleware. (Quality bonus, build cost, royalty
+    rate + licensor are tunable catalog data, NOT persisted — royalty is derived from `usedToolsMask & ~ownedToolsMask`.)
   - `PlatformId` — per business type; bit positions in `platformMask` (#37, **SHIPPED** — `SiliconAlleyPlatforms`,
     APPEND-ONLY by `Bit`). Office (`softwarestudio`): `0` Desktop · `1` Web · `2` Mobile · `3` Cloud/SaaS.
     Security (`cybersecurity`): `0` Desktop · `1` Server · `2` Cloud · `3` Mobile. Game (`gamestudio`): `0` PC ·
@@ -153,9 +157,11 @@ line that has shipped.
   "home" platform (reach ×1.0, scope ×1.0 — the no-op is **1 platform, never 0 reach**) — **#37 SHIPPED**: real
   bits = `PlatformId`, each raises `EffectiveProjectSize` (porting) and the launch reach (Σ share weights, on the
   installed-base jump only — `MarketFactor`/payout untouched); **per-project** (reset in `OnProjectCompleted`);
-  `ownedToolsMask`/`usedToolsMask 0` ⇒ no owned/licensed tools
-  (`ownedToolsMask` is **studio-level** and survives `OnProjectCompleted`; `usedToolsMask` is **per-project**
-  and resets on completion, #36); `segmentId 0` = Broad ⇒ segment factor ×1.0 (#38). #40 reserves these as
+  `ownedToolsMask`/`usedToolsMask 0` ⇒ no owned/licensed tools, no royalty — **#36 SHIPPED**: real bits =
+  `ToolId`; `ownedToolsMask` is **studio-level** (self-built tools, survives `OnProjectCompleted`),
+  `usedToolsMask` is **per-project** (reset on completion). A used tool raises the design quality ceiling; a
+  **licensed** tool (`used & ~owned`) deducts a derived royalty from launch revenue + support income (building
+  one costs one-off R&D cash instead). `segmentId 0` = Broad ⇒ segment factor ×1.0 (#38). #40 reserves these as
   no-ops in code (`SiliconAlleyState` BusinessState + Serialize/LoadFrom); each sibling fills in ITS field's
   gameplay at ITS reserved index and **must hold the frozen positions** — write the neutral `0` for any
   earlier reserved slot not yet implemented, and read each with a `parts.Length > <index>` guard inside the

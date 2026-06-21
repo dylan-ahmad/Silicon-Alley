@@ -31,7 +31,8 @@ public static class SiliconAlleyMoney
     // Deduct `amount` from the player's account as a marketing expense — immediately and atomically — via the
     // base-game money API. Returns false (and spends nothing) if the registration is missing or the player
     // can't afford it, so callers can refuse the campaign cleanly and never charge for one that didn't land.
-    public static bool TrySpend(BuildingRegistration registration, float amount, string reason)
+    public static bool TrySpend(BuildingRegistration registration, float amount, string reason,
+        string transactionType = MarketingTransactionType)
     {
         if (registration == null || amount <= 0f)
             return false;
@@ -41,7 +42,7 @@ public static class SiliconAlleyMoney
             ["businessName"] = registration.BusinessName,
             ["reason"] = reason ?? string.Empty,
         };
-        var info = new TransactionInfo(MarketingTransactionType, data);
+        var info = new TransactionInfo(transactionType, data);
 
         // amount<0 with force:false ⇒ ChangeMoneySafe books the expense, plays the spend sound and shows the
         // insufficient-money toast itself, returning false (and changing nothing) if the player can't afford it.
