@@ -406,6 +406,7 @@ public static class SiliconAlleyState
         state.Hold = 0;          // issue #11: the next project isn't held
         state.FeatureMask = 0;   // issue #26: features are chosen per product — the next project starts feature-free
         state.PlatformMask = 0;  // issue #37: target platforms are chosen per product too — reset for the next
+        state.UsedToolsMask = 0; // issue #36: licensed/used tools are per-project — reset (OwnedToolsMask persists)
         state.DesignPrompted = false; // nudge again for the next project
     }
 
@@ -500,15 +501,17 @@ public static class SiliconAlleyState
             Get(key).FeatureMask ^= 1 << bit;
     }
 
-    // The design-phase quality ceiling, raised by the project's selected features (issue #26). A weak Design
-    // phase still caps the shipped quality (issue #9); features lift that cap toward 1.0. SAVE-COMPAT:
-    // designQuality < 0 (no Design work yet / legacy save) ⇒ no cap (1.0), exactly as before; FeatureMask 0 ⇒
-    // bonus 0 ⇒ the cap is the unchanged 0.5 + 0.5*designQuality.
+    // The design-phase quality ceiling, raised by the project's selected features (issue #26) and the tools it
+    // uses (issue #36). A weak Design phase still caps the shipped quality (issue #9); features + tools lift that
+    // cap toward 1.0. SAVE-COMPAT: designQuality < 0 (no Design work yet / legacy save) ⇒ no cap (1.0), exactly as
+    // before; FeatureMask / UsedToolsMask 0 ⇒ bonus 0 ⇒ the cap is the unchanged 0.5 + 0.5*designQuality.
     public static float DesignQualityCeiling(string key, string businessTypeName, float designQuality)
     {
         if (designQuality < 0f)
             return 1f;
-        var bonus = SiliconAlleyFeatures.QualityBonus(Get(key).FeatureMask, businessTypeName);
+        var state = Get(key);
+        var bonus = SiliconAlleyFeatures.QualityBonus(state.FeatureMask, businessTypeName)
+            + SiliconAlleyTools.QualityBonus(state.UsedToolsMask, businessTypeName); // issue #36: used tools raise the ceiling too
         return Mathf.Min(1f, 0.5f + 0.5f * designQuality + bonus);
     }
 
@@ -530,6 +533,40 @@ public static class SiliconAlleyState
     // the payout / MarketFactor are untouched. PlatformMask 0 ⇒ 1.0 ⇒ launch identical to before.
     public static float LaunchReach(string key, string businessTypeName)
         => SiliconAlleyPlatforms.ReachMultiplier(Get(key).PlatformMask, businessTypeName);
+
+    // ---- issue #36 (Editors & tools): build-in-house vs license -------------------------------------
+    // Two masks (bit = SiliconAlleyTools Bit, per business type): OwnedToolsMask is the studio's self-built tools
+    // — STUDIO-LEVEL, it survives OnProjectCompleted and is reused across products for free. UsedToolsMask is the
+    // tools applied to the CURRENT project — per-project, reset on completion. A used tool that isn't owned is
+    // LICENSED (pays its royalty); a used+owned tool is free. Owning a tool (SetToolOwned) is paid for in cash by
+    // the caller (SiliconAlleyMoney) before flipping the bit. Editable only while the concept is editable.
+    public static int GetOwnedToolsMask(string key) => Get(key).OwnedToolsMask;
+    public static int GetUsedToolsMask(string key) => Get(key).UsedToolsMask;
+    public static bool IsToolOwned(string key, int bit) => (Get(key).OwnedToolsMask & (1 << bit)) != 0;
+    public static bool IsToolUsed(string key, int bit) => (Get(key).UsedToolsMask & (1 << bit)) != 0;
+
+    public static void ToggleToolUsed(string key, int bit)
+    {
+        if (CanEditConcept(key))
+            Get(key).UsedToolsMask ^= 1 << bit;
+    }
+
+    // Mark a tool as studio-owned (built in-house). The caller charges the R&D cost first; this only flips the
+    // persistent bit. Owning never resets, so a built tool is reusable on every future project at no cost.
+    public static void SetToolOwned(string key, int bit)
+    {
+        if (CanEditConcept(key))
+            Get(key).OwnedToolsMask |= 1 << bit;
+    }
+
+    // The recurring royalty fraction owed on the current project's LICENSED tools (used but not owned), 0 for an
+    // all-owned / tool-free / legacy project. Layered on launch revenue + support income in the simulator; never
+    // redefines MarketFactor / SupportRatePerDay. Both masks 0 ⇒ 0 ⇒ revenue/support identical to before.
+    public static float ToolRoyalty(string key, string businessTypeName)
+    {
+        var state = Get(key);
+        return SiliconAlleyTools.Royalty(state.UsedToolsMask, state.OwnedToolsMask, businessTypeName);
+    }
 
     // Issue #10 (Development): the studio's Overtime policy — a sticky toggle that only takes effect in
     // the Development phase (speeds the build, lowers quality). Settable any time; it just persists.

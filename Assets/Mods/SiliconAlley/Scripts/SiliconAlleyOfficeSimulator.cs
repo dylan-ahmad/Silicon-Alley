@@ -173,6 +173,9 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         if (product != null && marketPrice > 0f)
         {
             var support = SiliconAlleyState.AccrueSupport(key, marketPrice, TimeHelper.CurrentDay);
+            // Issue #36: licensed tools take a recurring royalty cut of support income too (0 when no tool is
+            // licensed / legacy save, so support is unchanged). Layered on top — SupportRatePerDay is untouched.
+            support *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
             if (support > 0f)
                 CreditRevenue(product, support, 1f);
         }
@@ -237,6 +240,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
             var payout = marketPrice * (0.5f + quality) * reputationFactor * marketFactor * SiliconAlleyState.PayoutMultiplier * SiliconAlleyState.PayoutMultiplierFor(projectKind);
+            // Issue #36: licensed tools take a royalty cut of the launch revenue (0 when no tool is licensed /
+            // legacy, so payout is unchanged). Reduces the NET payout the player sees in the toast + ship report;
+            // layered on top — MarketFactor / reputationFactor / the project-kind multiplier are untouched.
+            payout *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
             CreditRevenue(product, payout, quality);
             // Issue #23 (Publisher deals): if this product was under a deal, fulfil it on this ship. On-time
             // (shipped on/before the deadline day) pays the locked bonus ON TOP of the normal payout, scaled by
