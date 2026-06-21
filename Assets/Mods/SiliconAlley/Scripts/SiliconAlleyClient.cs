@@ -247,6 +247,10 @@ public class SiliconAlleyClientDialog : Dialog
                 ["patcheta"] = PatchEta(registration, key),
                 ["rivals"] = SiliconAlleyOfficeSimulator.CompetitorCount(registration).ToString(CultureInfo.InvariantCulture),
                 ["market"] = SiliconAlleyOfficeSimulator.MarketFactor(registration, kind).ToString("F2", CultureInfo.InvariantCulture),
+                // Issue #28: the category's current market demand (a per-type cycle) + a rising/falling hint so
+                // the player can time releases. Derived from the day — the same value the simulator pays out at.
+                ["demand"] = SiliconAlleyMarket.DemandFactor(registration.businessTypeName, TimeHelper.CurrentDay).ToString("F2", CultureInfo.InvariantCulture),
+                ["trend"] = SiliconAlleyMarket.IsRising(registration.businessTypeName, TimeHelper.CurrentDay) ? "▲" : "▼",
             }).ToString();
             builder.Append("\n\n").Append(line);
         }
@@ -270,7 +274,10 @@ public class SiliconAlleyClientDialog : Dialog
             {
                 var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
                 if (item != null)
-                    perDay = installedBase * item.DefaultMarketPrice * SiliconAlleyState.SupportRatePerDay;
+                    // Issue #28: include the current market demand so this estimate matches the demand-scaled
+                    // support the simulator actually credits.
+                    perDay = installedBase * item.DefaultMarketPrice * SiliconAlleyState.SupportRatePerDay
+                        * SiliconAlleyMarket.DemandFactor(registration.businessTypeName, TimeHelper.CurrentDay);
             }
         }
         return "$" + Mathf.RoundToInt(perDay).ToString("N0", CultureInfo.InvariantCulture) + "/day";
