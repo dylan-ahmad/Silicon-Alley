@@ -190,5 +190,12 @@
   "siliconalley:segmentsize_enterprise": "small, high-value",
   "siliconalley:segmentsize_prosumer": "medium, mid-price",
   "siliconalley:segmentsize_consumer": "mass market, low-margin",
-  "siliconalley:wiz_market_estimate": "~{market}× reachable (reach {reach}× × {segment} volume {volume}×) · price ×{price}"
+  "siliconalley:wiz_market_estimate": "~{market}× reachable (reach {reach}× × {segment} volume {volume}×) · price ×{price}",
+  "siliconalley:wiz_deps_header": "Dependencies — does each feature have a tool?",
+  "siliconalley:wiz_dep_covered": "✓ {name} — covered",
+  "siliconalley:wiz_dep_uncovered": "✗ {name} — needs {tools}",
+  "siliconalley:wiz_deps_readout": "Coverage {covered}/{total} · uncovered features cap quality at {ceiling}",
+  "siliconalley:wiz_sum_coverage": "Dependencies: {value}",
+  "siliconalley:wiz_coverage_full": "all features covered",
+  "siliconalley:wiz_coverage_value": "{covered}/{total} covered — uncovered features cap quality"
 }

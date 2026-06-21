@@ -503,9 +503,10 @@ public static class SiliconAlleyState
     }
 
     // The design-phase quality ceiling, raised by the project's selected features (issue #26) and the tools it
-    // uses (issue #36). A weak Design phase still caps the shipped quality (issue #9); features + tools lift that
-    // cap toward 1.0. SAVE-COMPAT: designQuality < 0 (no Design work yet / legacy save) ⇒ no cap (1.0), exactly as
-    // before; FeatureMask / UsedToolsMask 0 ⇒ bonus 0 ⇒ the cap is the unchanged 0.5 + 0.5*designQuality.
+    // uses (issue #36), and lowered by uncovered feature→tool dependencies (issue #39). A weak Design phase still
+    // caps the shipped quality (issue #9). SAVE-COMPAT: designQuality < 0 (no Design work yet / legacy save) ⇒ no
+    // cap (1.0), exactly as before; FeatureMask / UsedToolsMask 0 ⇒ bonus 0 + full coverage ⇒ the cap is the
+    // unchanged 0.5 + 0.5*designQuality.
     public static float DesignQualityCeiling(string key, string businessTypeName, float designQuality)
     {
         if (designQuality < 0f)
@@ -513,7 +514,11 @@ public static class SiliconAlleyState
         var state = Get(key);
         var bonus = SiliconAlleyFeatures.QualityBonus(state.FeatureMask, businessTypeName)
             + SiliconAlleyTools.QualityBonus(state.UsedToolsMask, businessTypeName); // issue #36: used tools raise the ceiling too
-        return Mathf.Min(1f, 0.5f + 0.5f * designQuality + bonus);
+        var ceiling = Mathf.Min(1f, 0.5f + 0.5f * designQuality + bonus);
+        // Issue #39: uncovered features (no owned/licensed provider tool) cap the achievable quality. Full
+        // coverage / no features ⇒ CoverageCeiling 1.0 ⇒ the cap above is unchanged.
+        return Mathf.Min(ceiling, SiliconAlleyDependencies.CoverageCeiling(
+            state.FeatureMask, state.OwnedToolsMask, state.UsedToolsMask, businessTypeName));
     }
 
     // ---- issue #37 (Platforms): per-project target operating systems ---------------------------------

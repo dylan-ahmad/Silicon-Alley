@@ -105,7 +105,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private Slider _focusSlider;
     // Summary page (placeholder rows today; sub-issues fill them in)
     private GameObject _summaryPage;
-    private TMP_Text _sumScopeText, _sumQualityText, _sumCostsText, _sumRoyaltiesText, _sumMarketText;
+    private TMP_Text _sumScopeText, _sumQualityText, _sumCoverageText, _sumCostsText, _sumRoyaltiesText, _sumMarketText;
     // Features page (issue #26): a fixed pool of toggle buttons (sized to the largest feature table), relabelled
     // and shown/hidden per business type each refresh; bit i toggles the matching FeatureMask bit.
     private GameObject _featuresPage;
@@ -132,6 +132,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private Button[] _segmentButtons;
     private Image[] _segmentImages;
     private TMP_Text _marketReadout;
+    // Dependencies page (issue #39): read-only feature→tool coverage matrix (no input — derived from the
+    // Features + Tools choices). One text row per selected feature, covered/uncovered, + a coverage readout.
+    private GameObject _dependenciesPage;
+    private TMP_Text[] _depRows;
+    private TMP_Text _depReadout;
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -460,7 +465,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var dq = Mathf.Max(0f, SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design));
         var bonus = SiliconAlleyFeatures.QualityBonus(SiliconAlleyState.GetFeatureMask(key), type)
             + SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type);
-        return Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
+        var ceiling = Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
+        // Issue #39: uncovered feature→tool dependencies cap the ceiling (full coverage ⇒ no change).
+        return Mathf.Min(ceiling, SiliconAlleyDependencies.CoverageCeiling(
+            SiliconAlleyState.GetFeatureMask(key), SiliconAlleyState.GetOwnedToolsMask(key),
+            SiliconAlleyState.GetUsedToolsMask(key), type));
     }
 
     // Operating-systems page (issue #37): the current type's platform list as toggles; each selected platform
@@ -612,6 +621,51 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("price", price.ToString("0.0", CultureInfo.InvariantCulture)));
     }
 
+    // Dependencies page (issue #39, read-only): one row per SELECTED feature, covered/uncovered against the
+    // studio's owned + licensed tools. Uncovered features lower the quality ceiling; the readout shows the
+    // coverage figure + the resulting cap. No input — derived from the Features (#26) + Tools (#36) choices.
+    private void RefreshDependenciesPage()
+    {
+        var key = _currentKey;
+        var type = _ctxBusinessType?.businessTypeName;
+        var featureMask = SiliconAlleyState.GetFeatureMask(key);
+        var owned = SiliconAlleyState.GetOwnedToolsMask(key);
+        var used = SiliconAlleyState.GetUsedToolsMask(key);
+        var row = 0;
+        foreach (var f in SiliconAlleyFeatures.FeaturesFor(type))
+        {
+            if ((featureMask & (1 << f.Bit)) == 0 || row >= _depRows.Length)
+                continue; // only selected features get a row
+            var name = f.NameKey.GetLocalization();
+            if (SiliconAlleyDependencies.IsCovered(type, f.Bit, owned, used))
+                _depRows[row].text = Compose("siliconalley:wiz_dep_covered", ("name", name));
+            else
+                _depRows[row].text = Compose("siliconalley:wiz_dep_uncovered",
+                    ("name", name), ("tools", ProviderToolNames(type, f.Bit)));
+            _depRows[row].gameObject.SetActive(true);
+            row++;
+        }
+        for (; row < _depRows.Length; row++)
+            _depRows[row].gameObject.SetActive(false);
+
+        SiliconAlleyDependencies.Coverage(featureMask, owned, used, type, out var covered, out var total);
+        _depReadout.text = Compose("siliconalley:wiz_deps_readout",
+            ("covered", covered.ToString(CultureInfo.InvariantCulture)),
+            ("total", total.ToString(CultureInfo.InvariantCulture)),
+            ("ceiling", Pct(ProjectedCeiling(key)) + "%"));
+    }
+
+    // The provider tool name(s) for an uncovered feature — what the player could own/license to cover it.
+    private string ProviderToolNames(string businessTypeName, int featureBit)
+    {
+        var mask = SiliconAlleyDependencies.ProviderMask(businessTypeName, featureBit);
+        var names = new List<string>();
+        foreach (var t in SiliconAlleyTools.ToolsFor(businessTypeName))
+            if ((mask & (1 << t.Bit)) != 0)
+                names.Add(t.NameKey.GetLocalization());
+        return names.Count > 0 ? string.Join(" / ", names) : "—";
+    }
+
     // Summary page: a read-only review aggregated before commit. Today only scope/ETA and a design-quality
     // baseline are computable; the remaining rows show neutral placeholders that the sub-issues fill in.
     private void RefreshSummaryPage()
@@ -628,8 +682,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _sumQualityText.text = Compose("siliconalley:wiz_sum_quality",
             ("value", Pct(ProjectedCeiling(key)) + "%"));
 
-        // #36 editors & tools: R&D sunk into the owned tools used here, and the ongoing licensed-tool royalty.
         var type = _ctxBusinessType?.businessTypeName;
+        // #39 dependencies: the feature→tool coverage figure (uncovered features lowered the ceiling above).
+        SiliconAlleyDependencies.Coverage(SiliconAlleyState.GetFeatureMask(key),
+            SiliconAlleyState.GetOwnedToolsMask(key), SiliconAlleyState.GetUsedToolsMask(key), type,
+            out var covCovered, out var covTotal);
+        _sumCoverageText.text = Compose("siliconalley:wiz_sum_coverage",
+            ("value", covCovered >= covTotal
+                ? "siliconalley:wiz_coverage_full".GetLocalization()
+                : Compose("siliconalley:wiz_coverage_value",
+                    ("covered", covCovered.ToString(CultureInfo.InvariantCulture)),
+                    ("total", covTotal.ToString(CultureInfo.InvariantCulture)))));
+
+        // #36 editors & tools: R&D sunk into the owned tools used here, and the ongoing licensed-tool royalty.
         var ownedRnd = OwnedToolsRnd(key, type);
         _sumCostsText.text = Compose("siliconalley:wiz_sum_costs",
             ("value", ownedRnd <= 0f
@@ -1189,6 +1254,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeHeader(_summaryPage.transform, "siliconalley:wiz_summary_header");
         _sumScopeText = MakeText(_summaryPage.transform, "SumScope", 15, TextAnchor.MiddleLeft);
         _sumQualityText = MakeText(_summaryPage.transform, "SumQuality", 15, TextAnchor.MiddleLeft);
+        _sumCoverageText = MakeText(_summaryPage.transform, "SumCoverage", 15, TextAnchor.MiddleLeft);
         _sumCostsText = MakeText(_summaryPage.transform, "SumCosts", 15, TextAnchor.MiddleLeft);
         _sumRoyaltiesText = MakeText(_summaryPage.transform, "SumRoyalties", 15, TextAnchor.MiddleLeft);
         _sumMarketText = MakeText(_summaryPage.transform, "SumMarket", 15, TextAnchor.MiddleLeft);
@@ -1264,6 +1330,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         }
         _marketReadout = MakeText(_marketPage.transform, "MarketReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
+        // Dependencies page (issue #39): read-only feature→tool coverage. A pool of text rows (one per selected
+        // feature, sized to the largest feature table), relabelled covered/uncovered each refresh; no input.
+        _dependenciesPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_dependenciesPage.transform, "siliconalley:wiz_deps_header");
+        _depRows = new TMP_Text[SiliconAlleyFeatures.MaxCount];
+        for (var i = 0; i < _depRows.Length; i++)
+            _depRows[i] = MakeText(_dependenciesPage.transform, "DepRow", 14, TextAnchor.MiddleLeft);
+        _depReadout = MakeText(_dependenciesPage.transform, "DepReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+
         // Register the wizard pages. RebuildVisiblePages sorts by Order (canonical step), so the order of these
         // calls doesn't matter — each sibling just registers with its step number and gates with IsPresent.
         _wizardPages.Add(new WizardPage { Order = 0, Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage });
@@ -1283,6 +1358,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             Root = _toolsPage,
             IsPresent = () => SiliconAlleyTools.ToolsFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshToolsPage,
+        });
+        // Issue #39: Dependencies (step 3b) — only once features are selected (else there's nothing to cover).
+        _wizardPages.Add(new WizardPage
+        {
+            Order = 25,
+            Root = _dependenciesPage,
+            IsPresent = () => SiliconAlleyState.GetFeatureMask(_currentKey) != 0,
+            Refresh = RefreshDependenciesPage,
         });
         // Issue #37: Operating systems (step 4).
         _wizardPages.Add(new WizardPage
