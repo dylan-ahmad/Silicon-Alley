@@ -92,6 +92,16 @@ public static class SiliconAlleyState
         public int OwnedToolsMask;  // #36: bits = ToolId, studio-level (survives OnProjectCompleted); 0 = no owned tools
         public int UsedToolsMask;   // #36: bits = ToolId, per-project (resets on completion); 0 = no licensed tools
         public int SegmentId;       // #38: SegmentId ordinal (0=Broad,1=Enterprise,2=Prosumer,3=Consumer); 0 = Broad x1
+        // Issue #27 (Contracts): an accepted fixed-scope contract job — the FIRST persisted append past the #40
+        // wizard reservation (trailing fields, NOT reserved). A studio holds at most one; it is active while
+        // ContractScope > 0 and diverts the studio's staff (the product Progress pauses) until it delivers
+        // (ContractProgress >= ContractScope, by the deadline) or the deadline passes (a miss). SAVE-COMPAT:
+        // appended trailing; absent in old saves => all 0 => no contract => the studio works its product exactly
+        // as before. Cleared on delivery/miss.
+        public float ContractScope;       // progress to complete; 0 = no active contract
+        public float ContractProgress;    // accrued work toward the contract
+        public int ContractDeadlineDay;   // absolute game-day the contract is due
+        public float ContractPayout;      // guaranteed sum paid on an on-time delivery
         // Issue #26: the business type (game/office/security) that owns this building's current project, noted
         // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
         // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
@@ -340,6 +350,38 @@ public static class SiliconAlleyState
         state.DealPublisher = -1;
         state.DealDeadlineDay = 0;
         state.DealPayout = 0f;
+    }
+
+    // ---- issue #27 (Contracts): a fixed-scope gig the studio works instead of its product ----------
+    // A studio holds at most one contract. Active while ContractScope > 0. Distinct from a publisher deal:
+    // a flat fee, no relationship — accepted from the phone, worked by staff, paid on an on-time delivery.
+    public static bool HasContract(string key) => Get(key).ContractScope > 0f;
+    public static float GetContractScope(string key) => Get(key).ContractScope;
+    public static float GetContractProgress(string key) => Get(key).ContractProgress;
+    public static int GetContractDeadlineDay(string key) => Get(key).ContractDeadlineDay;
+    public static float GetContractPayout(string key) => Get(key).ContractPayout;
+
+    public static void AcceptContract(string key, float scope, int deadlineDay, float payout)
+    {
+        var state = Get(key);
+        state.ContractScope = scope;
+        state.ContractProgress = 0f;
+        state.ContractDeadlineDay = deadlineDay;
+        state.ContractPayout = payout;
+    }
+
+    public static void AddContractProgress(string key, float amount) => Get(key).ContractProgress += amount;
+
+    // Issue #27: lower the studio's reputation (floored at 0) — the penalty for missing a contract deadline.
+    public static void PenalizeReputation(string key, float amount) => Get(key).Reputation = Mathf.Max(0f, Get(key).Reputation - amount);
+
+    public static void ClearContract(string key)
+    {
+        var state = Get(key);
+        state.ContractScope = 0f;
+        state.ContractProgress = 0f;
+        state.ContractDeadlineDay = 0;
+        state.ContractPayout = 0f;
     }
 
     // The project type locked in for this building's current project (issue #3). Unlocked (-1) reads as
@@ -880,7 +922,12 @@ public static class SiliconAlleyState
                 .Append(state.PlatformMask.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.OwnedToolsMask.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.UsedToolsMask.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.SegmentId.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.SegmentId.ToString(CultureInfo.InvariantCulture)).Append('|')
+                // Issue #27: contract job (first trailing append past the #40 wizard block). All 0 ⇒ no contract.
+                .Append(state.ContractScope.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.ContractProgress.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.ContractDeadlineDay.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.ContractPayout.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -1004,6 +1051,15 @@ public static class SiliconAlleyState
                     int.TryParse(parts[32], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.UsedToolsMask);
                 if (parts.Length > 33) // #38: audience segment ordinal (absent ⇒ 0, Broad)
                     int.TryParse(parts[33], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.SegmentId);
+                // Issue #27: contract job (indices 34..37, absent ⇒ 0 ⇒ no active contract).
+                if (parts.Length > 34)
+                    float.TryParse(parts[34], NumberStyles.Float, CultureInfo.InvariantCulture, out state.ContractScope);
+                if (parts.Length > 35)
+                    float.TryParse(parts[35], NumberStyles.Float, CultureInfo.InvariantCulture, out state.ContractProgress);
+                if (parts.Length > 36)
+                    int.TryParse(parts[36], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ContractDeadlineDay);
+                if (parts.Length > 37)
+                    float.TryParse(parts[37], NumberStyles.Float, CultureInfo.InvariantCulture, out state.ContractPayout);
                 States[parts[0]] = state;
             }
             catch

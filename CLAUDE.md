@@ -175,7 +175,11 @@ line that has shipped.
   existing per-record `try/catch` (`InvariantCulture` for any non-int parse). **Every sibling PR
   (#26 / #36 / #37 / #38 / #39) claims its reserved slot and reviewers gate on this order** (#39 Dependencies
   appends no field but must not disturb it). Pure trailing append throughout (go-to-market, lifecycle, deals,
-  and this wizard block) ⇒ **no schema bump**, no new `~`-header.
+  and this wizard block) ⇒ **no schema bump**, no new `~`-header. Then — the **first append past the #40
+  reservation** — `|contractScope|contractProgress|contractDeadlineDay|contractPayout` — contract jobs (issue
+  #27): a phone-accepted fixed-scope gig the studio works **instead of** its product (Progress pauses) until it
+  delivers or its deadline lapses. All default `0` ⇒ **no active contract** (`contractScope > 0` = active);
+  absent in old saves ⇒ unchanged; cleared on delivery/miss. Still a pure trailing append ⇒ **no schema bump**.
 - **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
   `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →
   `ba:itemname_toiletstall`, `Sink` → `ba:itemname_sink`.
