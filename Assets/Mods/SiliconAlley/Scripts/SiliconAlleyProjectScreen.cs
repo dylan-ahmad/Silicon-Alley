@@ -8,6 +8,7 @@ using Entities;
 using Helpers;
 using Localizor;
 using TMPro;
+using UI.Notification;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -94,8 +95,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Testing section
     private TMP_Text _testBugsText, _testStaffText, _holdLabel;
     private Image _holdImage;
+    // Marketing section (issue #21): shown pre-release (Design→Testing); cash-funded awareness campaign.
+    private GameObject _marketingSection;
+    private TMP_Text _mktAwarenessText, _adSpendLabel;
+    private Image _adSpendImage;
+    private Button _pressReleaseButton, _pressBuildButton, _hypeButton;
+    private TMP_Text _pressReleaseLabel, _pressBuildLabel, _hypeLabel;
     // Release section (transient ship report)
-    private TMP_Text _relQualityText, _relRevenueText, _relRepText, _relSupportText, _relPatchText;
+    private TMP_Text _relReviewText, _relQualityText, _relRevenueText, _relRepText, _relSupportText, _relPatchText;
 
     private static readonly Color PanelColor = new Color(0.086f, 0.098f, 0.125f, 0.98f); // deep navy HUD
     private static readonly Color ButtonColor = new Color(0.18f, 0.21f, 0.27f, 1f);       // slate
@@ -209,6 +216,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _designSection.SetActive(false);
             _developmentSection.SetActive(false);
             _testingSection.SetActive(false);
+            _marketingSection.SetActive(false);
             _releaseSection.SetActive(false);
             ClampHeight();
             return;
@@ -245,6 +253,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             RefreshDevelopment(reg, key, size, rawProgress, perHour);
         else if (inTesting)
             RefreshTesting(reg, key, perHour);
+
+        // Marketing (issue #21): a pre-release campaign — visible through Design/Development/Testing, hidden
+        // once the project ships (Release). Awareness built here scales the launch when the project ships.
+        var preRelease = inDesign || inDevelopment || inTesting;
+        _marketingSection.SetActive(preRelease);
+        if (preRelease)
+            RefreshMarketing(reg, key, rawProgress, size);
 
         // Release "ship report" shows independently of the current phase whenever a recent ship exists.
         var report = SiliconAlleyState.GetLastShip(key);
@@ -313,9 +328,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void RefreshTesting(BuildingRegistration reg, string key, float perHour)
     {
-        var avgQ = SiliconAlleyState.GetAverageQuality(key);
-        var bugs = avgQ < 0f ? "—" : Mathf.CeilToInt((1f - Mathf.Clamp01(avgQ)) * 20f).ToString(CultureInfo.InvariantCulture);
-        _testBugsText.text = Compose("siliconalley:screen_test_bugs", ("bugs", bugs));
+        // Issue #19: show the real tracked bug count and the derived 0..100% polish, not a quality proxy.
+        var bugs = Mathf.RoundToInt(SiliconAlleyState.GetBugCount(key)).ToString(CultureInfo.InvariantCulture);
+        _testBugsText.text = Compose("siliconalley:screen_test_bugs",
+            ("bugs", bugs), ("polish", Pct(SiliconAlleyState.GetPolish(key))));
         _testStaffText.text = Compose("siliconalley:screen_test_staff",
             ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
             ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
@@ -328,6 +344,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void RefreshRelease(BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
+        // Issue #20: lead the ship report with the critical-reception score.
+        _relReviewText.text = Compose("siliconalley:screen_rel_review",
+            ("review", report.Review.ToString("F1", CultureInfo.InvariantCulture)));
         _relQualityText.text = Compose("siliconalley:screen_rel_quality", ("quality", Pct(report.Quality) + "%"));
         _relRevenueText.text = Compose("siliconalley:screen_rel_revenue",
             ("payout", Money(report.Payout)),
@@ -338,6 +357,30 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("base", SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture)));
         _relSupportText.text = Compose("siliconalley:screen_rel_support", ("support", SupportPerDay(businessType, key)));
         _relPatchText.text = Compose("siliconalley:screen_rel_patch", ("patcheta", PatchEta(key)));
+    }
+
+    // Issue #21 (Marketing): refresh the campaign block — current awareness/hype, channel costs, and the
+    // Ad Spend toggle. Buttons gate on affordability (SiliconAlleyMoney.CanAfford). Press Build calls out
+    // that it lands hardest in late Development (the simulator applies the timing bonus on purchase).
+    private void RefreshMarketing(BuildingRegistration reg, string key, float rawProgress, float size)
+    {
+        _mktAwarenessText.text = Compose("siliconalley:screen_mkt_awareness",
+            ("awareness", Mathf.RoundToInt(SiliconAlleyState.GetAwareness(key)).ToString(CultureInfo.InvariantCulture)),
+            ("hype", Mathf.RoundToInt(SiliconAlleyState.GetHype(key)).ToString(CultureInfo.InvariantCulture)));
+
+        _pressReleaseLabel.text = Compose("siliconalley:screen_mkt_press_release", ("cost", Money(SiliconAlleyState.PressReleaseCost)));
+        _pressBuildLabel.text = Compose("siliconalley:screen_mkt_press_build", ("cost", Money(SiliconAlleyState.PressBuildCost)));
+        _hypeLabel.text = Compose("siliconalley:screen_mkt_hype", ("cost", Money(SiliconAlleyState.HypeCost)));
+
+        _pressReleaseButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.PressReleaseCost);
+        _pressBuildButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.PressBuildCost);
+        _hypeButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.HypeCost);
+
+        var on = SiliconAlleyState.IsAdSpend(key);
+        _adSpendLabel.text = Compose("siliconalley:screen_mkt_adspend",
+            ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()),
+            ("cost", Money(SiliconAlleyState.AdSpendCostPerHour)));
+        _adSpendImage.color = on ? ButtonSelected : ButtonColor;
     }
 
     private void SetControlsInteractable(bool editable)
@@ -390,6 +433,56 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OnStartNext()
     {
         SiliconAlleyState.ClearLastShip(_currentKey);
+        Refresh();
+    }
+
+    // ---- issue #21 (Marketing) callbacks -----------------------------------------------------------
+
+    private void OnPressRelease()
+    {
+        BuyCampaign(SiliconAlleyState.PressReleaseCost, SiliconAlleyState.PressReleaseAwareness, 0f, "siliconalley:mkt_name_pressrelease");
+    }
+
+    // Press Build is strongest fired late in Development (~the back half of the build); off-window it
+    // delivers a fraction of its awareness. Timing factor 0.4..1.0 across the project.
+    private void OnPressBuild()
+    {
+        var fraction = SiliconAlleyState.GetProgress(_currentKey) / Mathf.Max(1f, SiliconAlleyState.EffectiveProjectSize(_currentKey));
+        var timing = (fraction >= 0.5f && fraction <= 0.72f) ? 1f : 0.4f;
+        BuyCampaign(SiliconAlleyState.PressBuildCost, SiliconAlleyState.PressBuildAwareness * timing, 0f, "siliconalley:mkt_name_pressbuild");
+    }
+
+    private void OnHype()
+    {
+        BuyCampaign(SiliconAlleyState.HypeCost, 0f, SiliconAlleyState.HypeAmount, "siliconalley:mkt_name_hype");
+    }
+
+    private void OnToggleAdSpend()
+    {
+        SiliconAlleyState.SetAdSpend(_currentKey, !SiliconAlleyState.IsAdSpend(_currentKey));
+        Refresh();
+    }
+
+    // Shared one-shot purchase: spend cash, then add awareness/hype and toast. No-op if the studio can't
+    // pay (TrySpend returns false), so the player is never charged for a campaign that didn't land.
+    private void BuyCampaign(float cost, float awareness, float hype, string channelNameKey)
+    {
+        var reg = FindRegistration(_currentKey);
+        if (reg == null || !SiliconAlleyMoney.TrySpend(reg, cost, channelNameKey.GetLocalization()))
+            return;
+        if (awareness > 0f)
+            SiliconAlleyState.AddAwareness(_currentKey, awareness);
+        if (hype > 0f)
+            SiliconAlleyState.AddHype(_currentKey, hype);
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = reg.GetDisplayName(),
+            ["channel"] = channelNameKey.GetLocalization(),
+            ["awareness"] = Mathf.RoundToInt(SiliconAlleyState.GetAwareness(_currentKey)).ToString(CultureInfo.InvariantCulture),
+        };
+        var key = _currentKey;
+        Notifications.Show(NotificationType.Success, "siliconalley:notify_marketing", data, 4f, key + ":mkt",
+            () => Open(key));
         Refresh();
     }
 
@@ -617,10 +710,26 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _holdLabel = holdButton.GetComponentInChildren<TMP_Text>();
         MakeButton(testRow.transform, "siliconalley:screen_ship".GetLocalization(), OnShipNow, primary: true);
 
+        // ---- Marketing section (issue #21; shown in any pre-release phase) ----
+        _marketingSection = MakeSection(root);
+        MakeDivider(_marketingSection.transform);
+        MakeHeader(_marketingSection.transform, "siliconalley:screen_mkt_header");
+        _mktAwarenessText = MakeText(_marketingSection.transform, "MktAwareness", 16, TextAnchor.MiddleLeft);
+        _pressReleaseButton = MakeButton(_marketingSection.transform, "", OnPressRelease);
+        _pressReleaseLabel = _pressReleaseButton.GetComponentInChildren<TMP_Text>();
+        _pressBuildButton = MakeButton(_marketingSection.transform, "", OnPressBuild);
+        _pressBuildLabel = _pressBuildButton.GetComponentInChildren<TMP_Text>();
+        _hypeButton = MakeButton(_marketingSection.transform, "", OnHype);
+        _hypeLabel = _hypeButton.GetComponentInChildren<TMP_Text>();
+        var adSpendButton = MakeButton(_marketingSection.transform, "", OnToggleAdSpend);
+        _adSpendImage = adSpendButton.GetComponent<Image>();
+        _adSpendLabel = adSpendButton.GetComponentInChildren<TMP_Text>();
+
         // ---- Release section (transient ship report; shown independently of phase) ----
         _releaseSection = MakeSection(root);
         MakeDivider(_releaseSection.transform);
         MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
+        _relReviewText = MakeText(_releaseSection.transform, "RelReview", 17, TextAnchor.MiddleLeft, FontStyle.Bold);
         _relQualityText = MakeText(_releaseSection.transform, "RelQuality", 16, TextAnchor.MiddleLeft);
         _relRevenueText = MakeText(_releaseSection.transform, "RelRevenue", 15, TextAnchor.MiddleLeft);
         _relRepText = MakeText(_releaseSection.transform, "RelRep", 15, TextAnchor.MiddleLeft);

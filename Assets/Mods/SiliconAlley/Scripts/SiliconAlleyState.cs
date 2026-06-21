@@ -40,11 +40,27 @@ public static class SiliconAlleyState
         // project stays in Testing (accruing the 2x quality) instead of auto-shipping. 0 = off (the
         // default; auto-ship at 100% as before). Per-project: reset on completion. Appended (absent => 0).
         public int Hold;             // 0 = ship at 100% (default), 1 = keep testing (don't auto-ship)
+        // Issue #19 (Bugs): open defects in the current build — accrue during Development (more under
+        // Overtime), burn down during Testing/Hold by tester skill. Residual bugs at ship cut the shipped
+        // quality (so the existing payout path reflects them), the review score (#20) and the launch jump.
+        // Appended to the save (absent in old saves => 0, so a legacy in-flight project has no bugs and
+        // ships exactly as before). Reset to 0 on completion.
+        public float BugCount;
+        // Issue #21 (Marketing): cash-funded pre-release awareness/hype that scales the launch installed-
+        // base jump (BA has no "marketer" skill — modelled as spend, see issue #15). Awareness decays each
+        // hour (slower while Hype > 0); Hype itself decays. AdSpend is a sticky policy (like Overtime) that
+        // spends a little each hour for steady awareness. All appended (absent in old saves => 0, so a
+        // legacy launch has no awareness multiplier and adds exactly +1 as before). Awareness/Hype reset on
+        // completion (consumed by the launch); AdSpend stays sticky across projects.
+        public float Awareness;
+        public float Hype;
+        public int AdSpend;          // 0 = off (default), 1 = on
         public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
         // Issue #12 (Release): a transient (NOT persisted) snapshot of the most recent ship so the screen
         // can show a "ship report". Momentary by design — lost on reload, re-set on the next ship.
+        // Issue #20 (Reviews): LastShipReview is the 0..10 critical-reception score derived at that ship.
         public bool HasLastShip;
-        public float LastShipQuality, LastShipPayout, LastShipRepMult, LastShipMarketMult;
+        public float LastShipQuality, LastShipPayout, LastShipRepMult, LastShipMarketMult, LastShipReview;
     }
 
     private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
@@ -54,6 +70,29 @@ public static class SiliconAlleyState
     public static float ProjectSize = 2800f;       // progress to complete one project (~2800 ≈ a skill-70 solo programmer over ~7 in-game calendar days full-time; the Project-speed slider tunes the pace)
     public static float PayoutMultiplier = 1f;     // global payout scale
     public static float SupportRatePerDay = 0.02f; // support income per installed unit per day, as a fraction of market price
+
+    // ---- issue #19 (Bugs) tuning. Bugs accrue per unit of Development progress and burn down per unit of
+    // tester skill in Testing. Defaults are sized against ProjectSize (~2800) and skill-70 staff so a build
+    // that skips QA ships visibly buggy while a held/tested build clears them. ----
+    public const float BugsPerProgress = 0.01f;       // bugs added per progress point during Development
+    public const float OvertimeBugFactor = 2f;        // Overtime rushes the build => ~2x the bugs
+    public const float BugFixPerSkillHour = 0.02f;    // bugs cleared per tester skill-point per Testing hour
+    public const float BugScale = 30f;                 // bug count that maps to "0% polish" / max ship penalty
+    public const float MaxBugQualityPenalty = 0.5f;    // a maximally buggy build loses up to half its quality
+
+    // ---- issue #21 (Marketing) tuning. Awareness is unit-less "buzz"; AwarenessToUnits converts it to
+    // extra launch installed-base units. Awareness decays each hour (slower while Hype is active). ----
+    public const float AwarenessDecayPerHour = 0.985f; // ~1.5%/h baseline decay
+    public const float AwarenessDecayHyped = 0.997f;   // Hype nearly holds awareness steady
+    public const float HypeDecayPerHour = 0.95f;       // Hype itself fades faster
+    public const float AwarenessToUnits = 0.5f;        // launch units = awareness * this (scaled by review)
+    public const float AdSpendAwarenessPerHour = 0.6f; // awareness added each hour while Ad Spend is on
+    // Campaign channel costs (cash) and their awareness/hype effect. Verified spend goes through
+    // SiliconAlleyMoney (BA money API). Press Build is strongest fired in late Development (see simulator).
+    public const float PressReleaseCost = 1500f, PressReleaseAwareness = 8f;
+    public const float PressBuildCost = 6000f, PressBuildAwareness = 30f;
+    public const float HypeCost = 2500f, HypeAmount = 12f;
+    public const float AdSpendCostPerHour = 120f;
 
     // ---- project type (issue #3): a player-chosen scale that trades duration vs payout vs competition.
     // The dropdown sets GlobalProjectType (the pre-selection); the simulator locks it per project at the
@@ -204,11 +243,21 @@ public static class SiliconAlleyState
     // Progress required to complete this building's current project, scaled by its locked type.
     public static float EffectiveProjectSize(string key) => ProjectSize * DurationMultiplier(GetProjectType(key));
 
-    public static void OnProjectCompleted(string key, float quality)
+    // Issue #20/#21: complete the current project. The shipped quality already carries the bug penalty
+    // (applied in the simulator), so a buggy build gives less reputation here automatically. Marketing
+    // awareness adds a small reputation bonus on top and (via launchUnits, computed by the caller from
+    // awareness + review) grows the installed base by more than the flat +1. SAVE-COMPAT: a legacy launch
+    // has BugCount = Awareness = 0, so the bonus is 0 and launchUnits floors at 1 — identical to before.
+    public static void OnProjectCompleted(string key, float quality, int launchUnits)
     {
         var state = Get(key);
-        state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f);
-        state.InstalledBase++;
+        var awarenessRepBonus = Mathf.Min(0.2f, state.Awareness * 0.004f); // 0 when unmarketed (legacy)
+        state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f + awarenessRepBonus);
+        state.InstalledBase += Mathf.Max(1, launchUnits); // base +1 (legacy) + marketing/review extra
+        // The launch consumes the build: bugs are resolved and awareness/hype reset for the next project.
+        state.BugCount = 0f;
+        state.Awareness = 0f;
+        state.Hype = 0f;
         state.QualitySum = 0f;     // the next project's quality accrues fresh
         state.QualityWeight = 0f;
         // Issue #8: per-phase accumulators reset with the aggregate so the next project's phases accrue
@@ -329,19 +378,78 @@ public static class SiliconAlleyState
         state.Progress = EffectiveProjectSize(key);
     }
 
+    // ---- issue #19 (Bugs) -------------------------------------------------------------------------
+    // Open defects in the current build. Accrued during Development, burned down during Testing/Hold.
+    public static float GetBugCount(string key) => Get(key).BugCount;
+    public static void AddBugs(string key, float amount) => Get(key).BugCount = Mathf.Max(0f, Get(key).BugCount + amount);
+    public static void BurnBugs(string key, float amount) => Get(key).BugCount = Mathf.Max(0f, Get(key).BugCount - amount);
+
+    // 0..1 "polish": 1 = no bugs, 0 = BugScale-or-more bugs. Drives the Testing readout and the ship penalty.
+    public static float GetPolish(string key) => 1f - Mathf.Clamp01(Get(key).BugCount / BugScale);
+
+    // How much residual bugs cut the shipped quality (and therefore payout/review/reputation). 1 = clean.
+    public static float BugQualityFactor(string key) => 1f - (1f - GetPolish(key)) * MaxBugQualityPenalty;
+
+    // ---- issue #21 (Marketing) --------------------------------------------------------------------
+    public static float GetAwareness(string key) => Get(key).Awareness;
+    public static void AddAwareness(string key, float amount) => Get(key).Awareness = Mathf.Max(0f, Get(key).Awareness + amount);
+    public static float GetHype(string key) => Get(key).Hype;
+    public static void AddHype(string key, float amount) => Get(key).Hype = Mathf.Max(0f, Get(key).Hype + amount);
+    public static bool IsAdSpend(string key) => Get(key).AdSpend != 0;
+    public static void SetAdSpend(string key, bool on) => Get(key).AdSpend = on ? 1 : 0;
+
+    // Decay awareness (and hype) one hour. Awareness fades slowly, but Hype nearly holds it steady while
+    // it lasts — the SI "crest the wave between phases" behaviour. Both are no-ops at 0 (legacy/unmarketed).
+    public static void DecayMarketing(string key)
+    {
+        var state = Get(key);
+        if (state.Awareness > 0f)
+            state.Awareness *= state.Hype > 0f ? AwarenessDecayHyped : AwarenessDecayPerHour;
+        if (state.Hype > 0f)
+            state.Hype *= HypeDecayPerHour;
+        if (state.Awareness < 0.01f) state.Awareness = 0f;
+        if (state.Hype < 0.01f) state.Hype = 0f;
+    }
+
+    // Extra launch installed-base units from marketing, amplified by the review score (#20). The base +1
+    // is added by OnProjectCompleted, so this returns the EXTRA only — 0 when awareness is 0 (legacy), so
+    // an unmarketed/old-save launch still adds exactly +1. review is 0..10; a strong review roughly
+    // doubles the conversion, a weak one halves it.
+    public static int LaunchBonusUnits(string key, float review)
+    {
+        var awareness = Get(key).Awareness;
+        if (awareness <= 0f)
+            return 0;
+        var reviewFactor = 0.5f + review / 10f; // 0.5 (review 0) .. 1.5 (review 10)
+        return Mathf.Max(0, Mathf.RoundToInt(awareness * AwarenessToUnits * reviewFactor));
+    }
+
+    // Issue #20 (Reviews): the 0..10 critical-reception score derived at ship from the shipped quality
+    // (already bug-penalised), the design ceiling and marketing awareness. Pure function so the simulator
+    // and any preview share one definition. A clean, unmarketed ship scores on quality alone.
+    public static float ComputeReviewScore(float shippedQuality, float designQuality, float awareness)
+    {
+        var score = Mathf.Clamp01(shippedQuality) * 9f;              // quality is the backbone (0..9)
+        if (designQuality >= 0f)
+            score += Mathf.Clamp01(designQuality) * 0.5f;            // a strong concept nudges critics up
+        score += Mathf.Clamp01(awareness / 40f) * 1f;               // buzz lifts reception up to +1
+        return Mathf.Clamp(score, 0f, 10f);
+    }
+
     // Issue #12 (Release): a transient snapshot of the most recent ship for the screen's ship report.
     public readonly struct ShipReport
     {
         public readonly bool Has;
-        public readonly float Quality, Payout, RepMult, MarketMult;
-        public ShipReport(bool has, float quality, float payout, float repMult, float marketMult)
+        public readonly float Quality, Payout, RepMult, MarketMult, Review;
+        public ShipReport(bool has, float quality, float payout, float repMult, float marketMult, float review)
         {
-            Has = has; Quality = quality; Payout = payout; RepMult = repMult; MarketMult = marketMult;
+            Has = has; Quality = quality; Payout = payout; RepMult = repMult; MarketMult = marketMult; Review = review;
         }
     }
 
-    // Record the just-shipped project's headline numbers (the same values the success toast encodes).
-    public static void SetLastShip(string key, float quality, float payout, float repMult, float marketMult)
+    // Record the just-shipped project's headline numbers (the same values the success toast encodes),
+    // including the 0..10 review score (#20).
+    public static void SetLastShip(string key, float quality, float payout, float repMult, float marketMult, float review)
     {
         var state = Get(key);
         state.HasLastShip = true;
@@ -349,12 +457,13 @@ public static class SiliconAlleyState
         state.LastShipPayout = payout;
         state.LastShipRepMult = repMult;
         state.LastShipMarketMult = marketMult;
+        state.LastShipReview = review;
     }
 
     public static ShipReport GetLastShip(string key)
     {
         var s = Get(key);
-        return new ShipReport(s.HasLastShip, s.LastShipQuality, s.LastShipPayout, s.LastShipRepMult, s.LastShipMarketMult);
+        return new ShipReport(s.HasLastShip, s.LastShipQuality, s.LastShipPayout, s.LastShipRepMult, s.LastShipMarketMult, s.LastShipReview);
     }
 
     public static void ClearLastShip(string key) => Get(key).HasLastShip = false;
@@ -400,12 +509,14 @@ public static class SiliconAlleyState
     // One entry per building (fields are APPEND-ONLY; older saves omit trailing fields, which default):
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
     //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
-    //    |designFocus|conceptLocked|overtime|hold,
+    //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend,
     // joined by ';'. The six per-phase quality fields (issue #8) and the Design/Development/Testing screen
     // fields (issue #9: designFocus default 0.5 = neutral, conceptLocked 0; issue #10: overtime 0 = off;
-    // issue #11: hold 0 = off) were
+    // issue #11: hold 0 = off), then the go-to-market fields (issue #19: bugCount 0 = no bugs; issue #21:
+    // awareness/hype/adSpend 0 = unmarketed), were
     // appended at schema v1; a save from before a given field omits it and it defaults (per-phase quality
-    // reads "not accrued" via GetPhaseQuality; designFocus stays 0.5; conceptLocked 0; overtime 0) while the
+    // reads "not accrued" via GetPhaseQuality; designFocus stays 0.5; conceptLocked 0; overtime 0; bugCount,
+    // awareness, hype, adSpend 0) while the
     // aggregate qualitySum/qualityWeight still yields the real shipped quality. Two reserved
     // "~"-prefixed header entries lead the blob:
     //   "~schema|<version>" — the save schema version (added in v1; absent ⇒ the v1 baseline);
@@ -455,7 +566,11 @@ public static class SiliconAlleyState
                 .Append(state.DesignFocus.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.ConceptLocked.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.Overtime.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.Hold.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.Hold.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.BugCount.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.Awareness.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.Hype.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.AdSpend.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -532,6 +647,14 @@ public static class SiliconAlleyState
                     int.TryParse(parts[17], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.Overtime);
                 if (parts.Length > 18) // issue #11: hold-testing flag (absent ⇒ 0, off)
                     int.TryParse(parts[18], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.Hold);
+                if (parts.Length > 19) // issue #19: open bug count (absent ⇒ 0, no bugs)
+                    float.TryParse(parts[19], NumberStyles.Float, CultureInfo.InvariantCulture, out state.BugCount);
+                if (parts.Length > 22) // issue #21: marketing awareness/hype/ad-spend (absent ⇒ 0, unmarketed)
+                {
+                    float.TryParse(parts[20], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Awareness);
+                    float.TryParse(parts[21], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Hype);
+                    int.TryParse(parts[22], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.AdSpend);
+                }
                 States[parts[0]] = state;
             }
             catch
