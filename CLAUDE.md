@@ -111,7 +111,17 @@ line that has shipped.
   - (`PublisherFocus { Any, Games, Office, Security }` is NOT persisted — only the publisher ordinal +
   the deal fields are; the enum is free to change.)
 - **Persisted enum ordinals** (inside the `"SiliconAlley"` blob): `ProjectKind { Quick=0, Standard=1,
-  Ambitious=2 }`; publisher ordinals (see above) persisted as the active-deal `dealPublisher`.
+  Ambitious=2 }`; publisher ordinals (see above) persisted as the active-deal `dealPublisher`; the
+  design-wizard `segmentId` ordinal + `featureMask`/`platformMask`/`ownedToolsMask`/`usedToolsMask` bitmasks
+  (per-bit/ordinal = the reserved enum families directly below).
+- **Design-wizard reserved enum families** (epic #34 / #40; APPEND-ONLY — once a bit/ordinal ships, never
+  rename/reorder/remove; add new members only by appending). The bit/ordinal members are minted by the owning
+  sibling when it needs them for gameplay; #40 reserves the family names (and `SegmentId`'s ordinals). The
+  bitmask/ordinal int is the persisted token, so each per-bit assignment is load-bearing:
+  - `FeatureId` — per business type (game / office / security); bit positions in `featureMask` (#26)
+  - `ToolId` — per business type; bit positions in `ownedToolsMask` / `usedToolsMask` (#36)
+  - `PlatformId` — bit positions in `platformMask` (#37)
+  - `SegmentId` — value of `segmentId` (#38): `0=Broad, 1=Enterprise, 2=Prosumer, 3=Consumer`
 - **modData keys:** `SiliconAlley` (versioned state blob), `SiliconAlley.ClientWelcomeSent` (bool flag)
 - **Reserved `"SiliconAlley"` blob headers** (`~`-prefixed, position-independent, unknown ones ignored for
   forward-compat): `~schema|<n>`, `~global|<projectTypeIndex>`, and `~publishers|r0,r1,…` — the player's
@@ -126,8 +136,21 @@ line that has shipped.
   defaults **1** (a debut, so no sequel bonus); `ipReputation 0`. Deal defaults: `dealPublisher` **-1**
   (NOT 0 — 0 is a valid publisher ordinal) ⇒ no active deal ⇒ old saves ship freely with no deadline;
   `dealDeadlineDay`/`dealPayout` 0. The review score #20, the launch jump and the support age-factor are
-  derived at ship/tick; review is stored only in the transient ship-report snapshot, not persisted. Pure
-  append ⇒ **no schema bump**.
+  derived at ship/tick; review is stored only in the transient ship-report snapshot, not persisted. Then the
+  **design-wizard block** (epic #34, **frozen order reserved up front by #40** before any sibling ships):
+  `|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId` — all `int`, all default `0`
+  (absent ⇒ default ⇒ legacy unchanged). `featureMask 0` ⇒ no extra features (scope ×1.0, quality ceiling
+  unchanged, #26); `platformMask 0` ⇒ a single "home" platform (reach ×1.0, scope ×1.0 — the no-op is **1
+  platform, never 0 reach**, #37); `ownedToolsMask`/`usedToolsMask 0` ⇒ no owned/licensed tools
+  (`ownedToolsMask` is **studio-level** and survives `OnProjectCompleted`; `usedToolsMask` is **per-project**
+  and resets on completion, #36); `segmentId 0` = Broad ⇒ segment factor ×1.0 (#38). #40 reserves these as
+  no-ops in code (`SiliconAlleyState` BusinessState + Serialize/LoadFrom); each sibling fills in ITS field's
+  gameplay at ITS reserved index and **must hold the frozen positions** — write the neutral `0` for any
+  earlier reserved slot not yet implemented, and read each with a `parts.Length > <index>` guard inside the
+  existing per-record `try/catch` (`InvariantCulture` for any non-int parse). **Every sibling PR
+  (#26 / #36 / #37 / #38 / #39) claims its reserved slot and reviewers gate on this order** (#39 Dependencies
+  appends no field but must not disturb it). Pure trailing append throughout (go-to-market, lifecycle, deals,
+  and this wizard block) ⇒ **no schema bump**, no new `~`-header.
 - **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
   `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →
   `ba:itemname_toiletstall`, `Sink` → `ba:itemname_sink`.

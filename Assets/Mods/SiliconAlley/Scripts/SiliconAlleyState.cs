@@ -79,6 +79,19 @@ public static class SiliconAlleyState
         public int DealPublisher = -1;
         public int DealDeadlineDay;
         public float DealPayout;
+        // Issue #40 (Design wizard, epic #34): the FROZEN trailing positions reserved up front for the four
+        // wizard sibling pages so parallel work can't collide on field order. #40 ships them as no-ops — all
+        // default 0 (absent in old saves => 0), so legacy behaviour is unchanged: no extra features, a single
+        // "home" platform, no tools, Broad segment. Each sibling fills in ITS field's gameplay at ITS reserved
+        // index and must hold the frozen positions (write 0 for any earlier reserved slot not yet implemented).
+        // SAVE-COMPAT: pure trailing append (see Serialize/LoadFrom), no schema bump. The FeatureId/ToolId/
+        // PlatformId/SegmentId enum families are reserved in CLAUDE.md SHIPPED_ENUMS; the owning sibling mints
+        // the actual enum + per-bit assignments. Persisted as the int bitmask/ordinal (per-bit is load-bearing).
+        public int FeatureMask;     // #26: bits = FeatureId (per business type); 0 = no extra features (scope x1, ceiling unchanged)
+        public int PlatformMask;    // #37: bits = PlatformId; 0 = single "home" platform (reach x1, scope x1 — never 0 reach)
+        public int OwnedToolsMask;  // #36: bits = ToolId, studio-level (survives OnProjectCompleted); 0 = no owned tools
+        public int UsedToolsMask;   // #36: bits = ToolId, per-project (resets on completion); 0 = no licensed tools
+        public int SegmentId;       // #38: SegmentId ordinal (0=Broad,1=Enterprise,2=Prosumer,3=Consumer); 0 = Broad x1
         public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
         // Issue #12 (Release): a transient (NOT persisted) snapshot of the most recent ship so the screen
         // can show a "ship report". Momentary by design — lost on reload, re-set on the next ship.
@@ -737,7 +750,13 @@ public static class SiliconAlleyState
                 .Append(state.IpReputation.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.DealPublisher.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.DealDeadlineDay.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.DealPayout.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.DealPayout.ToString(CultureInfo.InvariantCulture)).Append('|')
+                // Issue #40: design-wizard reserved block (frozen order — never reorder). All no-op 0 today.
+                .Append(state.FeatureMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.PlatformMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.OwnedToolsMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.UsedToolsMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.SegmentId.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -850,6 +869,17 @@ public static class SiliconAlleyState
                     int.TryParse(parts[27], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.DealDeadlineDay);
                 if (parts.Length > 28) // issue #23: deal payout (absent ⇒ 0)
                     float.TryParse(parts[28], NumberStyles.Float, CultureInfo.InvariantCulture, out state.DealPayout);
+                // Issue #40: design-wizard reserved block (frozen indices 29..33). All absent ⇒ field default 0.
+                if (parts.Length > 29) // #26: feature bitmask (absent ⇒ 0, no extra features)
+                    int.TryParse(parts[29], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.FeatureMask);
+                if (parts.Length > 30) // #37: platform bitmask (absent ⇒ 0, single home platform)
+                    int.TryParse(parts[30], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.PlatformMask);
+                if (parts.Length > 31) // #36: owned-tools bitmask, studio-level (absent ⇒ 0, none)
+                    int.TryParse(parts[31], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.OwnedToolsMask);
+                if (parts.Length > 32) // #36: used-tools bitmask, per-project (absent ⇒ 0, none)
+                    int.TryParse(parts[32], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.UsedToolsMask);
+                if (parts.Length > 33) // #38: audience segment ordinal (absent ⇒ 0, Broad)
+                    int.TryParse(parts[33], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.SegmentId);
                 States[parts[0]] = state;
             }
             catch
