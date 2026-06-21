@@ -189,5 +189,6 @@
   "siliconalley:segmentsize_broad": "general market",
   "siliconalley:segmentsize_enterprise": "small, high-value",
   "siliconalley:segmentsize_prosumer": "medium, mid-price",
-  "siliconalley:segmentsize_consumer": "mass market, low-margin"
+  "siliconalley:segmentsize_consumer": "mass market, low-margin",
+  "siliconalley:wiz_market_estimate": "~{market}× reachable (reach {reach}× × {segment} volume {volume}×) · price ×{price}"
 }

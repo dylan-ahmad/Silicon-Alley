@@ -584,7 +584,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _marketReadout.text = SegmentText(current);
     }
 
-    // Shared "Segment · {size} · price ×P / volume ×V" phrase for the Market readout and the Summary market row.
+    // "Segment · {size} · price ×P / volume ×V" phrase for the Market page readout.
     private string SegmentText(int segmentId)
     {
         var s = SiliconAlleySegments.Get(segmentId);
@@ -593,6 +593,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("size", s.MarketSizeKey.GetLocalization()),
             ("price", s.PriceFactor.ToString("0.0", CultureInfo.InvariantCulture)),
             ("volume", s.VolumeFactor.ToString("0.0", CultureInfo.InvariantCulture)));
+    }
+
+    // Epic #34 capstone: the aggregate reachable-market estimate the Summary commits to — platform reach (#37)
+    // × segment volume (#38), the combined multiplier on the launch installed-base jump vs a single-home-platform
+    // Broad product (price is the separate revenue axis). Neutral (1 home platform + Broad) ⇒ ~1.0×.
+    private string MarketSummaryText(string key, string businessTypeName)
+    {
+        var reach = SiliconAlleyState.LaunchReach(key, businessTypeName);
+        var volume = SiliconAlleyState.SegmentVolumeFactor(key);
+        var price = SiliconAlleyState.SegmentPriceFactor(key);
+        var segment = SiliconAlleySegments.Get(SiliconAlleyState.GetSegmentId(key)).NameKey.GetLocalization();
+        return Compose("siliconalley:wiz_market_estimate",
+            ("market", (reach * volume).ToString("0.0", CultureInfo.InvariantCulture)),
+            ("reach", reach.ToString("0.0", CultureInfo.InvariantCulture)),
+            ("segment", segment),
+            ("volume", volume.ToString("0.0", CultureInfo.InvariantCulture)),
+            ("price", price.ToString("0.0", CultureInfo.InvariantCulture)));
     }
 
     // Summary page: a read-only review aggregated before commit. Today only scope/ETA and a design-quality
@@ -625,9 +642,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 : Compose("siliconalley:wiz_royalty_value",
                     ("royalty", Mathf.RoundToInt(SiliconAlleyState.ToolRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
                     ("count", licensed.ToString(CultureInfo.InvariantCulture)))));
-        // #37 operating systems (platform reach) + #38 audience segment (price↔volume) — the product's market.
+        // Epic #34: the Summary aggregates the reachable market = platform reach (#37) × segment volume (#38).
         _sumMarketText.text = Compose("siliconalley:wiz_sum_market",
-            ("value", PlatformMarketText(key, type) + " · " + SegmentText(SiliconAlleyState.GetSegmentId(key))));
+            ("value", MarketSummaryText(key, type)));
     }
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
