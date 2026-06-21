@@ -118,7 +118,12 @@ line that has shipped.
   rename/reorder/remove; add new members only by appending). The bit/ordinal members are minted by the owning
   sibling when it needs them for gameplay; #40 reserves the family names (and `SegmentId`'s ordinals). The
   bitmask/ordinal int is the persisted token, so each per-bit assignment is load-bearing:
-  - `FeatureId` — per business type (game / office / security); bit positions in `featureMask` (#26)
+  - `FeatureId` — per business type; bit positions in `featureMask` (#26, **SHIPPED** — `SiliconAlleyFeatures`,
+    APPEND-ONLY by `Bit`, never reorder/remove). Office (`softwarestudio`): `0` Cloud Sync · `1` Plugin API ·
+    `2` Collaboration Suite · `3` Automation Scripting · `4` Enterprise SSO. Security (`cybersecurity`): `0` Threat
+    Intel Feed · `1` Compliance Reporting · `2` Automated Pen-Testing · `3` Zero-Trust Module · `4` Incident
+    Response. Game (`gamestudio`): `0` Advanced Graphics · `1` Physics Engine · `2` Multiplayer Netcode ·
+    `3` Procedural Generation · `4` Mod Support. (Display names live in `en.json` and may change freely.)
   - `ToolId` — per business type; bit positions in `ownedToolsMask` / `usedToolsMask` (#36)
   - `PlatformId` — bit positions in `platformMask` (#37)
   - `SegmentId` — value of `segmentId` (#38): `0=Broad, 1=Enterprise, 2=Prosumer, 3=Consumer`
@@ -140,7 +145,9 @@ line that has shipped.
   **design-wizard block** (epic #34, **frozen order reserved up front by #40** before any sibling ships):
   `|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId` — all `int`, all default `0`
   (absent ⇒ default ⇒ legacy unchanged). `featureMask 0` ⇒ no extra features (scope ×1.0, quality ceiling
-  unchanged, #26); `platformMask 0` ⇒ a single "home" platform (reach ×1.0, scope ×1.0 — the no-op is **1
+  unchanged) — **#26 SHIPPED**: real bits = `FeatureId`, each set bit raises `EffectiveProjectSize` and the
+  design quality ceiling; **per-project** (reset to `0` in `OnProjectCompleted`); `platformMask 0` ⇒ a single
+  "home" platform (reach ×1.0, scope ×1.0 — the no-op is **1
   platform, never 0 reach**, #37); `ownedToolsMask`/`usedToolsMask 0` ⇒ no owned/licensed tools
   (`ownedToolsMask` is **studio-level** and survives `OnProjectCompleted`; `usedToolsMask` is **per-project**
   and resets on completion, #36); `segmentId 0` = Broad ⇒ segment factor ×1.0 (#38). #40 reserves these as

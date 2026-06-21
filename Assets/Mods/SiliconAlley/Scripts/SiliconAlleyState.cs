@@ -92,6 +92,11 @@ public static class SiliconAlleyState
         public int OwnedToolsMask;  // #36: bits = ToolId, studio-level (survives OnProjectCompleted); 0 = no owned tools
         public int UsedToolsMask;   // #36: bits = ToolId, per-project (resets on completion); 0 = no licensed tools
         public int SegmentId;       // #38: SegmentId ordinal (0=Broad,1=Enterprise,2=Prosumer,3=Consumer); 0 = Broad x1
+        // Issue #26: the business type (game/office/security) that owns this building's current project, noted
+        // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
+        // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
+        // many call sites. NOT persisted — re-derived from the building registration after load.
+        public string BusinessTypeName;
         public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
         // Issue #12 (Release): a transient (NOT persisted) snapshot of the most recent ship so the screen
         // can show a "ship report". Momentary by design — lost on reload, re-set on the next ship.
@@ -276,6 +281,10 @@ public static class SiliconAlleyState
         return address.streetName + ":" + address.streetNumber;
     }
 
+    // Issue #26: record which business type owns this building's current project, so the per-type feature
+    // math can resolve the feature list from FeatureMask. Called each sim tick and on each screen refresh.
+    public static void NoteBusinessType(string key, string businessTypeName) => Get(key).BusinessTypeName = businessTypeName;
+
     public static void AddProgress(string key, float amount) => Get(key).Progress += amount;
     public static float GetProgress(string key) => Get(key).Progress;
     public static float GetReputation(string key) => Get(key).Reputation;
@@ -352,8 +361,14 @@ public static class SiliconAlleyState
         return state.ProjectType;
     }
 
-    // Progress required to complete this building's current project, scaled by its locked type.
-    public static float EffectiveProjectSize(string key) => ProjectSize * DurationMultiplier(GetProjectType(key));
+    // Progress required to complete this building's current project, scaled by its locked type and (issue #26)
+    // the features selected in the design wizard. FeatureMask 0 ⇒ SizeMultiplier 1.0 ⇒ unchanged from before.
+    public static float EffectiveProjectSize(string key)
+    {
+        var state = Get(key);
+        return ProjectSize * DurationMultiplier(state.ProjectType < 0 ? (int)ProjectKind.Standard : state.ProjectType)
+            * SiliconAlleyFeatures.SizeMultiplier(state.FeatureMask, state.BusinessTypeName);
+    }
 
     // Issue #20/#21: complete the current project. The shipped quality already carries the bug penalty
     // (applied in the simulator), so a buggy build gives less reputation here automatically. Marketing
@@ -387,6 +402,7 @@ public static class SiliconAlleyState
         state.ProjectType = GlobalProjectType; // the next project uses the current global selection
         state.ConceptLocked = 0; // issue #9: the next project's concept reopens (DesignFocus stays sticky)
         state.Hold = 0;          // issue #11: the next project isn't held
+        state.FeatureMask = 0;   // issue #26: features are chosen per product — the next project starts feature-free
         state.DesignPrompted = false; // nudge again for the next project
     }
 
@@ -467,6 +483,30 @@ public static class SiliconAlleyState
     {
         if (CurrentPhase(key) == ProjectPhase.Design)
             Get(key).ConceptLocked = 1;
+    }
+
+    // ---- issue #26 (Design Document): per-project feature selection ---------------------------------
+    // The bitmask of features chosen for the current project (bit = SiliconAlleyFeatures Bit, per business
+    // type). Edited only while the concept is editable, like scope/focus; reset per product on completion.
+    public static int GetFeatureMask(string key) => Get(key).FeatureMask;
+    public static bool HasFeature(string key, int bit) => (Get(key).FeatureMask & (1 << bit)) != 0;
+
+    public static void ToggleFeature(string key, int bit)
+    {
+        if (CanEditConcept(key))
+            Get(key).FeatureMask ^= 1 << bit;
+    }
+
+    // The design-phase quality ceiling, raised by the project's selected features (issue #26). A weak Design
+    // phase still caps the shipped quality (issue #9); features lift that cap toward 1.0. SAVE-COMPAT:
+    // designQuality < 0 (no Design work yet / legacy save) ⇒ no cap (1.0), exactly as before; FeatureMask 0 ⇒
+    // bonus 0 ⇒ the cap is the unchanged 0.5 + 0.5*designQuality.
+    public static float DesignQualityCeiling(string key, string businessTypeName, float designQuality)
+    {
+        if (designQuality < 0f)
+            return 1f;
+        var bonus = SiliconAlleyFeatures.QualityBonus(Get(key).FeatureMask, businessTypeName);
+        return Mathf.Min(1f, 0.5f + 0.5f * designQuality + bonus);
     }
 
     // Issue #10 (Development): the studio's Overtime policy — a sticky toggle that only takes effect in
