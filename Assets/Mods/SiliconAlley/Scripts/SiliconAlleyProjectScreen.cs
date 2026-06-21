@@ -104,6 +104,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Summary page (placeholder rows today; sub-issues fill them in)
     private GameObject _summaryPage;
     private TMP_Text _sumScopeText, _sumQualityText, _sumCostsText, _sumRoyaltiesText, _sumMarketText;
+    // Features page (issue #26): a fixed pool of toggle buttons (sized to the largest feature table), relabelled
+    // and shown/hidden per business type each refresh; bit i toggles the matching FeatureMask bit.
+    private GameObject _featuresPage;
+    private Button[] _featureButtons;
+    private Image[] _featureImages;
+    private TMP_Text[] _featureLabels;
+    private TMP_Text _featuresReadout;
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -253,6 +260,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         var businessType = BusinessTypeHelper.GetData(reg);
         var key = _currentKey;
+        // Issue #26: note the type so EffectiveProjectSize (just below) and the wizard readouts are feature-aware.
+        SiliconAlleyState.NoteBusinessType(key, businessType?.businessTypeName);
         var size = SiliconAlleyState.EffectiveProjectSize(key);
         var rawProgress = SiliconAlleyState.GetProgress(key);
         var phase = SiliconAlleyState.PhaseOf(rawProgress, size);
@@ -392,6 +401,43 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _suppress = false;
     }
 
+    // Features page (issue #26): the current business type's feature list as toggle buttons; each selected
+    // feature raises projected size/dev-time and the quality ceiling. The readout updates as bits flip, so the
+    // player sees the cost/benefit before committing. Unused slots (types with fewer features) are hidden.
+    private void RefreshFeaturesPage()
+    {
+        var key = _currentKey;
+        var feats = SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName);
+        var mask = SiliconAlleyState.GetFeatureMask(key);
+        for (var i = 0; i < _featureButtons.Length; i++)
+        {
+            var has = i < feats.Length;
+            _featureButtons[i].gameObject.SetActive(has);
+            if (!has)
+                continue;
+            var f = feats[i];
+            _featureLabels[i].text = Compose("siliconalley:wiz_feature_row",
+                ("name", f.NameKey.GetLocalization()),
+                ("size", Mathf.RoundToInt(f.SizeCost * 100f).ToString(CultureInfo.InvariantCulture)),
+                ("quality", Mathf.RoundToInt(f.QualityContribution * 100f).ToString(CultureInfo.InvariantCulture)));
+            _featureImages[i].color = (mask & (1 << f.Bit)) != 0 ? ButtonSelected : ButtonColor;
+        }
+        _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
+            ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
+            ("eta", EtaText(_ctxSize - _ctxProgress, _ctxPerHour)),
+            ("ceiling", Pct(ProjectedCeiling(key)) + "%"));
+    }
+
+    // A display estimate of the achievable quality ceiling: the design baseline (clamped, so it reads sensibly
+    // before any Design work) raised by the selected features. Matches the simulator's DesignQualityCeiling for
+    // a real design quality; purely for the wizard preview.
+    private float ProjectedCeiling(string key)
+    {
+        var dq = Mathf.Max(0f, SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design));
+        var bonus = SiliconAlleyFeatures.QualityBonus(SiliconAlleyState.GetFeatureMask(key), _ctxBusinessType?.businessTypeName);
+        return Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
+    }
+
     // Summary page: a read-only review aggregated before commit. Today only scope/ETA and a design-quality
     // baseline are computable; the remaining rows show neutral placeholders that the sub-issues fill in.
     private void RefreshSummaryPage()
@@ -403,13 +449,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
             ("eta", EtaText(_ctxSize - _ctxProgress, _ctxPerHour)));
 
-        // Quality ceiling — today the design-phase baseline (falls back to the aggregate, then "—").
-        // #26 features + #36 owned-tool bonuses raise this ceiling.
-        var q = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
-        if (q < 0f)
-            q = SiliconAlleyState.GetAverageQuality(key);
+        // Quality ceiling — the design-phase baseline raised by the selected features (issue #26; #36 owned
+        // tools will lift it further). Features alone raise it above the 50% baseline, so it's always shown.
         _sumQualityText.text = Compose("siliconalley:wiz_sum_quality",
-            ("value", q < 0f ? "siliconalley:wiz_placeholder_none".GetLocalization() : Pct(q) + "%"));
+            ("value", Pct(ProjectedCeiling(key)) + "%"));
 
         // #36 editors & tools: up-front R&D/build spend + ongoing licensed-tool royalties.
         _sumCostsText.text = Compose("siliconalley:wiz_sum_costs",
@@ -597,6 +640,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SiliconAlleyState.LockConcept(_currentKey); // Confirm on the Summary page
         else
             _wizardPage++;
+        Refresh();
+    }
+
+    // Issue #26: toggle the feature shown in this Features-page slot for the current business type. The slot
+    // index maps to the type's feature list at refresh time, so the bit toggled is always the right one.
+    private void OnToggleFeature(int slot)
+    {
+        var feats = SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName);
+        if (slot >= 0 && slot < feats.Length)
+            SiliconAlleyState.ToggleFeature(_currentKey, feats[slot].Bit);
         Refresh();
     }
 
@@ -918,12 +971,36 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _sumRoyaltiesText = MakeText(_summaryPage.transform, "SumRoyalties", 15, TextAnchor.MiddleLeft);
         _sumMarketText = MakeText(_summaryPage.transform, "SumMarket", 15, TextAnchor.MiddleLeft);
 
+        // Features page (issue #26): the design-document feature picker. A reusable pool of toggle buttons,
+        // sized to the largest feature table; RefreshFeaturesPage relabels + shows the current type's list.
+        _featuresPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_featuresPage.transform, "siliconalley:wiz_features_header");
+        var featureSlots = SiliconAlleyFeatures.MaxCount;
+        _featureButtons = new Button[featureSlots];
+        _featureImages = new Image[featureSlots];
+        _featureLabels = new TMP_Text[featureSlots];
+        for (var i = 0; i < featureSlots; i++)
+        {
+            var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
+            var btn = MakeButton(_featuresPage.transform, "", () => OnToggleFeature(slot));
+            _featureButtons[i] = btn;
+            _featureImages[i] = btn.GetComponent<Image>();
+            _featureLabels[i] = btn.GetComponentInChildren<TMP_Text>();
+        }
+        _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+
         // Register pages in display order: Concept first, Summary last. A sub-issue (#26/#36/#37/#38) inserts
-        // its page just before Summary with an IsPresent that gates it on its feature, e.g.:
-        //   _wizardPages.Insert(_wizardPages.Count - 1, new WizardPage { Root = featuresPage,
-        //       IsPresent = () => SiliconAlleyState.HasFeatures, Refresh = RefreshFeaturesPage });
+        // its page just before Summary with an IsPresent that gates it on its feature.
         _wizardPages.Add(new WizardPage { Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage });
         _wizardPages.Add(new WizardPage { Root = _summaryPage, IsPresent = () => true, Refresh = RefreshSummaryPage });
+        // Issue #26: the Features page sits just before Summary, present for any business type that has a
+        // feature list (all three Silicon Alley types do; an unknown type simply skips it).
+        _wizardPages.Insert(_wizardPages.Count - 1, new WizardPage
+        {
+            Root = _featuresPage,
+            IsPresent = () => SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName).Length > 0,
+            Refresh = RefreshFeaturesPage,
+        });
 
         // Nav row: Back · Next/Confirm (Next's label flips to Confirm on the Summary page).
         _wizardNavRow = MakeRow(_wizardSection.transform, 10f, 40);

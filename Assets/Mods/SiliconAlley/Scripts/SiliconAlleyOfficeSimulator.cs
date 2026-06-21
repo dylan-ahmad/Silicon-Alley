@@ -41,6 +41,9 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             return;
 
         var key = SiliconAlleyState.KeyFor(buildingRegistration);
+        // Issue #26: record the business type so the per-type feature math (project size + quality ceiling)
+        // can resolve this project's feature list before EffectiveProjectSize is read just below.
+        SiliconAlleyState.NoteBusinessType(key, businessType.businessTypeName);
 
         // 1) Gather the staff working at a workstation this hour, with each person's programmer and
         // graphic-designer skill (issue #2). Only disciplines this business actually lists count.
@@ -213,8 +216,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // design baseline sets the ceiling. Skipped when no Design quality accrued (legacy saves), so
             // old in-flight projects are unaffected.
             var designQuality = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
-            if (designQuality >= 0f)
-                accruedQuality = Mathf.Min(accruedQuality, 0.5f + 0.5f * designQuality);
+            // Issue #26: the selected features raise this ceiling. The helper returns 1.0 (no cap) when no
+            // Design quality accrued (legacy saves), so old in-flight projects are unaffected, and adds 0 when
+            // no features are selected — identical to the previous 0.5 + 0.5*designQuality cap.
+            accruedQuality = Mathf.Min(accruedQuality,
+                SiliconAlleyState.DesignQualityCeiling(key, businessType.businessTypeName, designQuality));
             // Issue #19: residual bugs cut the shipped quality (so the existing payout/reputation path
             // reflects them). Clean/legacy builds (no tracked bugs) keep BugQualityFactor == 1 → unchanged.
             var quality = accruedQuality * Mathf.Max(0.25f, cleanliness) * SiliconAlleyState.BugQualityFactor(key);
