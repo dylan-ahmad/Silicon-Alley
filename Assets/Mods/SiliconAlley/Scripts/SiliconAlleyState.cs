@@ -70,6 +70,15 @@ public static class SiliconAlleyState
         // sequel bonus) => launches unchanged. Legacy installed base is NOT rescaled.
         public int Version = 1;
         public float IpReputation;
+        // Issue #23 (Publisher deals): the active deal binding this studio's CURRENT product to a publisher on
+        // a deadline. DealPublisher is the publisher's roster ordinal (see SiliconAlleyPublishers), -1 = no
+        // active deal; DealDeadlineDay is the absolute game-day delivery is due; DealPayout is the bonus locked
+        // at signing, paid on top of the normal market payout on an on-time ship. SAVE-COMPAT: appended
+        // trailing; DealPublisher's field initializer is -1 (NOT 0 — 0 is a valid ordinal), so an old save
+        // without these fields reads as "no deal" and ships freely as before. Reset on completion/miss.
+        public int DealPublisher = -1;
+        public int DealDeadlineDay;
+        public float DealPayout;
         public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
         // Issue #12 (Release): a transient (NOT persisted) snapshot of the most recent ship so the screen
         // can show a "ship report". Momentary by design — lost on reload, re-set on the next ship.
@@ -79,6 +88,14 @@ public static class SiliconAlleyState
     }
 
     private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
+
+    // Issue #22 (Publisher roster): the player's reputation with each publisher, indexed by the publisher's
+    // roster ordinal (SiliconAlleyPublishers.Roster). Player-GLOBAL (your standing with a publisher is shared
+    // across studios), persisted in the "~publishers" header. APPEND-ONLY like the roster: an index, once
+    // shipped, keeps its meaning; new publishers extend the list. A missing index reads as 0 (old saves have a
+    // shorter or empty list). Re-defaulted in LoadFrom and cleared in Reset so reputations never bleed between
+    // saves loaded in one session.
+    private static readonly List<float> PublisherReps = new List<float>();
 
     // ---- tunables (driven by the in-game options panel; defaults match a 100/100/20 slider) ----
     public static float ProjectSpeed = 1f;         // progress per programmer skill-point per hour
@@ -264,6 +281,44 @@ public static class SiliconAlleyState
     // reputation (0..IpRepMax). Both surface in the ship report / completion toast.
     public static int GetVersion(string key) => Get(key).Version;
     public static float GetIpReputation(string key) => Get(key).IpReputation;
+
+    // ---- issue #22/#23 (Publishers & deals) ------------------------------------------------------------
+    // The player's reputation with a publisher (by roster ordinal). Out-of-range ⇒ 0 (old/short saves).
+    public static float GetPublisherRep(int index)
+        => index >= 0 && index < PublisherReps.Count ? PublisherReps[index] : 0f;
+
+    // Adjust reputation with a publisher, growing the backing list on demand and clamping to [0, RepMax].
+    public static void AddPublisherRep(int index, float delta)
+    {
+        if (index < 0)
+            return;
+        while (PublisherReps.Count <= index)
+            PublisherReps.Add(0f);
+        PublisherReps[index] = Mathf.Clamp(PublisherReps[index] + delta, 0f, SiliconAlleyPublishers.RepMax);
+    }
+
+    // The active publisher deal for this studio's current product. HasDeal gates everything; the three getters
+    // read the locked terms. Sign/Clear set them. A deal binds the in-flight product until it ships or misses.
+    public static bool HasDeal(string key) => Get(key).DealPublisher >= 0;
+    public static int GetDealPublisher(string key) => Get(key).DealPublisher;
+    public static int GetDealDeadlineDay(string key) => Get(key).DealDeadlineDay;
+    public static float GetDealPayout(string key) => Get(key).DealPayout;
+
+    public static void SignDeal(string key, int publisherIndex, int deadlineDay, float payout)
+    {
+        var state = Get(key);
+        state.DealPublisher = publisherIndex;
+        state.DealDeadlineDay = deadlineDay;
+        state.DealPayout = payout;
+    }
+
+    public static void ClearDeal(string key)
+    {
+        var state = Get(key);
+        state.DealPublisher = -1;
+        state.DealDeadlineDay = 0;
+        state.DealPayout = 0f;
+    }
 
     // The project type locked in for this building's current project (issue #3). Unlocked (-1) reads as
     // Standard so display/calc always have a concrete type.
@@ -584,7 +639,11 @@ public static class SiliconAlleyState
         return 0f;
     }
 
-    public static void Reset() => States.Clear();
+    public static void Reset()
+    {
+        States.Clear();
+        PublisherReps.Clear(); // issue #22: don't let publisher reputation bleed between saves loaded in a session
+    }
 
     // --- persistence (stored in GameInstance.modData by SiliconAlleyPersistence) ---
     // SAVE COMPATIBILITY: this format is FORWARD-COMPATIBLE ONLY (see the Save Compatibility Policy in
@@ -594,8 +653,12 @@ public static class SiliconAlleyState
     // One entry per building (fields are APPEND-ONLY; older saves omit trailing fields, which default):
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
     //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
-    //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation,
-    // joined by ';'. The six per-phase quality fields (issue #8) and the Design/Development/Testing screen
+    //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation
+    //    |dealPublisher|dealDeadlineDay|dealPayout,
+    // joined by ';'. The publisher-deal fields (issue #23: dealPublisher default -1 = no deal, dealDeadlineDay/
+    // dealPayout 0) append after the lifecycle fields; absent in old saves ⇒ no active deal. A third reserved
+    // header "~publishers|r0,r1,…" carries the player's per-publisher reputation (issue #22, append-only by
+    // roster ordinal; absent ⇒ all 0). The six per-phase quality fields (issue #8) and the Design/Development/Testing screen
     // fields (issue #9: designFocus default 0.5 = neutral, conceptLocked 0; issue #10: overtime 0 = off;
     // issue #11: hold 0 = off), then the go-to-market fields (issue #19: bugCount 0 = no bugs; issue #21:
     // awareness/hype/adSpend 0 = unmarketed), then the product-lifecycle fields (issue #25: supportFreshDay
@@ -616,6 +679,8 @@ public static class SiliconAlleyState
     // Older saves omit the trailing fields; LoadFrom tolerates their absence and defaults them.
     // InvariantCulture is required so a locale with comma decimals (e.g. nl-NL) cannot corrupt it.
     private const string GlobalTypeKey = "~global";
+    // Issue #22: reserved header carrying the player's per-publisher reputation (comma-separated, by ordinal).
+    private const string PublishersKey = "~publishers";
 
     // Save schema version. The CURRENT shipped format is the v1 baseline; a save written before the
     // "~schema" header existed has no such entry and loads as v1 (BaselineSchemaVersion). Bump
@@ -632,6 +697,15 @@ public static class SiliconAlleyState
             .Append(CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)).Append(';');
         builder.Append(GlobalTypeKey).Append('|')
             .Append(GlobalProjectType.ToString(CultureInfo.InvariantCulture)).Append(';');
+        // Issue #22: the player's per-publisher reputation as a reserved header, comma-separated by roster
+        // ordinal (append-only). Building keys never start with '~', so this can't collide with a record.
+        builder.Append(PublishersKey).Append('|');
+        for (int i = 0; i < PublisherReps.Count; i++)
+        {
+            if (i > 0) builder.Append(',');
+            builder.Append(PublisherReps[i].ToString(CultureInfo.InvariantCulture));
+        }
+        builder.Append(';');
         foreach (var pair in States)
         {
             var state = pair.Value;
@@ -660,7 +734,10 @@ public static class SiliconAlleyState
                 .Append(state.AdSpend.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.SupportFreshDay.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.Version.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.IpReputation.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.IpReputation.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.DealPublisher.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.DealDeadlineDay.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.DealPayout.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -668,6 +745,7 @@ public static class SiliconAlleyState
     public static void LoadFrom(string data)
     {
         States.Clear();
+        PublisherReps.Clear(); // issue #22: re-default so reputation can't bleed from a previously loaded save
         GlobalProjectType = (int)ProjectKind.Standard; // headerless (older) saves default cleanly
         if (string.IsNullOrEmpty(data))
             return;
@@ -694,6 +772,13 @@ public static class SiliconAlleyState
                 {
                     if (parts.Length > 1)
                         int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out GlobalProjectType);
+                    continue;
+                }
+                if (parts[0] == PublishersKey) // issue #22: per-publisher reputation (comma-separated by ordinal)
+                {
+                    if (parts.Length > 1 && parts[1].Length > 0)
+                        foreach (var token in parts[1].Split(','))
+                            PublisherReps.Add(float.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var rep) ? rep : 0f);
                     continue;
                 }
                 if (parts[0].Length > 0 && parts[0][0] == '~')
@@ -755,6 +840,16 @@ public static class SiliconAlleyState
                 }
                 if (parts.Length > 25) // issue #24: IP reputation (absent ⇒ 0, no sequel bonus)
                     float.TryParse(parts[25], NumberStyles.Float, CultureInfo.InvariantCulture, out state.IpReputation);
+                if (parts.Length > 26) // issue #23: active-deal publisher ordinal. Keep the -1 default (no deal)
+                {
+                    // if a present value parses as garbage, so a corrupt field never reads as publisher 0.
+                    if (int.TryParse(parts[26], NumberStyles.Integer, CultureInfo.InvariantCulture, out var dealPub))
+                        state.DealPublisher = dealPub;
+                }
+                if (parts.Length > 27) // issue #23: deal deadline day (absent ⇒ 0)
+                    int.TryParse(parts[27], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.DealDeadlineDay);
+                if (parts.Length > 28) // issue #23: deal payout (absent ⇒ 0)
+                    float.TryParse(parts[28], NumberStyles.Float, CultureInfo.InvariantCulture, out state.DealPayout);
                 States[parts[0]] = state;
             }
             catch
