@@ -179,5 +179,15 @@
   "siliconalley:toolvendor_logguard": "LogGuard",
   "siliconalley:toolvendor_gameforge": "GameForge",
   "siliconalley:toolvendor_pixelforge": "PixelForge Tools",
-  "siliconalley:toolvendor_soundstack": "SoundStack"
+  "siliconalley:toolvendor_soundstack": "SoundStack",
+  "siliconalley:wiz_market_header": "Market — who is it for? (price vs volume)",
+  "siliconalley:wiz_market_segment": "{segment} · {size} · price ×{price} / volume ×{volume}",
+  "siliconalley:segment_broad": "Broad",
+  "siliconalley:segment_enterprise": "Enterprise",
+  "siliconalley:segment_prosumer": "Prosumer",
+  "siliconalley:segment_consumer": "Consumer",
+  "siliconalley:segmentsize_broad": "general market",
+  "siliconalley:segmentsize_enterprise": "small, high-value",
+  "siliconalley:segmentsize_prosumer": "medium, mid-price",
+  "siliconalley:segmentsize_consumer": "mass market, low-margin"
 }

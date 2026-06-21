@@ -126,6 +126,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private Image[] _toolImages;
     private TMP_Text[] _toolLabels;
     private TMP_Text _toolsReadout;
+    // Market page (issue #38): single-select audience segment (Broad/Enterprise/Prosumer/Consumer), like the
+    // scope buttons; shifts the price↔volume tradeoff. Backed by the per-project SegmentId ordinal.
+    private GameObject _marketPage;
+    private Button[] _segmentButtons;
+    private Image[] _segmentImages;
+    private TMP_Text _marketReadout;
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -567,6 +573,28 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         return sum;
     }
 
+    // Market page (issue #38): single-select audience segment. Recolors the chosen segment (like the scope
+    // buttons) and shows its market-size indicator + the price/volume factors it applies.
+    private void RefreshMarketPage()
+    {
+        var key = _currentKey;
+        var current = SiliconAlleyState.GetSegmentId(key);
+        for (var i = 0; i < _segmentButtons.Length; i++)
+            _segmentImages[i].color = i == current ? ButtonSelected : ButtonColor;
+        _marketReadout.text = SegmentText(current);
+    }
+
+    // Shared "Segment · {size} · price ×P / volume ×V" phrase for the Market readout and the Summary market row.
+    private string SegmentText(int segmentId)
+    {
+        var s = SiliconAlleySegments.Get(segmentId);
+        return Compose("siliconalley:wiz_market_segment",
+            ("segment", s.NameKey.GetLocalization()),
+            ("size", s.MarketSizeKey.GetLocalization()),
+            ("price", s.PriceFactor.ToString("0.0", CultureInfo.InvariantCulture)),
+            ("volume", s.VolumeFactor.ToString("0.0", CultureInfo.InvariantCulture)));
+    }
+
     // Summary page: a read-only review aggregated before commit. Today only scope/ETA and a design-quality
     // baseline are computable; the remaining rows show neutral placeholders that the sub-issues fill in.
     private void RefreshSummaryPage()
@@ -597,9 +625,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 : Compose("siliconalley:wiz_royalty_value",
                     ("royalty", Mathf.RoundToInt(SiliconAlleyState.ToolRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
                     ("count", licensed.ToString(CultureInfo.InvariantCulture)))));
-        // #37 operating systems (reach from the targeted platforms); #38 audience segment will extend this.
+        // #37 operating systems (platform reach) + #38 audience segment (price↔volume) — the product's market.
         _sumMarketText.text = Compose("siliconalley:wiz_sum_market",
-            ("value", PlatformMarketText(key, _ctxBusinessType?.businessTypeName)));
+            ("value", PlatformMarketText(key, type) + " · " + SegmentText(SiliconAlleyState.GetSegmentId(key))));
     }
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
@@ -747,6 +775,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OnScopeSelected(int kind)
     {
         SiliconAlleyState.SetScope(_currentKey, kind);
+        Refresh();
+    }
+
+    // Issue #38: pick the target audience segment for this product (single-select, like scope).
+    private void OnSelectSegment(int ordinal)
+    {
+        SiliconAlleyState.SetSegmentId(_currentKey, ordinal);
         Refresh();
     }
 
@@ -1195,6 +1230,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         }
         _toolsReadout = MakeText(_toolsPage.transform, "ToolsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
+        // Market page (issue #38): single-select audience segment (price↔volume). One button per segment, like
+        // the scope buttons; RefreshMarketPage recolors the chosen one and shows its market-size + factors.
+        _marketPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_marketPage.transform, "siliconalley:wiz_market_header");
+        var segmentCount = SiliconAlleySegments.Count;
+        _segmentButtons = new Button[segmentCount];
+        _segmentImages = new Image[segmentCount];
+        var segmentRow = MakeRow(_marketPage.transform);
+        for (var i = 0; i < segmentCount; i++)
+        {
+            var ordinal = i; // capture per-segment ordinal for the select closure
+            var btn = MakeButton(segmentRow.transform, SiliconAlleySegments.All[i].NameKey.GetLocalization(), () => OnSelectSegment(ordinal));
+            _segmentButtons[i] = btn;
+            _segmentImages[i] = btn.GetComponent<Image>();
+        }
+        _marketReadout = MakeText(_marketPage.transform, "MarketReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+
         // Register the wizard pages. RebuildVisiblePages sorts by Order (canonical step), so the order of these
         // calls doesn't matter — each sibling just registers with its step number and gates with IsPresent.
         _wizardPages.Add(new WizardPage { Order = 0, Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage });
@@ -1223,6 +1275,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             IsPresent = () => SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshPlatformsPage,
         });
+        // Issue #38: Market / audience segment (step 5). Segments are universal, so the page is always present.
+        _wizardPages.Add(new WizardPage { Order = 40, Root = _marketPage, IsPresent = () => true, Refresh = RefreshMarketPage });
 
         // Nav row: Back · Next/Confirm (Next's label flips to Confirm on the Summary page).
         _wizardNavRow = MakeRow(_wizardSection.transform, 10f, 40);

@@ -133,7 +133,9 @@ line that has shipped.
     APPEND-ONLY by `Bit`). Office (`softwarestudio`): `0` Desktop · `1` Web · `2` Mobile · `3` Cloud/SaaS.
     Security (`cybersecurity`): `0` Desktop · `1` Server · `2` Cloud · `3` Mobile. Game (`gamestudio`): `0` PC ·
     `1` Console · `2` Mobile · `3` Web. (Share weight + scope cost are tunable data, NOT persisted; names in `en.json`.)
-  - `SegmentId` — value of `segmentId` (#38): `0=Broad, 1=Enterprise, 2=Prosumer, 3=Consumer`
+  - `SegmentId` — value of `segmentId` (#38, **SHIPPED** — `SiliconAlleySegments`, APPEND-ONLY ordinals):
+    `0=Broad, 1=Enterprise, 2=Prosumer, 3=Consumer`. (Per-segment price/volume factors + market-size indicator
+    are tunable catalog data, NOT persisted.)
 - **modData keys:** `SiliconAlley` (versioned state blob), `SiliconAlley.ClientWelcomeSent` (bool flag)
 - **Reserved `"SiliconAlley"` blob headers** (`~`-prefixed, position-independent, unknown ones ignored for
   forward-compat): `~schema|<n>`, `~global|<projectTypeIndex>`, and `~publishers|r0,r1,…` — the player's
@@ -161,7 +163,10 @@ line that has shipped.
   `ToolId`; `ownedToolsMask` is **studio-level** (self-built tools, survives `OnProjectCompleted`),
   `usedToolsMask` is **per-project** (reset on completion). A used tool raises the design quality ceiling; a
   **licensed** tool (`used & ~owned`) deducts a derived royalty from launch revenue + support income (building
-  one costs one-off R&D cash instead). `segmentId 0` = Broad ⇒ segment factor ×1.0 (#38). #40 reserves these as
+  one costs one-off R&D cash instead). `segmentId 0` = Broad ⇒ segment factor ×1.0 — **#38 SHIPPED**: real value
+  = `SegmentId`, a **price** factor on the launch payout + a **volume** factor on the launch installed-base jump
+  (price↔volume tradeoff); **per-project** (reset in `OnProjectCompleted`). The design-wizard block is now fully
+  shipped (#26 features / #36 tools / #37 platforms / #38 market). #40 reserved these as
   no-ops in code (`SiliconAlleyState` BusinessState + Serialize/LoadFrom); each sibling fills in ITS field's
   gameplay at ITS reserved index and **must hold the frozen positions** — write the neutral `0` for any
   earlier reserved slot not yet implemented, and read each with a `parts.Length > <index>` guard inside the
