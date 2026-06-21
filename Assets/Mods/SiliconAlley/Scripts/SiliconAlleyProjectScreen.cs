@@ -82,13 +82,35 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // Control references rebuilt once in Build().
     private TMP_Text _titleText, _studioText, _phaseText, _summaryText;
-    private GameObject _designSection, _developmentSection, _testingSection, _releaseSection;
-    // Design section
-    private TMP_Text _designQualityText, _leadText, _etaText, _statusText;
+    private GameObject _wizardSection, _developmentSection, _testingSection, _releaseSection;
+    // ---- Design wizard (issue #35): a paged Concept → … → Summary flow shown during the Design phase.
+    // Pages are shown one at a time; sub-issues (#26 features / #36 tools / #37 OS / #38 market) insert their
+    // own page before Summary via _wizardPages, with an IsPresent that returns false until the feature ships
+    // (the wizard skips absent pages, so today it reduces to Concept → Summary).
+    private struct WizardPage { public GameObject Root; public Func<bool> IsPresent; public Action Refresh; }
+    private readonly List<WizardPage> _wizardPages = new List<WizardPage>();
+    private readonly List<WizardPage> _visiblePages = new List<WizardPage>(); // present pages, rebuilt per refresh
+    private int _wizardPage; // index into _visiblePages
+    // Per-refresh context, set by RefreshWizard so the parameterless page refreshers can read it.
+    private BuildingRegistration _ctxReg;
+    private BusinessType _ctxBusinessType;
+    private float _ctxSize, _ctxProgress, _ctxPerHour;
+    // Concept page
+    private GameObject _conceptPage;
+    private TMP_Text _designQualityText, _leadText, _etaText, _conceptNameText;
     private readonly Image[] _scopeImages = new Image[3];
     private readonly Button[] _scopeButtons = new Button[3];
     private Slider _focusSlider;
-    private Button _lockButton;
+    // Summary page (placeholder rows today; sub-issues fill them in)
+    private GameObject _summaryPage;
+    private TMP_Text _sumScopeText, _sumQualityText, _sumCostsText, _sumRoyaltiesText, _sumMarketText;
+    // Read-only recap shown once the concept is locked (no longer editable)
+    private GameObject _wizardRecap;
+    private TMP_Text _recapText, _recapStatusText;
+    // Nav row: Back · Next/Confirm
+    private GameObject _wizardNavRow;
+    private Button _wizardBackButton, _wizardNextButton;
+    private TMP_Text _wizardNextLabel;
     // Development section
     private TMP_Text _devThroughputText, _devBuildText, _devEtaText, _overtimeLabel;
     private Image _overtimeImage;
@@ -175,6 +197,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _root.SetActive(true);
         _visible = true;
         _refresh = 1f;
+        _wizardPage = 0; // always open the wizard at the first page
         Refresh();
     }
 
@@ -218,7 +241,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _studioText.text = "siliconalley:screen_nostudio".GetLocalization();
             _phaseText.text = "";
             _summaryText.text = "";
-            _designSection.SetActive(false);
+            _wizardSection.SetActive(false);
             _developmentSection.SetActive(false);
             _testingSection.SetActive(false);
             _marketingSection.SetActive(false);
@@ -250,27 +273,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var inDesign = phase == SiliconAlleyState.ProjectPhase.Design;
         var inDevelopment = phase == SiliconAlleyState.ProjectPhase.Development;
         var inTesting = phase == SiliconAlleyState.ProjectPhase.Testing;
-        _designSection.SetActive(inDesign);
+        _wizardSection.SetActive(inDesign);
         _developmentSection.SetActive(inDevelopment);
         _testingSection.SetActive(inTesting);
         if (inDesign)
-            RefreshDesign(reg, businessType, key, size, rawProgress, perHour);
+            RefreshWizard(reg, businessType, key, size, rawProgress, perHour);
         else if (inDevelopment)
             RefreshDevelopment(reg, key, size, rawProgress, perHour);
         else if (inTesting)
             RefreshTesting(reg, key, perHour);
 
-        // Marketing (issue #21): a pre-release campaign — visible through Design/Development/Testing, hidden
-        // once the project ships (Release). Awareness built here scales the launch when the project ships.
+        // Marketing (issue #21) + Publisher deal (issue #17/#22/#23): pre-release campaign blocks — visible
+        // through Design/Development/Testing, hidden once the project ships (Release). Issue #35: while the
+        // concept wizard is still editable they stay hidden so the wizard is a focused flow; they appear once
+        // the concept is locked. CanEditConcept is true only in the Design phase, so Development/Testing are
+        // unaffected (it is already false there).
         var preRelease = inDesign || inDevelopment || inTesting;
-        _marketingSection.SetActive(preRelease);
-        if (preRelease)
+        var showCampaign = preRelease && !SiliconAlleyState.CanEditConcept(key);
+        _marketingSection.SetActive(showCampaign);
+        if (showCampaign)
             RefreshMarketing(reg, key, rawProgress, size);
 
-        // Publisher deal (issue #17/#22/#23): sign/track a publishing deal — pre-release only (nothing to
-        // deliver once shipped). Mirrors the marketing gate.
-        _publisherSection.SetActive(preRelease);
-        if (preRelease)
+        _publisherSection.SetActive(showCampaign);
+        if (showCampaign)
             RefreshPublisher(reg, businessType, key, rawProgress, size, perHour);
 
         // Release "ship report" shows independently of the current phase whenever a recent ship exists.
@@ -291,24 +316,72 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _windowRt.sizeDelta = new Vector2(WindowWidth, Mathf.Min(_contentRt.rect.height, MaxHeight));
     }
 
-    private void RefreshDesign(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
+    // Issue #35: drive the Design-phase wizard. While the concept is editable, show one page at a time with
+    // Back / Next-Confirm nav; once locked, replace the flow with a read-only recap (the campaign blocks
+    // reappear at that point — see Refresh). Page refreshers are parameterless, so stash the context here.
+    private void RefreshWizard(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
     {
-        var editable = SiliconAlleyState.CanEditConcept(key);
+        _ctxReg = reg;
+        _ctxBusinessType = businessType;
+        _ctxSize = size;
+        _ctxProgress = rawProgress;
+        _ctxPerHour = perHour;
+
+        // Hide every page up front; the active one (or the recap) is shown below.
+        foreach (var page in _wizardPages)
+            page.Root.SetActive(false);
+
+        if (!SiliconAlleyState.CanEditConcept(key))
+        {
+            _wizardNavRow.SetActive(false);
+            _wizardRecap.SetActive(true);
+            RefreshRecap(key);
+            return;
+        }
+
+        _wizardRecap.SetActive(false);
+        _wizardNavRow.SetActive(true);
+        RebuildVisiblePages();
+        if (_visiblePages.Count == 0)
+            return;
+        _wizardPage = Mathf.Clamp(_wizardPage, 0, _visiblePages.Count - 1);
+        var current = _visiblePages[_wizardPage];
+        current.Root.SetActive(true);
+        current.Refresh();
+
+        var isLast = _wizardPage >= _visiblePages.Count - 1;
+        _wizardBackButton.interactable = _wizardPage > 0;
+        _wizardNextLabel.text = (isLast ? "siliconalley:wiz_confirm" : "siliconalley:wiz_next").GetLocalization();
+    }
+
+    // Filter _wizardPages down to the pages whose feature is present (Concept + Summary today). Sub-issues'
+    // pages drop in/out here via their IsPresent, so navigation only ever sees real pages.
+    private void RebuildVisiblePages()
+    {
+        _visiblePages.Clear();
+        foreach (var page in _wizardPages)
+            if (page.IsPresent == null || page.IsPresent())
+                _visiblePages.Add(page);
+    }
+
+    // Concept page: today's scope + focus controls plus read-only product name and baseline readouts.
+    private void RefreshConceptPage()
+    {
+        var key = _currentKey;
+        _conceptNameText.text = Compose("siliconalley:wiz_product", ("product", ProductName(_ctxBusinessType)));
 
         var designQ = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
         _designQualityText.text = Compose("siliconalley:screen_designquality",
             ("value", designQ < 0f ? "—" : Pct(designQ) + "%"));
 
-        var hasDesigner = businessType != null
-            && System.Array.IndexOf(businessType.employeePrimarySkills, "ba:skill_graphicdesigner") >= 0;
+        var hasDesigner = _ctxBusinessType != null
+            && System.Array.IndexOf(_ctxBusinessType.employeePrimarySkills, "ba:skill_graphicdesigner") >= 0;
         var leadKey = hasDesigner ? "siliconalley:screen_lead_designer" : "siliconalley:screen_lead_programmer";
         _leadText.text = Compose("siliconalley:screen_lead",
-            ("lead", leadKey.GetLocalization()), ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)));
+            ("lead", leadKey.GetLocalization()), ("staff", CountStaff(_ctxReg).ToString(CultureInfo.InvariantCulture)));
 
-        var remaining = SiliconAlleyState.PhaseEndProgress(SiliconAlleyState.ProjectPhase.Design, size) - rawProgress;
-        _etaText.text = Compose("siliconalley:screen_designeta", ("eta", EtaText(remaining, perHour)));
-
-        _statusText.text = (editable ? "siliconalley:screen_editable" : "siliconalley:screen_locked").GetLocalization();
+        var remaining = SiliconAlleyState.PhaseEndProgress(SiliconAlleyState.ProjectPhase.Design, _ctxSize) - _ctxProgress;
+        _etaText.text = Compose("siliconalley:screen_designeta", ("eta", EtaText(remaining, _ctxPerHour)));
 
         var currentKind = SiliconAlleyState.GetProjectType(key);
         for (var i = 0; i < 3; i++)
@@ -317,8 +390,49 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _suppress = true; // setting the value must not write back through OnFocusChanged
         _focusSlider.value = SiliconAlleyState.GetDesignFocus(key);
         _suppress = false;
+    }
 
-        SetControlsInteractable(editable);
+    // Summary page: a read-only review aggregated before commit. Today only scope/ETA and a design-quality
+    // baseline are computable; the remaining rows show neutral placeholders that the sub-issues fill in.
+    private void RefreshSummaryPage()
+    {
+        var key = _currentKey;
+        var kind = SiliconAlleyState.GetProjectType(key);
+        _sumScopeText.text = Compose("siliconalley:wiz_sum_scope",
+            ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
+            ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
+            ("eta", EtaText(_ctxSize - _ctxProgress, _ctxPerHour)));
+
+        // Quality ceiling — today the design-phase baseline (falls back to the aggregate, then "—").
+        // #26 features + #36 owned-tool bonuses raise this ceiling.
+        var q = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
+        if (q < 0f)
+            q = SiliconAlleyState.GetAverageQuality(key);
+        _sumQualityText.text = Compose("siliconalley:wiz_sum_quality",
+            ("value", q < 0f ? "siliconalley:wiz_placeholder_none".GetLocalization() : Pct(q) + "%"));
+
+        // #36 editors & tools: up-front R&D/build spend + ongoing licensed-tool royalties.
+        _sumCostsText.text = Compose("siliconalley:wiz_sum_costs",
+            ("value", "siliconalley:wiz_placeholder_none".GetLocalization()));
+        _sumRoyaltiesText.text = Compose("siliconalley:wiz_sum_royalties",
+            ("value", "siliconalley:wiz_placeholder_noroyalties".GetLocalization()));
+        // #37 operating systems × #38 audience segment: reachable market.
+        _sumMarketText.text = Compose("siliconalley:wiz_sum_market",
+            ("value", "siliconalley:wiz_placeholder_allmarket".GetLocalization()));
+    }
+
+    // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
+    private void RefreshRecap(string key)
+    {
+        var kind = SiliconAlleyState.GetProjectType(key);
+        var q = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
+        if (q < 0f)
+            q = SiliconAlleyState.GetAverageQuality(key);
+        _recapText.text = Compose("siliconalley:wiz_recap",
+            ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
+            ("focus", Pct(SiliconAlleyState.GetDesignFocus(key)) + "%"),
+            ("quality", q < 0f ? "—" : Pct(q) + "%"));
+        _recapStatusText.text = "siliconalley:screen_locked".GetLocalization();
     }
 
     private void RefreshDevelopment(BuildingRegistration reg, string key, float size, float rawProgress, float perHour)
@@ -447,14 +561,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         }
     }
 
-    private void SetControlsInteractable(bool editable)
-    {
-        for (var i = 0; i < 3; i++)
-            _scopeButtons[i].interactable = editable;
-        _focusSlider.interactable = editable;
-        _lockButton.interactable = editable;
-    }
-
     // ---- control callbacks -------------------------------------------------------------------------
 
     private void OnScopeSelected(int kind)
@@ -470,9 +576,27 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SiliconAlleyState.SetDesignFocus(_currentKey, value);
     }
 
-    private void OnLock()
+    // Issue #35: wizard navigation. Back steps to the previous page; Next advances, and on the last (Summary)
+    // page it doubles as Confirm — committing the concept via LockConcept (mirrors the old Lock button).
+    private void OnWizardBack()
     {
-        SiliconAlleyState.LockConcept(_currentKey);
+        if (_wizardPage > 0)
+            _wizardPage--;
+        Refresh();
+    }
+
+    private void OnWizardNext()
+    {
+        RebuildVisiblePages();
+        if (_visiblePages.Count == 0)
+        {
+            Refresh();
+            return;
+        }
+        if (_wizardPage >= _visiblePages.Count - 1)
+            SiliconAlleyState.LockConcept(_currentKey); // Confirm on the Summary page
+        else
+            _wizardPage++;
         Refresh();
     }
 
@@ -577,6 +701,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var idx = Mathf.Max(0, _studioKeys.IndexOf(_currentKey));
         idx = (idx + delta + _studioKeys.Count) % _studioKeys.Count;
         _currentKey = _studioKeys[idx];
+        _wizardPage = 0; // each studio opens its wizard at the first page
         Refresh();
     }
 
@@ -757,11 +882,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _phaseText = MakeText(root, "Phase", 16, TextAnchor.MiddleLeft);
         _summaryText = MakeText(root, "Summary", 15, TextAnchor.MiddleLeft);
 
-        // ---- Design section (shown in the Design phase) ----
-        _designSection = MakeSection(root);
-        MakeDivider(_designSection.transform);
-        MakeHeader(_designSection.transform, "siliconalley:screen_scope");
-        var scopeRow = MakeRow(_designSection.transform);
+        // ---- Design wizard (issue #35): paged Concept → … → Summary, shown in the Design phase ----
+        _wizardSection = MakeSection(root);
+        MakeDivider(_wizardSection.transform);
+
+        // Concept page: today's scope + focus controls, read-only product name and baseline readouts.
+        _conceptPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_conceptPage.transform, "siliconalley:screen_scope");
+        var scopeRow = MakeRow(_conceptPage.transform);
         var scopeKeys = new[] { "siliconalley:projecttype_quick", "siliconalley:projecttype_standard", "siliconalley:projecttype_ambitious" };
         for (var i = 0; i < 3; i++)
         {
@@ -770,17 +898,44 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _scopeButtons[i] = btn;
             _scopeImages[i] = btn.GetComponent<Image>();
         }
-        MakeHeader(_designSection.transform, "siliconalley:screen_focus");
-        var focusRow = MakeRow(_designSection.transform, 10f, 28);
+        _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", 15, TextAnchor.MiddleLeft);
+        MakeHeader(_conceptPage.transform, "siliconalley:screen_focus");
+        var focusRow = MakeRow(_conceptPage.transform, 10f, 28);
         FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_polish".GetLocalization()), 70f);
         _focusSlider = MakeSlider(focusRow.transform);
         _focusSlider.onValueChanged.AddListener(OnFocusChanged);
         FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_speed".GetLocalization()), 70f);
-        _designQualityText = MakeText(_designSection.transform, "DesignQuality", 16, TextAnchor.MiddleLeft);
-        _leadText = MakeText(_designSection.transform, "Lead", 15, TextAnchor.MiddleLeft);
-        _etaText = MakeText(_designSection.transform, "Eta", 15, TextAnchor.MiddleLeft);
-        _statusText = MakeText(_designSection.transform, "Status", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
-        _lockButton = MakeButton(_designSection.transform, "siliconalley:screen_lock".GetLocalization(), OnLock, primary: true);
+        _designQualityText = MakeText(_conceptPage.transform, "DesignQuality", 16, TextAnchor.MiddleLeft);
+        _leadText = MakeText(_conceptPage.transform, "Lead", 15, TextAnchor.MiddleLeft);
+        _etaText = MakeText(_conceptPage.transform, "Eta", 15, TextAnchor.MiddleLeft);
+
+        // Summary page: read-only review aggregated before commit (placeholder rows sub-issues fill in).
+        _summaryPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_summaryPage.transform, "siliconalley:wiz_summary_header");
+        _sumScopeText = MakeText(_summaryPage.transform, "SumScope", 15, TextAnchor.MiddleLeft);
+        _sumQualityText = MakeText(_summaryPage.transform, "SumQuality", 15, TextAnchor.MiddleLeft);
+        _sumCostsText = MakeText(_summaryPage.transform, "SumCosts", 15, TextAnchor.MiddleLeft);
+        _sumRoyaltiesText = MakeText(_summaryPage.transform, "SumRoyalties", 15, TextAnchor.MiddleLeft);
+        _sumMarketText = MakeText(_summaryPage.transform, "SumMarket", 15, TextAnchor.MiddleLeft);
+
+        // Register pages in display order: Concept first, Summary last. A sub-issue (#26/#36/#37/#38) inserts
+        // its page just before Summary with an IsPresent that gates it on its feature, e.g.:
+        //   _wizardPages.Insert(_wizardPages.Count - 1, new WizardPage { Root = featuresPage,
+        //       IsPresent = () => SiliconAlleyState.HasFeatures, Refresh = RefreshFeaturesPage });
+        _wizardPages.Add(new WizardPage { Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage });
+        _wizardPages.Add(new WizardPage { Root = _summaryPage, IsPresent = () => true, Refresh = RefreshSummaryPage });
+
+        // Nav row: Back · Next/Confirm (Next's label flips to Confirm on the Summary page).
+        _wizardNavRow = MakeRow(_wizardSection.transform, 10f, 40);
+        _wizardBackButton = MakeButton(_wizardNavRow.transform, "siliconalley:wiz_back".GetLocalization(), OnWizardBack);
+        _wizardNextButton = MakeButton(_wizardNavRow.transform, "siliconalley:wiz_next".GetLocalization(), OnWizardNext, primary: true);
+        _wizardNextLabel = _wizardNextButton.GetComponentInChildren<TMP_Text>();
+
+        // Read-only recap shown once the concept is locked (replaces the pages + nav).
+        _wizardRecap = MakeSection(_wizardSection.transform);
+        MakeHeader(_wizardRecap.transform, "siliconalley:wiz_recap_header");
+        _recapText = MakeText(_wizardRecap.transform, "Recap", 15, TextAnchor.MiddleLeft);
+        _recapStatusText = MakeText(_wizardRecap.transform, "RecapStatus", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // ---- Development section (shown in the Development phase) ----
         _developmentSection = MakeSection(root);

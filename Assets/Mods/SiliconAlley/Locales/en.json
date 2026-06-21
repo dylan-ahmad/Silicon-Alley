@@ -101,5 +101,20 @@
   "siliconalley:screen_close": "Close",
   "siliconalley:screen_editable": "Set scope & focus, then lock the concept.",
   "siliconalley:screen_locked": "Concept locked — focus on the build.",
-  "siliconalley:screen_nostudio": "No Silicon Alley studio. Found one in an office, staff it, then press F9."
+  "siliconalley:screen_nostudio": "No Silicon Alley studio. Found one in an office, staff it, then press F9.",
+  "siliconalley:wiz_back": "Back",
+  "siliconalley:wiz_next": "Next",
+  "siliconalley:wiz_confirm": "Confirm & lock",
+  "siliconalley:wiz_product": "Product: {product}",
+  "siliconalley:wiz_summary_header": "Summary — review before you commit",
+  "siliconalley:wiz_recap_header": "Design (locked)",
+  "siliconalley:wiz_sum_scope": "Scope: {scope} · size {size} · ship in {eta}",
+  "siliconalley:wiz_sum_quality": "Quality ceiling: {value}",
+  "siliconalley:wiz_sum_costs": "Up-front cost: {value}",
+  "siliconalley:wiz_sum_royalties": "Ongoing royalties: {value}",
+  "siliconalley:wiz_sum_market": "Reachable market: {value}",
+  "siliconalley:wiz_recap": "Concept locked — {scope} scope · focus {focus} speed · quality {quality}",
+  "siliconalley:wiz_placeholder_none": "—",
+  "siliconalley:wiz_placeholder_noroyalties": "None (no licensed tools)",
+  "siliconalley:wiz_placeholder_allmarket": "All platforms · general audience"
 }
