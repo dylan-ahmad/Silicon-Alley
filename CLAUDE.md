@@ -102,18 +102,32 @@ line that has shipped.
   - `siliconalley:itemname_securityaudit`
   - `siliconalley:itemname_videogame`
 - **CallDialogType** (minted via `ModEnumHash.GetSafeHash`): `siliconalley_clientdialog`
+- **Publisher ids** (epic #17 / #22; `SiliconAlleyPublishers.Roster` — the persisted token is the **array
+  ordinal**, APPEND-ONLY: never rename/reorder/remove, add new publishers only by appending):
+  - `0` `siliconalley:publisher_indielabel` (focus Any, tier 1)
+  - `1` `siliconalley:publisher_pixelforge` (focus Games, tier 2)
+  - `2` `siliconalley:publisher_officeworks` (focus Office, tier 2)
+  - `3` `siliconalley:publisher_sentinel` (focus Security, tier 2)
+  - (`PublisherFocus { Any, Games, Office, Security }` is NOT persisted — only the publisher ordinal +
+  the deal fields are; the enum is free to change.)
 - **Persisted enum ordinals** (inside the `"SiliconAlley"` blob): `ProjectKind { Quick=0, Standard=1,
-  Ambitious=2 }`
+  Ambitious=2 }`; publisher ordinals (see above) persisted as the active-deal `dealPublisher`.
 - **modData keys:** `SiliconAlley` (versioned state blob), `SiliconAlley.ClientWelcomeSent` (bool flag)
+- **Reserved `"SiliconAlley"` blob headers** (`~`-prefixed, position-independent, unknown ones ignored for
+  forward-compat): `~schema|<n>`, `~global|<projectTypeIndex>`, and `~publishers|r0,r1,…` — the player's
+  per-publisher reputation (epic #22), comma-separated by publisher ordinal (append-only; absent ⇒ all 0).
 - **Appended `"SiliconAlley"` per-building fields** (trailing, schema v1, absent ⇒ default; never reorder):
   `…|overtime|hold` then `|bugCount|awareness|hype|adSpend` — go-to-market loop (epic #16: bugs #19;
   marketing awareness/hype/ad-spend #21) — then `|supportFreshDay|version|ipReputation` — product lifecycle
-  (epic #18: aging #25 supportFreshDay; sequels/IP #24 version + ipReputation). Go-to-market fields default
+  (epic #18: aging #25 supportFreshDay; sequels/IP #24 version + ipReputation) — then
+  `|dealPublisher|dealDeadlineDay|dealPayout` — publisher deals (epic #17 / #23). Go-to-market fields default
   `0` ⇒ a legacy launch has no bugs/awareness and adds exactly **+1** installed. Lifecycle defaults: `supportFreshDay
   0` ⇒ the catalog anchors to **full freshness** on first support accrual (no retroactive decay); `version`
-  defaults **1** (a debut, so no sequel bonus); `ipReputation 0`. The review score #20, the launch jump and
-  the support age-factor are derived at ship/tick; review is stored only in the transient ship-report snapshot,
-  not persisted. Pure append ⇒ **no schema bump**.
+  defaults **1** (a debut, so no sequel bonus); `ipReputation 0`. Deal defaults: `dealPublisher` **-1**
+  (NOT 0 — 0 is a valid publisher ordinal) ⇒ no active deal ⇒ old saves ship freely with no deadline;
+  `dealDeadlineDay`/`dealPayout` 0. The review score #20, the launch jump and the support age-factor are
+  derived at ship/tick; review is stored only in the transient ship-report snapshot, not persisted. Pure
+  append ⇒ **no schema bump**.
 - **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
   `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →
   `ba:itemname_toiletstall`, `Sink` → `ba:itemname_sink`.

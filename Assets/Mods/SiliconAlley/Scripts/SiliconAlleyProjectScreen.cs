@@ -101,6 +101,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private Image _adSpendImage;
     private Button _pressReleaseButton, _pressBuildButton, _hypeButton;
     private TMP_Text _pressReleaseLabel, _pressBuildLabel, _hypeLabel;
+    // Publisher section (issue #17/#22/#23): shown pre-release; sign a publishing deal or watch its countdown.
+    private GameObject _publisherSection;
+    private TMP_Text _publisherStatusText;
+    private Button[] _publisherButtons;
+    private TMP_Text[] _publisherLabels;
     // Release section (transient ship report)
     private TMP_Text _relReviewText, _relQualityText, _relRevenueText, _relRepText, _relSupportText, _relPatchText;
 
@@ -217,6 +222,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _developmentSection.SetActive(false);
             _testingSection.SetActive(false);
             _marketingSection.SetActive(false);
+            _publisherSection.SetActive(false);
             _releaseSection.SetActive(false);
             ClampHeight();
             return;
@@ -260,6 +266,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _marketingSection.SetActive(preRelease);
         if (preRelease)
             RefreshMarketing(reg, key, rawProgress, size);
+
+        // Publisher deal (issue #17/#22/#23): sign/track a publishing deal — pre-release only (nothing to
+        // deliver once shipped). Mirrors the marketing gate.
+        _publisherSection.SetActive(preRelease);
+        if (preRelease)
+            RefreshPublisher(reg, businessType, key, rawProgress, size, perHour);
 
         // Release "ship report" shows independently of the current phase whenever a recent ship exists.
         var report = SiliconAlleyState.GetLastShip(key);
@@ -389,6 +401,52 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _adSpendImage.color = on ? ButtonSelected : ButtonColor;
     }
 
+    // Issue #17/#22/#23 (Publishers): with no active deal, show one sign button per ELIGIBLE publisher (focus
+    // match or generalist), labelled with the live offer (payout / deadline days / your reputation); ineligible
+    // publishers' buttons are hidden. With an active deal, hide the buttons and show the publisher + a live
+    // day-countdown to the deadline, the ship ETA and the locked payout.
+    private void RefreshPublisher(BuildingRegistration reg, BusinessType businessType, string key, float rawProgress, float size, float perHour)
+    {
+        if (SiliconAlleyState.HasDeal(key))
+        {
+            for (int i = 0; i < _publisherButtons.Length; i++)
+                _publisherButtons[i].gameObject.SetActive(false);
+            var pub = SiliconAlleyState.GetDealPublisher(key);
+            var name = SiliconAlleyPublishers.TryGetById(pub, out var publisher) ? publisher.NameKey.GetLocalization() : "";
+            var daysLeft = SiliconAlleyState.GetDealDeadlineDay(key) - TimeHelper.CurrentDay;
+            var deadline = daysLeft < 0
+                ? "siliconalley:client_eta_due".GetLocalization()
+                : "~" + daysLeft.ToString(CultureInfo.InvariantCulture) + "d";
+            _publisherStatusText.text = Compose("siliconalley:screen_pub_active",
+                ("publisher", name),
+                ("deadline", deadline),
+                ("shipeta", EtaText(size - rawProgress, perHour)),
+                ("payout", Money(SiliconAlleyState.GetDealPayout(key))));
+            return;
+        }
+
+        _publisherStatusText.text = "siliconalley:screen_pub_none".GetLocalization();
+        var marketPrice = MarketPrice(businessType);
+        var businessTypeName = reg.businessTypeName;
+        var roster = SiliconAlleyPublishers.Roster;
+        for (int i = 0; i < roster.Length; i++)
+        {
+            var pub = roster[i];
+            var eligible = SiliconAlleyPublishers.IsEligible(pub, businessTypeName);
+            _publisherButtons[i].gameObject.SetActive(eligible);
+            if (!eligible)
+                continue;
+            var rep = SiliconAlleyState.GetPublisherRep(pub.Index);
+            SiliconAlleyPublishers.OfferFor(pub, businessTypeName, marketPrice, rep,
+                out var days, out var payout, out _, out _);
+            _publisherLabels[i].text = Compose("siliconalley:screen_pub_sign",
+                ("publisher", pub.NameKey.GetLocalization()),
+                ("payout", Money(payout)),
+                ("deadline", days.ToString(CultureInfo.InvariantCulture)),
+                ("rep", rep.ToString("F1", CultureInfo.InvariantCulture)));
+        }
+    }
+
     private void SetControlsInteractable(bool editable)
     {
         for (var i = 0; i < 3; i++)
@@ -492,6 +550,26 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         Refresh();
     }
 
+    // Issue #23 (Publisher deals): sign the offer from the clicked publisher's button. Computes the terms from
+    // the current relationship (so they match the label the player saw), locks the deadline (now + days) and
+    // payout, then refreshes. No-op if a deal is already active or the publisher isn't eligible (defensive).
+    private void OnSignDeal(int publisherIndex)
+    {
+        var reg = FindRegistration(_currentKey);
+        if (reg == null || SiliconAlleyState.HasDeal(_currentKey))
+            return;
+        if (!SiliconAlleyPublishers.TryGetById(publisherIndex, out var pub))
+            return;
+        var businessType = BusinessTypeHelper.GetData(reg);
+        if (businessType == null || !SiliconAlleyPublishers.IsEligible(pub, reg.businessTypeName))
+            return;
+        var rep = SiliconAlleyState.GetPublisherRep(publisherIndex);
+        SiliconAlleyPublishers.OfferFor(pub, reg.businessTypeName, MarketPrice(businessType), rep,
+            out var days, out var payout, out _, out _);
+        SiliconAlleyState.SignDeal(_currentKey, publisherIndex, TimeHelper.CurrentDay + days, payout);
+        Refresh();
+    }
+
     private void CycleStudio(int delta)
     {
         if (_studioKeys.Count == 0)
@@ -516,6 +594,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private static string Money(float amount) =>
         "$" + Mathf.RoundToInt(amount).ToString("N0", CultureInfo.InvariantCulture);
+
+    // Market price of the business's primary product (drives publisher offer math); 0 if none.
+    private static float MarketPrice(BusinessType businessType)
+    {
+        if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
+            return 0f;
+        var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
+        return item != null ? item.DefaultMarketPrice : 0f;
+    }
 
     // Estimated recurring support income per day — mirrors the phone dashboard (SiliconAlleyClient).
     private static string SupportPerDay(BusinessType businessType, string key)
@@ -730,6 +817,21 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var adSpendButton = MakeButton(_marketingSection.transform, "", OnToggleAdSpend);
         _adSpendImage = adSpendButton.GetComponent<Image>();
         _adSpendLabel = adSpendButton.GetComponentInChildren<TMP_Text>();
+
+        // ---- Publisher section (issue #17/#22/#23; shown in any pre-release phase) ----
+        _publisherSection = MakeSection(root);
+        MakeDivider(_publisherSection.transform);
+        MakeHeader(_publisherSection.transform, "siliconalley:screen_pub_header");
+        _publisherStatusText = MakeText(_publisherSection.transform, "PubStatus", 15, TextAnchor.MiddleLeft);
+        var roster = SiliconAlleyPublishers.Roster;
+        _publisherButtons = new Button[roster.Length];
+        _publisherLabels = new TMP_Text[roster.Length];
+        for (int i = 0; i < roster.Length; i++)
+        {
+            var index = i; // capture a stable copy for the click closure
+            _publisherButtons[i] = MakeButton(_publisherSection.transform, "", () => OnSignDeal(index));
+            _publisherLabels[i] = _publisherButtons[i].GetComponentInChildren<TMP_Text>();
+        }
 
         // ---- Release section (transient ship report; shown independently of phase) ----
         _releaseSection = MakeSection(root);

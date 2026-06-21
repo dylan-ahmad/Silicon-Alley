@@ -25,6 +25,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     public const int PatchIntervalDays = 7;
     private const float PatchRevenueFraction = 0.08f;
 
+    // Issue #23 (Publisher deals): fire a clickable "deadline approaching" warning when an active deal has
+    // this many in-game days or fewer left before delivery is due.
+    private const int DealWarnDays = 2;
+
     // Issue #2: the two existing game skills the businesses draw on. Programmers lead Development/Testing;
     // graphic designers lead the Design phase (for the business types that list the designer skill).
     private const string ProgrammerSkill = "ba:skill_programmer";
@@ -139,6 +143,26 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         }
         SiliconAlleyState.DecayMarketing(key); // no-op for an unmarketed/legacy studio (awareness 0)
 
+        // Issue #23 (Publisher deals): enforce the deadline every hour, independent of staffing/Hold, so a
+        // stalled, held or under-staffed project still resolves. Past the deadline with the product not yet
+        // shipped ⇒ the deal is missed (publisher-reputation penalty + a clear), and a clickable warning fires
+        // as the deadline nears. On-time delivery is rewarded in the completion loop below. No-op without a deal.
+        if (SiliconAlleyState.HasDeal(key))
+        {
+            var dealPub = SiliconAlleyState.GetDealPublisher(key);
+            var daysLeft = SiliconAlleyState.GetDealDeadlineDay(key) - TimeHelper.CurrentDay;
+            if (daysLeft < 0) // past the deadline day with nothing delivered: a miss
+            {
+                SiliconAlleyState.AddPublisherRep(dealPub, -SiliconAlleyPublishers.RepPenalty);
+                SiliconAlleyState.ClearDeal(key);
+                ShowDealFailedNotification(key, dealPub);
+            }
+            else if (daysLeft <= DealWarnDays)
+            {
+                ShowDealWarningNotification(key, dealPub, daysLeft);
+            }
+        }
+
         var product = PrimaryProduct(businessType);
         var marketPrice = product != null ? MarketPrice(product) : 0f;
 
@@ -167,7 +191,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // 4) Complete any finished projects. Each project's type was locked at its start (issue #3), so
         // read it per iteration — OnProjectCompleted re-locks the NEXT project to the current selection.
         // Issue #11: a held project never auto-ships (the player ships it via "Ship now").
-        while (staffCount > 0 && product != null && marketPrice > 0f && !SiliconAlleyState.IsHold(key))
+        // NOTE: this does NOT require staff this hour. Progress only ever reaches completion through staffed
+        // work, so a project that is already at 100% should release even if the studio is momentarily
+        // unstaffed (e.g. outside working hours) — otherwise a finished product sits unshipped until someone
+        // is next at a desk, which also let a publisher deadline (#23) lapse on a build that was actually
+        // ready. The body still bails via `progress < size`, so nothing ships early.
+        while (product != null && marketPrice > 0f && !SiliconAlleyState.IsHold(key))
         {
             var projectKind = SiliconAlleyState.GetProjectType(key);
             var projectSize = SiliconAlleyState.EffectiveProjectSize(key);
@@ -203,6 +232,26 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
             var payout = marketPrice * (0.5f + quality) * reputationFactor * marketFactor * SiliconAlleyState.PayoutMultiplier * SiliconAlleyState.PayoutMultiplierFor(projectKind);
             CreditRevenue(product, payout, quality);
+            // Issue #23 (Publisher deals): if this product was under a deal, fulfil it on this ship. On-time
+            // (shipped on/before the deadline day) pays the locked bonus ON TOP of the normal payout, scaled by
+            // the release's review (a buggy/late delivery is worth less to a publisher), and builds reputation
+            // with that publisher. A late ship was already penalised + cleared by the hourly check above, so it
+            // simply has no deal here. Cleared per-iteration ⇒ a multi-ship catch-up tick fulfils one release.
+            if (SiliconAlleyState.HasDeal(key))
+            {
+                var dealPub = SiliconAlleyState.GetDealPublisher(key);
+                var qualityFactor = Mathf.Clamp01(0.4f + 0.6f * (review / 10f));
+                if (TimeHelper.CurrentDay <= SiliconAlleyState.GetDealDeadlineDay(key)
+                    && SiliconAlleyPublishers.TryGetById(dealPub, out var publisher))
+                {
+                    var dealPayout = SiliconAlleyState.GetDealPayout(key) * qualityFactor;
+                    CreditRevenue(product, dealPayout, quality);
+                    var repReward = SiliconAlleyPublishers.RepRewardBase + publisher.Tier * SiliconAlleyPublishers.RepRewardTier;
+                    SiliconAlleyState.AddPublisherRep(dealPub, repReward * qualityFactor);
+                    ShowDealCompleteNotification(key, dealPub, dealPayout);
+                }
+                SiliconAlleyState.ClearDeal(key);
+            }
             SiliconAlleyState.OnProjectCompleted(key, quality, 1 + launchBonus, review);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
             Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, +{1 + launchBonus} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
@@ -309,6 +358,47 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         Notifications.Show(NotificationType.Info, "siliconalley:notify_patch", data, 5f, key + ":patch",
             () => SiliconAlleyProjectScreen.Open(key));
     }
+
+    // Issue #23 (Publisher deals): the deal-event toasts. All clickable → open the project screen, and
+    // deduplicated per studio+event so a repeated hourly warning coalesces into one toast.
+    private void ShowDealCompleteNotification(string key, int publisherIndex, float payout)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["publisher"] = PublisherName(publisherIndex),
+            ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
+        };
+        Notifications.Show(NotificationType.Success, "siliconalley:notify_dealdone", data, 6f, key + ":dealdone",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    private void ShowDealFailedNotification(string key, int publisherIndex)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["publisher"] = PublisherName(publisherIndex),
+        };
+        Notifications.Show(NotificationType.Warning, "siliconalley:notify_dealfail", data, 6f, key + ":dealfail",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    private void ShowDealWarningNotification(string key, int publisherIndex, int daysLeft)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["publisher"] = PublisherName(publisherIndex),
+            ["days"] = daysLeft.ToString(CultureInfo.InvariantCulture),
+        };
+        Notifications.Show(NotificationType.Warning, "siliconalley:notify_dealwarn", data, 5f, key + ":dealwarn",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    // Localized publisher display name for a roster ordinal, or "" if it can't be resolved (defensive).
+    private static string PublisherName(int publisherIndex)
+        => SiliconAlleyPublishers.TryGetById(publisherIndex, out var publisher) ? publisher.NameKey.GetLocalization() : "";
 
     // Localized display name of the business's primary product (themes the toast per business type:
     // a Game Studio ships "Video Game", a Cyber Security Firm a "Security Audit", etc.).
