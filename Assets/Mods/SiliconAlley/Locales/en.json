@@ -197,5 +197,12 @@
   "siliconalley:wiz_deps_readout": "Coverage {covered}/{total} · uncovered features cap quality at {ceiling}",
   "siliconalley:wiz_sum_coverage": "Dependencies: {value}",
   "siliconalley:wiz_coverage_full": "all features covered",
-  "siliconalley:wiz_coverage_value": "{covered}/{total} covered — uncovered features cap quality"
+  "siliconalley:wiz_coverage_value": "{covered}/{total} covered — uncovered features cap quality",
+  "siliconalley:client_contract_offer": "{status}\n\nA client has a fixed-scope job for {studio}. Deliver within {days} days for {payout}. Staff the studio to work it — it pauses your own product until it's done.",
+  "siliconalley:client_contract_accept": "Accept contract",
+  "siliconalley:client_contract_accepted": "Deal. {studio} takes the contract — deliver within {days} days for {payout}. Keep it staffed to get it done on time.",
+  "siliconalley:screen_contract_header": "Contract job",
+  "siliconalley:screen_contract": "{progress} done · due in {days}d · pays {payout} (pauses your product)",
+  "siliconalley:notify_contractdone": "{business} delivered a contract — +{payout}",
+  "siliconalley:notify_contractfail": "{business} missed a contract deadline — reputation dropped"
 }

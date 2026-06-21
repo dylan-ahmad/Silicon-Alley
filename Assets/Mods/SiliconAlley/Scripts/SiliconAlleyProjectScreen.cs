@@ -163,6 +163,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private TMP_Text[] _publisherLabels;
     // Release section (transient ship report)
     private TMP_Text _relReviewText, _relQualityText, _relRevenueText, _relRepText, _relSupportText, _relPatchText;
+    // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
+    private GameObject _contractSection;
+    private TMP_Text _contractText;
 
     private static readonly Color PanelColor = new Color(0.086f, 0.098f, 0.125f, 0.98f); // deep navy HUD
     private static readonly Color ButtonColor = new Color(0.18f, 0.21f, 0.27f, 1f);       // slate
@@ -281,6 +284,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _marketingSection.SetActive(false);
             _publisherSection.SetActive(false);
             _releaseSection.SetActive(false);
+            _contractSection.SetActive(false);
             ClampHeight();
             return;
         }
@@ -339,6 +343,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _releaseSection.SetActive(report.Has);
         if (report.Has)
             RefreshRelease(businessType, key, report);
+
+        // Contract (issue #27): shown whenever the studio holds a contract (it diverts staff from the product).
+        var onContract = SiliconAlleyState.HasContract(key);
+        _contractSection.SetActive(onContract);
+        if (onContract)
+            RefreshContract(key);
 
         ClampHeight();
     }
@@ -780,6 +790,18 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("support", SupportPerDay(businessType, key)),
             ("fresh", Pct(SiliconAlleyState.SupportFreshness(key, TimeHelper.CurrentDay)) + "%"));
         _relPatchText.text = Compose("siliconalley:screen_rel_patch", ("patcheta", PatchEta(key)));
+    }
+
+    // Issue #27: read-only progress of the studio's accepted contract — % done, days until the deadline, payout.
+    private void RefreshContract(string key)
+    {
+        var scope = SiliconAlleyState.GetContractScope(key);
+        var frac = scope > 0f ? Mathf.Clamp01(SiliconAlleyState.GetContractProgress(key) / scope) : 0f;
+        var daysLeft = Mathf.Max(0, SiliconAlleyState.GetContractDeadlineDay(key) - TimeHelper.CurrentDay);
+        _contractText.text = Compose("siliconalley:screen_contract",
+            ("progress", Pct(frac) + "%"),
+            ("days", daysLeft.ToString(CultureInfo.InvariantCulture)),
+            ("payout", Money(SiliconAlleyState.GetContractPayout(key))));
     }
 
     // Issue #21 (Marketing): refresh the campaign block — current awareness/hype, channel costs, and the
@@ -1452,6 +1474,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _relSupportText = MakeText(_releaseSection.transform, "RelSupport", 15, TextAnchor.MiddleLeft);
         _relPatchText = MakeText(_releaseSection.transform, "RelPatch", 15, TextAnchor.MiddleLeft);
         MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);
+
+        // ---- Contract section (issue #27): read-only progress of an accepted contract ----
+        _contractSection = MakeSection(root);
+        MakeDivider(_contractSection.transform);
+        MakeHeader(_contractSection.transform, "siliconalley:screen_contract_header");
+        _contractText = MakeText(_contractSection.transform, "Contract", 15, TextAnchor.MiddleLeft);
 
         // ---- Footer (common) ----
         MakeDivider(root);

@@ -121,6 +121,11 @@ public class SiliconAlleyClient : IModBigAmbitions
 
 public class SiliconAlleyClientDialog : Dialog
 {
+    // Issue #27: the contract offer generated for this call (terms shown to the player, then applied on Accept).
+    private string _offerKey, _offerStudioName;
+    private float _offerScope, _offerPayout;
+    private int _offerDeadlineDay;
+
     public SiliconAlleyClientDialog()
     {
         npcNameKey = "siliconalley-clientname";
@@ -129,11 +134,77 @@ public class SiliconAlleyClientDialog : Dialog
 
     private DialogEntry Start()
     {
+        var status = BuildStatus();
+        // Issue #27: if a studio is free to take a contract, offer one (Accept/Hang up); else just show status.
+        if (TryGenerateOffer())
+        {
+            var days = Mathf.Max(0, _offerDeadlineDay - TimeHelper.CurrentDay);
+            return new DialogEntry
+            {
+                headerKey = npcNameKey,
+                messageData = "siliconalley:client_contract_offer".Localize(new Dictionary<string, string>
+                {
+                    ["status"] = status,
+                    ["studio"] = _offerStudioName,
+                    ["days"] = days.ToString(CultureInfo.InvariantCulture),
+                    ["payout"] = "$" + Mathf.RoundToInt(_offerPayout).ToString("N0", CultureInfo.InvariantCulture),
+                }),
+                Template = DialogEntry.TemplateType.Text,
+                ConfirmTextOverride = "siliconalley:client_contract_accept".Localize(),
+                OnConfirm = AcceptOffer,
+                OnCancel = DialogController.current.CancelDialog,
+            };
+        }
+
         return new DialogEntry
         {
+            headerKey = npcNameKey,
             messageData = "siliconalley:client_status".Localize(
-                new Dictionary<string, string> { ["status"] = BuildStatus() }),
+                new Dictionary<string, string> { ["status"] = status }),
             Template = DialogEntry.TemplateType.Text,
+            OnCancel = DialogController.current.CancelDialog,
+        };
+    }
+
+    // Pick the first player-owned studio without an active contract and roll a fresh offer for it. Returns
+    // false (no Accept button) when every studio already holds a contract or the player owns none.
+    private bool TryGenerateOffer()
+    {
+        var current = SaveGameManager.Current;
+        if (current?.BuildingRegistrations == null)
+            return false;
+        foreach (var registration in current.BuildingRegistrations)
+        {
+            if (!SiliconAlleyClient.IsPlayerOwned(registration))
+                continue;
+            var key = SiliconAlleyState.KeyFor(registration);
+            if (SiliconAlleyState.HasContract(key))
+                continue;
+            _offerKey = key;
+            _offerStudioName = registration.GetDisplayName();
+            _offerScope = UnityEngine.Random.Range(800f, 1600f);              // a few in-game days of staffed work
+            _offerDeadlineDay = TimeHelper.CurrentDay + UnityEngine.Random.Range(14, 31); // 14–30 days
+            _offerPayout = _offerScope * UnityEngine.Random.Range(2.5f, 4f);  // flat fee, scope-proportional
+            return true;
+        }
+        return false;
+    }
+
+    // Accept the offered contract for the chosen studio (a no-op-safe state write), then confirm.
+    private DialogEntry AcceptOffer()
+    {
+        SiliconAlleyState.AcceptContract(_offerKey, _offerScope, _offerDeadlineDay, _offerPayout);
+        return new DialogEntry
+        {
+            headerKey = npcNameKey,
+            messageData = "siliconalley:client_contract_accepted".Localize(new Dictionary<string, string>
+            {
+                ["studio"] = _offerStudioName,
+                ["days"] = Mathf.Max(0, _offerDeadlineDay - TimeHelper.CurrentDay).ToString(CultureInfo.InvariantCulture),
+                ["payout"] = "$" + Mathf.RoundToInt(_offerPayout).ToString("N0", CultureInfo.InvariantCulture),
+            }),
+            Template = DialogEntry.TemplateType.Text,
+            OnCancel = DialogController.current.FinishDialog,
         };
     }
 

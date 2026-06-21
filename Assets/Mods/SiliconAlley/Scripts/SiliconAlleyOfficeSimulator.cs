@@ -29,6 +29,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // this many in-game days or fewer left before delivery is due.
     private const int DealWarnDays = 2;
 
+    // Issue #27 (Contracts): an on-time delivery pays ContractPayout scaled by staffing quality on this curve
+    // (a bare-bones job still pays half, a well-staffed one full); a missed deadline dents reputation by this.
+    private const float ContractQualityFloor = 0.5f;   // payout = ContractPayout * (Floor + (1-Floor)*quality)
+    private const float ContractMissRepPenalty = 0.5f; // reputation lost (toward 0) when a contract deadline lapses
+
     // Issue #2: the two existing game skills the businesses draw on. Programmers lead Development/Testing;
     // graphic designers lead the Design phase (for the business types that list the designer skill).
     private const string ProgrammerSkill = "ba:skill_programmer";
@@ -63,15 +68,27 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         }
         var staffCount = staff.Count;
 
+        // Issue #27: an accepted contract diverts the studio — its staff work the contract and the product is
+        // paused (Progress + type-lock untouched) until the contract delivers or its deadline passes. Captured
+        // once so the product work is skipped for the whole hour even if the contract resolves mid-hour.
+        var onContract = SiliconAlleyState.HasContract(key);
+        if (onContract)
+        {
+            if (TimeHelper.CurrentDay > SiliconAlleyState.GetContractDeadlineDay(key))
+                HandleContractMiss(businessType, key);     // deadline passed before delivery (works even unstaffed)
+            else if (staffCount > 0)
+                WorkContract(businessType, key, staff);    // accrue work; pay + clear on an on-time delivery
+        }
+
         // Issue #3: lock the project type when work begins; the locked type scales size/payout/competition.
-        var kind = staffCount > 0 ? SiliconAlleyState.EnsureProjectTypeLocked(key) : SiliconAlleyState.GetProjectType(key);
+        var kind = (staffCount > 0 && !onContract) ? SiliconAlleyState.EnsureProjectTypeLocked(key) : SiliconAlleyState.GetProjectType(key);
         var size = SiliconAlleyState.EffectiveProjectSize(key);
 
         // 2) Accrue progress, phase-weighted by discipline (issue #2): graphic designers drive the Design
         // phase, programmers drive Development/Testing; the off-discipline cross-skills at a reduced rate.
         float effectiveSkill = 0f;
         float totalSatisfaction = 0f;
-        if (staffCount > 0)
+        if (staffCount > 0 && !onContract)
         {
             var progressBefore = SiliconAlleyState.GetProgress(key);
             var phase = SiliconAlleyState.PhaseOf(progressBefore, size);
@@ -418,6 +435,61 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["days"] = daysLeft.ToString(CultureInfo.InvariantCulture),
         };
         Notifications.Show(NotificationType.Warning, "siliconalley:notify_dealwarn", data, 5f, key + ":dealwarn",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    // Issue #27 (Contracts): a staffed studio holding a contract works it instead of its product. Accrue staff
+    // skill toward the scope; on reaching it (the expiry check upstream already cleared any late contract, so
+    // arriving here is on time) pay the agreed sum scaled by staffing quality, then clear the contract.
+    private void WorkContract(BusinessType businessType, string key,
+        List<(float programmer, float designer, float satisfaction)> staff)
+    {
+        var staffCount = Mathf.Max(1, staff.Count);
+        float skill = 0f, satisfaction = 0f;
+        foreach (var member in staff)
+        {
+            skill += Mathf.Max(member.programmer, member.designer);
+            satisfaction += member.satisfaction;
+        }
+        SiliconAlleyState.AddContractProgress(key, skill * SiliconAlleyState.ProjectSpeed);
+        if (SiliconAlleyState.GetContractProgress(key) < SiliconAlleyState.GetContractScope(key))
+            return;
+
+        var quality = Mathf.Clamp01(skill / staffCount / 100f) * Mathf.Clamp01(satisfaction / staffCount / 100f);
+        var payout = SiliconAlleyState.GetContractPayout(key) * (ContractQualityFloor + (1f - ContractQualityFloor) * quality);
+        var product = PrimaryProduct(businessType);
+        if (product != null)
+            CreditRevenue(product, payout, quality);
+        Debug.Log($"[SiliconAlley] {key} delivered a contract (quality {quality:F2}, payout {payout:F0}).");
+        ShowContractCompleteNotification(key, payout);
+        SiliconAlleyState.ClearContract(key);
+    }
+
+    // The contract's deadline passed before delivery: no pay, a small reputation dent, and clear it so the
+    // studio's product resumes next hour.
+    private void HandleContractMiss(BusinessType businessType, string key)
+    {
+        SiliconAlleyState.PenalizeReputation(key, ContractMissRepPenalty);
+        SiliconAlleyState.ClearContract(key);
+        ShowContractMissNotification(key);
+        Debug.Log($"[SiliconAlley] {key} missed a contract deadline (reputation -{ContractMissRepPenalty:F1}).");
+    }
+
+    private void ShowContractCompleteNotification(string key, float payout)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
+        };
+        Notifications.Show(NotificationType.Success, "siliconalley:notify_contractdone", data, 6f, key + ":contractdone",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    private void ShowContractMissNotification(string key)
+    {
+        var data = new Dictionary<string, string> { ["business"] = buildingRegistration.GetDisplayName() };
+        Notifications.Show(NotificationType.Warning, "siliconalley:notify_contractfail", data, 6f, key + ":contractfail",
             () => SiliconAlleyProjectScreen.Open(key));
     }
 
