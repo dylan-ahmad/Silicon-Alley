@@ -107,9 +107,13 @@ line that has shipped.
 - **modData keys:** `SiliconAlley` (versioned state blob), `SiliconAlley.ClientWelcomeSent` (bool flag)
 - **Appended `"SiliconAlley"` per-building fields** (trailing, schema v1, absent ⇒ default; never reorder):
   `…|overtime|hold` then `|bugCount|awareness|hype|adSpend` — go-to-market loop (epic #16: bugs #19;
-  marketing awareness/hype/ad-spend #21). All default `0` ⇒ a legacy launch has no bugs/awareness and adds
-  exactly **+1** installed (the review score #20 and the launch jump are derived at ship; review is stored
-  only in the transient ship-report snapshot, not persisted). Pure append ⇒ **no schema bump**.
+  marketing awareness/hype/ad-spend #21) — then `|supportFreshDay|version|ipReputation` — product lifecycle
+  (epic #18: aging #25 supportFreshDay; sequels/IP #24 version + ipReputation). Go-to-market fields default
+  `0` ⇒ a legacy launch has no bugs/awareness and adds exactly **+1** installed. Lifecycle defaults: `supportFreshDay
+  0` ⇒ the catalog anchors to **full freshness** on first support accrual (no retroactive decay); `version`
+  defaults **1** (a debut, so no sequel bonus); `ipReputation 0`. The review score #20, the launch jump and
+  the support age-factor are derived at ship/tick; review is stored only in the transient ship-report snapshot,
+  not persisted. Pure append ⇒ **no schema bump**.
 - **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
   `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →
   `ba:itemname_toiletstall`, `Sink` → `ba:itemname_sink`.

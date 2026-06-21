@@ -352,10 +352,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("payout", Money(report.Payout)),
             ("repmult", report.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
             ("marketmult", report.MarketMult.ToString("F2", CultureInfo.InvariantCulture)));
+        // Issue #24: surface the franchise's version + IP reputation alongside reputation and installed base.
         _relRepText.text = Compose("siliconalley:screen_rel_rep",
             ("reputation", SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
+            ("iprep", SiliconAlleyState.GetIpReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
+            ("version", "v" + SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)),
             ("base", SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture)));
-        _relSupportText.text = Compose("siliconalley:screen_rel_support", ("support", SupportPerDay(businessType, key)));
+        // Issue #25: show support income with the current freshness (declines as the catalog ages).
+        _relSupportText.text = Compose("siliconalley:screen_rel_support",
+            ("support", SupportPerDay(businessType, key)),
+            ("fresh", Pct(SiliconAlleyState.SupportFreshness(key, TimeHelper.CurrentDay)) + "%"));
         _relPatchText.text = Compose("siliconalley:screen_rel_patch", ("patcheta", PatchEta(key)));
     }
 
