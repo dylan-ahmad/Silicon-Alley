@@ -96,7 +96,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 qualityScale = 0.85f;  // ... at the cost of quality (more bugs surface in Testing)
             }
 
-            SiliconAlleyState.AddProgress(key, effectiveSkill * SiliconAlleyState.ProjectSpeed * progressScale);
+            var progressDelta = effectiveSkill * SiliconAlleyState.ProjectSpeed * progressScale;
+            SiliconAlleyState.AddProgress(key, progressDelta);
             // Issue #11: a held project keeps testing — pin it just under completion so it stays in Testing
             // (accruing the 2x quality) and never auto-ships. Ship now / toggling Hold off releases it.
             if (SiliconAlleyState.IsHold(key))
@@ -107,12 +108,36 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var hourQuality = Mathf.Clamp01(effectiveSkill / staffCount / 100f) * Mathf.Clamp01(totalSatisfaction / staffCount / 100f) * qualityScale;
             var phaseWeight = phase == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
             SiliconAlleyState.AccumulateQuality(key, phase, hourQuality, phaseWeight);
+
+            // Issue #19 (Bugs): code written in Development introduces bugs (more under Overtime); Testing
+            // (and Hold/QA) burns them down at a rate set by the staff working it. So skipping QA ships a
+            // buggy build, while a held/well-staffed Testing phase clears them before release.
+            if (phase == SiliconAlleyState.ProjectPhase.Development)
+            {
+                var bugRate = SiliconAlleyState.BugsPerProgress * (SiliconAlleyState.IsOvertime(key) ? SiliconAlleyState.OvertimeBugFactor : 1f);
+                SiliconAlleyState.AddBugs(key, progressDelta * bugRate);
+            }
+            else if (phase == SiliconAlleyState.ProjectPhase.Testing)
+            {
+                SiliconAlleyState.BurnBugs(key, effectiveSkill * SiliconAlleyState.BugFixPerSkillHour);
+            }
             Debug.Log($"[SiliconAlley] {key} h{currentHour}: {staffCount} staff, {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
         }
         else
         {
             SiliconAlleyState.DecayReputation(key, 0.001f);
         }
+
+        // Issue #21 (Marketing): run the cash-funded "Ad Spend" channel and decay awareness/hype each hour.
+        // Ad Spend buys steady awareness while the player keeps it on; if the studio can't pay, it auto-off.
+        if (SiliconAlleyState.IsAdSpend(key))
+        {
+            if (SiliconAlleyMoney.TrySpend(buildingRegistration, SiliconAlleyState.AdSpendCostPerHour, "ad spend"))
+                SiliconAlleyState.AddAwareness(key, SiliconAlleyState.AdSpendAwarenessPerHour);
+            else
+                SiliconAlleyState.SetAdSpend(key, false);
+        }
+        SiliconAlleyState.DecayMarketing(key); // no-op for an unmarketed/legacy studio (awareness 0)
 
         var product = PrimaryProduct(businessType);
         var marketPrice = product != null ? MarketPrice(product) : 0f;
@@ -161,17 +186,25 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var designQuality = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
             if (designQuality >= 0f)
                 accruedQuality = Mathf.Min(accruedQuality, 0.5f + 0.5f * designQuality);
-            var quality = accruedQuality * Mathf.Max(0.25f, cleanliness);
+            // Issue #19: residual bugs cut the shipped quality (so the existing payout/reputation path
+            // reflects them). Clean/legacy builds (no tracked bugs) keep BugQualityFactor == 1 → unchanged.
+            var quality = accruedQuality * Mathf.Max(0.25f, cleanliness) * SiliconAlleyState.BugQualityFactor(key);
+            // Issue #20 (Reviews) / #21 (Marketing): derive the 0..10 review and the marketing-scaled launch
+            // size BEFORE completing (OnProjectCompleted resets awareness). Awareness 0 (legacy) ⇒ bonus 0 ⇒
+            // launch adds exactly +1, identical to before.
+            var awareness = SiliconAlleyState.GetAwareness(key);
+            var review = SiliconAlleyState.ComputeReviewScore(quality, designQuality, awareness);
+            var launchBonus = SiliconAlleyState.LaunchBonusUnits(key, review);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
             var payout = marketPrice * (0.5f + quality) * reputationFactor * marketFactor * SiliconAlleyState.PayoutMultiplier * SiliconAlleyState.PayoutMultiplierFor(projectKind);
             CreditRevenue(product, payout, quality);
-            SiliconAlleyState.OnProjectCompleted(key, quality);
+            SiliconAlleyState.OnProjectCompleted(key, quality, 1 + launchBonus);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock
-            Debug.Log($"[SiliconAlley] {key} completed a {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, payout {payout:F0}, reputation {SiliconAlleyState.GetReputation(key):F2}).");
-            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor);
+            Debug.Log($"[SiliconAlley] {key} completed a {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, +{1 + launchBonus} installed, reputation {SiliconAlleyState.GetReputation(key):F2}).");
+            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review);
             // Issue #12: remember this ship so the screen can show a "ship report" (transient).
-            SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor);
+            SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor, review);
         }
     }
 
@@ -206,7 +239,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // above; numbers use InvariantCulture (dev machine is nl-NL). duplicateIdentifier = key coalesces
     // a burst of same-business completions (e.g. during time-machine catch-up) into a single toast,
     // while completions in normal play still each show.
-    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout, float reputationFactor, float marketFactor)
+    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout, float reputationFactor, float marketFactor, float review)
     {
         var data = new Dictionary<string, string>
         {
@@ -217,6 +250,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Show why the payout is what it is: reputation lifts it, neighborhood competition trims it.
             ["repmult"] = reputationFactor.ToString("F2", CultureInfo.InvariantCulture),
             ["marketmult"] = marketFactor.ToString("F2", CultureInfo.InvariantCulture),
+            // Issue #20: the critical-reception score (0..10) the release earned.
+            ["review"] = review.ToString("F1", CultureInfo.InvariantCulture),
         };
         Notifications.Show(NotificationType.Success, "siliconalley:notify_projectcomplete", data, 6f, key,
             () => SiliconAlleyProjectScreen.Open(key));
