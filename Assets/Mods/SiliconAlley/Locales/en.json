@@ -30,6 +30,7 @@
   "siliconalley:notify_projectcomplete": "{business} shipped {product} {version} — review {review}/10, quality {quality}, +{payout} (reputation x{repmult}, market x{marketmult})",
   "siliconalley:notify_marketing": "{business}: {channel} landed — awareness now {awareness}",
   "siliconalley:transaction_marketing": "Marketing campaign",
+  "siliconalley:transaction_marketing_label": "Marketing",
   "siliconalley:notify_phase": "{business}: {product} entered {phase}",
   "siliconalley:notify_patch": "{business} shipped an update for {product} — {catalog} live, +{revenue}",
   "siliconalley:notify_dealdone": "{business} delivered to {publisher} on time — bonus +{payout}",
