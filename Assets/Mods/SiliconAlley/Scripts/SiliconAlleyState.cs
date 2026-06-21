@@ -407,6 +407,7 @@ public static class SiliconAlleyState
         state.FeatureMask = 0;   // issue #26: features are chosen per product — the next project starts feature-free
         state.PlatformMask = 0;  // issue #37: target platforms are chosen per product too — reset for the next
         state.UsedToolsMask = 0; // issue #36: licensed/used tools are per-project — reset (OwnedToolsMask persists)
+        state.SegmentId = 0;     // issue #38: the audience segment is a per-product choice — reset to Broad
         state.DesignPrompted = false; // nudge again for the next project
     }
 
@@ -567,6 +568,25 @@ public static class SiliconAlleyState
         var state = Get(key);
         return SiliconAlleyTools.Royalty(state.UsedToolsMask, state.OwnedToolsMask, businessTypeName);
     }
+
+    // ---- issue #38 (Market): per-project audience segment -------------------------------------------
+    // The product's target audience (SegmentId ordinal: 0=Broad default, 1=Enterprise, 2=Prosumer, 3=Consumer).
+    // Shifts the price↔volume tradeoff: PriceFactor scales the launch payout, VolumeFactor the launch installed-
+    // base jump. Per-project, edited only while the concept is editable; reset on completion. 0 ⇒ both ×1.0.
+    public static int GetSegmentId(string key)
+    {
+        var id = Get(key).SegmentId;
+        return id >= 0 && id < SiliconAlleySegments.Count ? id : 0; // out-of-range/forward save ⇒ Broad
+    }
+
+    public static void SetSegmentId(string key, int segmentId)
+    {
+        if (CanEditConcept(key) && segmentId >= 0 && segmentId < SiliconAlleySegments.Count)
+            Get(key).SegmentId = segmentId;
+    }
+
+    public static float SegmentPriceFactor(string key) => SiliconAlleySegments.PriceFactor(GetSegmentId(key));
+    public static float SegmentVolumeFactor(string key) => SiliconAlleySegments.VolumeFactor(GetSegmentId(key));
 
     // Issue #10 (Development): the studio's Overtime policy — a sticky toggle that only takes effect in
     // the Development phase (speeds the build, lowers quality). Settable any time; it just persists.

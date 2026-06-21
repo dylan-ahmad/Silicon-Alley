@@ -244,6 +244,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // legacy, so payout is unchanged). Reduces the NET payout the player sees in the toast + ship report;
             // layered on top — MarketFactor / reputationFactor / the project-kind multiplier are untouched.
             payout *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
+            // Issue #38: the target audience segment scales the per-unit launch price (Broad ⇒ ×1.0, so a
+            // legacy/default ship is unchanged). A new multiplier layered on top — MarketFactor / reputationFactor
+            // / the project-kind multiplier are untouched; the volume side feeds the installed base below.
+            payout *= SiliconAlleyState.SegmentPriceFactor(key);
             CreditRevenue(product, payout, quality);
             // Issue #23 (Publisher deals): if this product was under a deal, fulfil it on this ship. On-time
             // (shipped on/before the deadline day) pays the locked bonus ON TOP of the normal payout, scaled by
@@ -269,7 +273,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // weights; 1.0 for the single home platform, so a legacy/default launch is unchanged). Layered on the
             // launch units only — payout/MarketFactor untouched. OnProjectCompleted still floors at Max(1, …).
             var reach = SiliconAlleyState.LaunchReach(key, businessType.businessTypeName);
-            var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach);
+            // Issue #38: the audience segment's volume factor scales the installed-base jump too (Broad ⇒ ×1.0).
+            // A mass segment grows the base (more recurring support); a niche segment shrinks it — the volume
+            // side of the price↔volume tradeoff. SupportRatePerDay is untouched.
+            var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach * SiliconAlleyState.SegmentVolumeFactor(key));
             SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
             Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, +{launchUnits} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
