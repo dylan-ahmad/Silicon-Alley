@@ -125,7 +125,10 @@ line that has shipped.
     Response. Game (`gamestudio`): `0` Advanced Graphics · `1` Physics Engine · `2` Multiplayer Netcode ·
     `3` Procedural Generation · `4` Mod Support. (Display names live in `en.json` and may change freely.)
   - `ToolId` — per business type; bit positions in `ownedToolsMask` / `usedToolsMask` (#36)
-  - `PlatformId` — bit positions in `platformMask` (#37)
+  - `PlatformId` — per business type; bit positions in `platformMask` (#37, **SHIPPED** — `SiliconAlleyPlatforms`,
+    APPEND-ONLY by `Bit`). Office (`softwarestudio`): `0` Desktop · `1` Web · `2` Mobile · `3` Cloud/SaaS.
+    Security (`cybersecurity`): `0` Desktop · `1` Server · `2` Cloud · `3` Mobile. Game (`gamestudio`): `0` PC ·
+    `1` Console · `2` Mobile · `3` Web. (Share weight + scope cost are tunable data, NOT persisted; names in `en.json`.)
   - `SegmentId` — value of `segmentId` (#38): `0=Broad, 1=Enterprise, 2=Prosumer, 3=Consumer`
 - **modData keys:** `SiliconAlley` (versioned state blob), `SiliconAlley.ClientWelcomeSent` (bool flag)
 - **Reserved `"SiliconAlley"` blob headers** (`~`-prefixed, position-independent, unknown ones ignored for
@@ -147,8 +150,10 @@ line that has shipped.
   (absent ⇒ default ⇒ legacy unchanged). `featureMask 0` ⇒ no extra features (scope ×1.0, quality ceiling
   unchanged) — **#26 SHIPPED**: real bits = `FeatureId`, each set bit raises `EffectiveProjectSize` and the
   design quality ceiling; **per-project** (reset to `0` in `OnProjectCompleted`); `platformMask 0` ⇒ a single
-  "home" platform (reach ×1.0, scope ×1.0 — the no-op is **1
-  platform, never 0 reach**, #37); `ownedToolsMask`/`usedToolsMask 0` ⇒ no owned/licensed tools
+  "home" platform (reach ×1.0, scope ×1.0 — the no-op is **1 platform, never 0 reach**) — **#37 SHIPPED**: real
+  bits = `PlatformId`, each raises `EffectiveProjectSize` (porting) and the launch reach (Σ share weights, on the
+  installed-base jump only — `MarketFactor`/payout untouched); **per-project** (reset in `OnProjectCompleted`);
+  `ownedToolsMask`/`usedToolsMask 0` ⇒ no owned/licensed tools
   (`ownedToolsMask` is **studio-level** and survives `OnProjectCompleted`; `usedToolsMask` is **per-project**
   and resets on completion, #36); `segmentId 0` = Broad ⇒ segment factor ×1.0 (#38). #40 reserves these as
   no-ops in code (`SiliconAlleyState` BusinessState + Serialize/LoadFrom); each sibling fills in ITS field's
