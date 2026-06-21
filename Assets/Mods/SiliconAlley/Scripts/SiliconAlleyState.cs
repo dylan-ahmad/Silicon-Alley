@@ -55,6 +55,21 @@ public static class SiliconAlleyState
         public float Awareness;
         public float Hype;
         public int AdSpend;          // 0 = off (default), 1 = on
+        // Issue #25 (Aging): the game-day the product's market freshness was last anchored (= last
+        // ship/patch). Support income per installed unit decays as the days since this grow, toward a floor;
+        // a ship/patch resets it. SAVE-COMPAT: appended trailing (absent in old saves => 0 = "unanchored");
+        // on the first support accrual a 0 anchors to the current day, so a loaded legacy catalog starts at
+        // FULL freshness and only ages from load-time on (no retroactive income drop). Reuses no existing
+        // field's meaning.
+        public int SupportFreshDay;
+        // Issue #24 (Sequels): Version is the studio's CURRENT product's version (1 = debut). On ship it
+        // increments, so the next product is a sequel (Version >= 2) that leverages the franchise's installed
+        // base + IpReputation for a bigger launch. IpReputation (0..IpRepMax) is the franchise's standing:
+        // strong releases raise it, weak sequels dent it. SAVE-COMPAT: appended trailing; absent in old saves
+        // => Version field-initializer 1 (the in-flight product reads as a debut) and IpReputation 0 (no
+        // sequel bonus) => launches unchanged. Legacy installed base is NOT rescaled.
+        public int Version = 1;
+        public float IpReputation;
         public bool DesignPrompted;  // transient (NOT persisted): one "set your concept" nudge per project
         // Issue #12 (Release): a transient (NOT persisted) snapshot of the most recent ship so the screen
         // can show a "ship report". Momentary by design — lost on reload, re-set on the next ship.
@@ -70,6 +85,23 @@ public static class SiliconAlleyState
     public static float ProjectSize = 2800f;       // progress to complete one project (~2800 ≈ a skill-70 solo programmer over ~7 in-game calendar days full-time; the Project-speed slider tunes the pace)
     public static float PayoutMultiplier = 1f;     // global payout scale
     public static float SupportRatePerDay = 0.02f; // support income per installed unit per day, as a fraction of market price
+
+    // ---- issue #25 (Aging) tuning. Recurring support income decays with the days since the last ship/patch,
+    // from full (1.0) down to SupportAgeFloor over SupportAgeFullDays. A staffed studio patches every
+    // PatchIntervalDays (7), so it stays near-fresh; a neglected catalog tapers toward the floor. These scale
+    // support income only — SupportRatePerDay keeps its meaning (the age factor is a SEPARATE multiplier). ----
+    public const float SupportAgeFullDays = 60f; // days since last patch at which freshness reaches the floor
+    public const float SupportAgeFloor = 0.25f;  // an aged product still earns this fraction of its support
+
+    // ---- issue #24 (Sequels / IP reputation) tuning. IpReputation is 0..IpRepMax. A release is judged
+    // against an expectation bar (higher for sequels); a review above the bar raises IP rep, below it lowers
+    // it (a weak sequel disappoints). A sequel's launch leverages the prior installed base, scaled by IP rep
+    // and the review. ----
+    public const float IpRepMax = 3f;
+    public const float DebutReviewBar = 5f;      // a debut (v1) is judged against a modest bar
+    public const float SequelReviewBar = 6.5f;   // sequels are held to a higher standard (raised expectation)
+    public const float IpRepSensitivity = 0.15f; // IP-rep change per review point above/below the bar
+    public const float SequelLeverage = 0.15f;   // sequel launch units = priorInstalled * this * ipRepFrac * reviewFactor
 
     // ---- issue #19 (Bugs) tuning. Bugs accrue per unit of Development progress and burn down per unit of
     // tester skill in Testing. Defaults are sized against ProjectSize (~2800) and skill-70 staff so a build
@@ -219,7 +251,19 @@ public static class SiliconAlleyState
     public static float GetReputation(string key) => Get(key).Reputation;
     public static int GetInstalledBase(string key) => Get(key).InstalledBase;
     public static int GetLastPatchDay(string key) => Get(key).LastPatchDay;
-    public static void SetLastPatchDay(string key, int day) => Get(key).LastPatchDay = day;
+    // A ship or patch resets the live catalog's freshness too (issue #25): both always move together, so the
+    // patch clock doubles as the aging anchor. Callers (ship completion + periodic patch) pass the current day.
+    public static void SetLastPatchDay(string key, int day)
+    {
+        var state = Get(key);
+        state.LastPatchDay = day;
+        state.SupportFreshDay = day; // issue #25: a fresh release/update restores full support freshness
+    }
+
+    // Issue #24 (Sequels): the version of the studio's current product (1 = debut) and the franchise's IP
+    // reputation (0..IpRepMax). Both surface in the ship report / completion toast.
+    public static int GetVersion(string key) => Get(key).Version;
+    public static float GetIpReputation(string key) => Get(key).IpReputation;
 
     // The project type locked in for this building's current project (issue #3). Unlocked (-1) reads as
     // Standard so display/calc always have a concrete type.
@@ -248,12 +292,19 @@ public static class SiliconAlleyState
     // awareness adds a small reputation bonus on top and (via launchUnits, computed by the caller from
     // awareness + review) grows the installed base by more than the flat +1. SAVE-COMPAT: a legacy launch
     // has BugCount = Awareness = 0, so the bonus is 0 and launchUnits floors at 1 — identical to before.
-    public static void OnProjectCompleted(string key, float quality, int launchUnits)
+    public static void OnProjectCompleted(string key, float quality, int launchUnits, float review)
     {
         var state = Get(key);
         var awarenessRepBonus = Mathf.Min(0.2f, state.Awareness * 0.004f); // 0 when unmarketed (legacy)
         state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f + awarenessRepBonus);
-        state.InstalledBase += Mathf.Max(1, launchUnits); // base +1 (legacy) + marketing/review extra
+        state.InstalledBase += Mathf.Max(1, launchUnits); // base +1 (legacy) + marketing/review/sequel extra
+        // Issue #24 (Sequels): judge this release against an expectation bar (higher for a sequel). Beating it
+        // builds the franchise's IP reputation; missing it dents it (a weak sequel disappoints). Then the next
+        // product becomes the next version. SAVE-COMPAT: a legacy debut (Version 1) just nudges IP rep from 0
+        // by the small (review - DebutReviewBar) term and bumps to v2 — no effect on this launch's size.
+        var expectationBar = state.Version >= 2 ? SequelReviewBar : DebutReviewBar;
+        state.IpReputation = Mathf.Clamp(state.IpReputation + (review - expectationBar) * IpRepSensitivity, 0f, IpRepMax);
+        state.Version += 1;
         // The launch consumes the build: bugs are resolved and awareness/hype reset for the next project.
         state.BugCount = 0f;
         state.Awareness = 0f;
@@ -485,11 +536,45 @@ public static class SiliconAlleyState
         state.Reputation = Mathf.Max(0f, state.Reputation - amount);
     }
 
-    // Accrue recurring support income; returns a whole-currency payout once it crosses 1.
-    public static float AccrueSupport(string key, float marketPrice)
+    // Issue #25 (Aging): 0..1 freshness multiplier on support income — full right after a ship/patch, decaying
+    // toward SupportAgeFloor as the days since the last patch grow. A 0 anchor (legacy save / never set)
+    // anchors to the current day and reads as fully fresh, so a freshly loaded old catalog never suffers a
+    // retroactive income drop; it simply ages from load-time on. Pure-ish: it lazily sets the anchor once.
+    public static float SupportFreshness(string key, int currentDay)
     {
         var state = Get(key);
-        state.SupportAccrual += state.InstalledBase * marketPrice * (SupportRatePerDay / 24f);
+        if (state.SupportFreshDay <= 0)
+        {
+            state.SupportFreshDay = currentDay; // anchor on first use => full freshness, age from here on
+            return 1f;
+        }
+        var days = currentDay - state.SupportFreshDay;
+        if (days <= 0)
+            return 1f;
+        return Mathf.Lerp(1f, SupportAgeFloor, Mathf.Clamp01(days / SupportAgeFullDays));
+    }
+
+    // Issue #24 (Sequels): extra launch installed-base units a SEQUEL (Version >= 2) earns by leveraging the
+    // franchise's prior installed base, scaled by IP reputation and the review score (#20). Returns 0 for a
+    // debut (Version 1), an unbuilt IP (rep 0) or an empty base — so a v1 / legacy launch is unchanged.
+    // Computed BEFORE OnProjectCompleted (which grows the installed base and bumps the version).
+    public static int SequelLaunchUnits(string key, float review)
+    {
+        var state = Get(key);
+        if (state.Version < 2 || state.IpReputation <= 0f || state.InstalledBase <= 0)
+            return 0;
+        var ipRepFrac = Mathf.Clamp01(state.IpReputation / IpRepMax);
+        var reviewFactor = 0.5f + review / 10f; // 0.5 (review 0) .. 1.5 (review 10)
+        return Mathf.Max(0, Mathf.RoundToInt(state.InstalledBase * SequelLeverage * ipRepFrac * reviewFactor));
+    }
+
+    // Accrue recurring support income; returns a whole-currency payout once it crosses 1. Issue #25: the
+    // installed base earns less as the catalog ages (SupportFreshness), unless kept fresh by ship/patch.
+    public static float AccrueSupport(string key, float marketPrice, int currentDay)
+    {
+        var state = Get(key);
+        var freshness = SupportFreshness(key, currentDay);
+        state.SupportAccrual += state.InstalledBase * marketPrice * freshness * (SupportRatePerDay / 24f);
         if (state.SupportAccrual >= 1f)
         {
             float payout = Mathf.Floor(state.SupportAccrual);
@@ -509,14 +594,16 @@ public static class SiliconAlleyState
     // One entry per building (fields are APPEND-ONLY; older saves omit trailing fields, which default):
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
     //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
-    //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend,
+    //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation,
     // joined by ';'. The six per-phase quality fields (issue #8) and the Design/Development/Testing screen
     // fields (issue #9: designFocus default 0.5 = neutral, conceptLocked 0; issue #10: overtime 0 = off;
     // issue #11: hold 0 = off), then the go-to-market fields (issue #19: bugCount 0 = no bugs; issue #21:
-    // awareness/hype/adSpend 0 = unmarketed), were
+    // awareness/hype/adSpend 0 = unmarketed), then the product-lifecycle fields (issue #25: supportFreshDay
+    // 0 = anchored to full freshness on first use; issue #24: version default 1 = debut, ipReputation 0 = no
+    // sequel bonus), were
     // appended at schema v1; a save from before a given field omits it and it defaults (per-phase quality
     // reads "not accrued" via GetPhaseQuality; designFocus stays 0.5; conceptLocked 0; overtime 0; bugCount,
-    // awareness, hype, adSpend 0) while the
+    // awareness, hype, adSpend 0; supportFreshDay 0 ⇒ full freshness; version 1; ipReputation 0) while the
     // aggregate qualitySum/qualityWeight still yields the real shipped quality. Two reserved
     // "~"-prefixed header entries lead the blob:
     //   "~schema|<version>" — the save schema version (added in v1; absent ⇒ the v1 baseline);
@@ -570,7 +657,10 @@ public static class SiliconAlleyState
                 .Append(state.BugCount.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.Awareness.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.Hype.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.AdSpend.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.AdSpend.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.SupportFreshDay.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.Version.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.IpReputation.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -655,6 +745,16 @@ public static class SiliconAlleyState
                     float.TryParse(parts[21], NumberStyles.Float, CultureInfo.InvariantCulture, out state.Hype);
                     int.TryParse(parts[22], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.AdSpend);
                 }
+                if (parts.Length > 23) // issue #25: support-freshness anchor (absent ⇒ 0 ⇒ anchored fresh on first use)
+                    int.TryParse(parts[23], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.SupportFreshDay);
+                if (parts.Length > 24) // issue #24: product version (absent ⇒ field default 1, a debut). Keep
+                {
+                    // the 1 default if a present value parses as 0/garbage, so the in-flight product still ships as a debut.
+                    int.TryParse(parts[24], NumberStyles.Integer, CultureInfo.InvariantCulture, out var version);
+                    if (version > 0) state.Version = version;
+                }
+                if (parts.Length > 25) // issue #24: IP reputation (absent ⇒ 0, no sequel bonus)
+                    float.TryParse(parts[25], NumberStyles.Float, CultureInfo.InvariantCulture, out state.IpReputation);
                 States[parts[0]] = state;
             }
             catch

@@ -145,7 +145,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // 3) Recurring support income from the installed base.
         if (product != null && marketPrice > 0f)
         {
-            var support = SiliconAlleyState.AccrueSupport(key, marketPrice);
+            var support = SiliconAlleyState.AccrueSupport(key, marketPrice, TimeHelper.CurrentDay);
             if (support > 0f)
                 CreditRevenue(product, support, 1f);
         }
@@ -194,15 +194,19 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // launch adds exactly +1, identical to before.
             var awareness = SiliconAlleyState.GetAwareness(key);
             var review = SiliconAlleyState.ComputeReviewScore(quality, designQuality, awareness);
-            var launchBonus = SiliconAlleyState.LaunchBonusUnits(key, review);
+            // Issue #24 (Sequels): a sequel (v2+) leverages the franchise's prior installed base + IP rep for
+            // extra launch units, on top of the marketing-driven bonus (#21). Both are 0 for a debut/legacy
+            // ship, so the launch is unchanged. Read the version being shipped BEFORE OnProjectCompleted bumps it.
+            var version = SiliconAlleyState.GetVersion(key);
+            var launchBonus = SiliconAlleyState.LaunchBonusUnits(key, review) + SiliconAlleyState.SequelLaunchUnits(key, review);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
             var payout = marketPrice * (0.5f + quality) * reputationFactor * marketFactor * SiliconAlleyState.PayoutMultiplier * SiliconAlleyState.PayoutMultiplierFor(projectKind);
             CreditRevenue(product, payout, quality);
-            SiliconAlleyState.OnProjectCompleted(key, quality, 1 + launchBonus);
-            SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock
-            Debug.Log($"[SiliconAlley] {key} completed a {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, +{1 + launchBonus} installed, reputation {SiliconAlleyState.GetReputation(key):F2}).");
-            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review);
+            SiliconAlleyState.OnProjectCompleted(key, quality, 1 + launchBonus, review);
+            SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
+            Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, +{1 + launchBonus} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
+            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review, version);
             // Issue #12: remember this ship so the screen can show a "ship report" (transient).
             SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor, review);
         }
@@ -239,12 +243,14 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // above; numbers use InvariantCulture (dev machine is nl-NL). duplicateIdentifier = key coalesces
     // a burst of same-business completions (e.g. during time-machine catch-up) into a single toast,
     // while completions in normal play still each show.
-    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout, float reputationFactor, float marketFactor, float review)
+    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout, float reputationFactor, float marketFactor, float review, int version)
     {
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
             ["product"] = ProductDisplayName(businessType),
+            // Issue #24: the version that just shipped (v1 = debut, v2+ = sequel).
+            ["version"] = "v" + version.ToString(CultureInfo.InvariantCulture),
             ["quality"] = Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%",
             ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
             // Show why the payout is what it is: reputation lifts it, neighborhood competition trims it.
