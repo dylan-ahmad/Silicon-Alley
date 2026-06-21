@@ -166,7 +166,9 @@ line that has shipped.
   one costs one-off R&D cash instead). `segmentId 0` = Broad ⇒ segment factor ×1.0 — **#38 SHIPPED**: real value
   = `SegmentId`, a **price** factor on the launch payout + a **volume** factor on the launch installed-base jump
   (price↔volume tradeoff); **per-project** (reset in `OnProjectCompleted`). The design-wizard block is now fully
-  shipped (#26 features / #36 tools / #37 platforms / #38 market). #40 reserved these as
+  shipped (#26 features / #36 tools / #37 platforms / #38 market). Issue **#39 (Dependencies)** adds **no field** —
+  feature→tool coverage is **derived** from `featureMask` + the tool masks (`SiliconAlleyDependencies`); uncovered
+  features lower the quality ceiling, full coverage / feature-less ⇒ no penalty. #40 reserved these as
   no-ops in code (`SiliconAlleyState` BusinessState + Serialize/LoadFrom); each sibling fills in ITS field's
   gameplay at ITS reserved index and **must hold the frozen positions** — write the neutral `0` for any
   earlier reserved slot not yet implemented, and read each with a `parts.Length > <index>` guard inside the
