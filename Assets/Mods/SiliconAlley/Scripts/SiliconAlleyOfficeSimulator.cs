@@ -338,7 +338,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             completed = true,
             cleanliness = buildingRegistration.GetCleanliness(),
             customerServiceSkill = quality * 100f,
-            customerDemandScore = 1f,
+            // customerDemandScore is derived below from the real building state (see comment there).
             timestamp = new Timestamp(TimeHelper.CurrentDay, currentHour, 0f),
         };
         order.entries.Add(new OrderEntry
@@ -349,6 +349,19 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             paid = true,
             priceAccceptable = true,
         });
+        // The business panel's "Interior" bar binds to satisfaction.facility, which the game derives as
+        // the average customerDemandScore over recent orders — on a 0-100 scale (an order with no demand
+        // types scores 100). We earlier hardcoded 1f thinking it was 0-1, which pinned Interior at 1.
+        // Instead, copy the business type's demand types onto the order and let the game score them against
+        // its own cachedFulfilledCustomerDemands (interior-design demand counts as fulfilled once the
+        // interior score >= the neighbourhood minimum), so the Interior bar tracks the real office decor.
+        var businessType = BusinessTypeHelper.GetData(buildingRegistration);
+        if (businessType?.customerDemandSets != null)
+        {
+            foreach (var demandSet in businessType.customerDemandSets)
+                order.customerDemandTypes.Add(demandSet.type);
+        }
+        order.customerDemandScore = OrderHelper.CalculateOrderDemandScore(order, buildingRegistration);
         buildingRegistration.unprocessedCompletedOrders.Add(order);
     }
 
