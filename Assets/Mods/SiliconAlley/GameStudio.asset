@@ -19,7 +19,7 @@ MonoBehaviour:
   businessTypeName: siliconalley:businesstype_gamestudio
   suitableBuildingType: ba:buildingtype_office
   simulator: {fileID: 11400000, guid: 330a9a31c72fda148a2413dc1c1726df, type: 2}
-  spawnCustomers: 1
+  spawnCustomers: 0
   courseRequired: 0
   minutesToCheckBeforeTheSpawnTimeInAiBusinesses: 60
   spawnCustomersOnlyOnEnter: 0
