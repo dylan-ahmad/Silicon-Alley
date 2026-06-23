@@ -90,10 +90,22 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // (the wizard skips absent pages, so today it reduces to Concept → Summary).
     // Order = canonical wizard step (Concept 0, Features 10, Tools 20, OS 30, Market 40, Summary 100); pages sort
     // by it in RebuildVisiblePages so siblings display in step order regardless of which PR/merge registered them.
-    private struct WizardPage { public int Order; public GameObject Root; public Func<bool> IsPresent; public Action Refresh; }
+    private struct WizardPage { public int Order; public GameObject Root; public Func<bool> IsPresent; public Action Refresh; public string TitleKey; }
     private readonly List<WizardPage> _wizardPages = new List<WizardPage>();
     private readonly List<WizardPage> _visiblePages = new List<WizardPage>(); // present pages, rebuilt per refresh
     private int _wizardPage; // index into _visiblePages
+
+    // Issue #56: wizard shell — step indicator (dots + "Step N of M · Title") + fade/scale-pop page transitions.
+    private const int WizardStepCapacity = 8;       // dot pool size (>= the max number of wizard pages)
+    private const float TransitionDuration = 0.16f;
+    private const float ScalePopFrom = 0.96f;
+    private GameObject _stepIndicator;              // header + dots, shown above the active page
+    private TMP_Text _stepHeaderText;
+    private Image[] _stepDots;
+    private GameObject _lastShownPage;             // last page displayed, so only real page changes animate
+    private CanvasGroup _animCg;                    // page currently fading/scaling in (null = idle)
+    private RectTransform _animRt;
+    private float _animT;
     // Per-refresh context, set by RefreshWizard so the parameterless page refreshers can read it.
     private BuildingRegistration _ctxReg;
     private BusinessType _ctxBusinessType;
@@ -203,6 +215,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             {
                 _refresh = 1f;
                 Refresh();
+            }
+        }
+
+        // Issue #56: advance the page-transition tween (fade + scale-pop). Layout-safe — alpha/scale never
+        // feed the LayoutGroup/ContentSizeFitter, so the wizard height doesn't jitter while it plays.
+        if (_animCg != null)
+        {
+            _animT += Time.unscaledDeltaTime / TransitionDuration;
+            var t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_animT));
+            _animCg.alpha = t;
+            var s = Mathf.Lerp(ScalePopFrom, 1f, t);
+            _animRt.localScale = new Vector3(s, s, 1f);
+            if (_animT >= 1f)
+            {
+                _animCg.alpha = 1f;
+                _animRt.localScale = Vector3.one;
+                _animCg = null;
             }
         }
     }
@@ -376,6 +405,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         if (!SiliconAlleyState.CanEditConcept(key))
         {
+            _stepIndicator.SetActive(false);
             _wizardNavRow.SetActive(false);
             _wizardRecap.SetActive(true);
             RefreshRecap(key);
@@ -384,6 +414,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         _wizardRecap.SetActive(false);
         _wizardNavRow.SetActive(true);
+        _stepIndicator.SetActive(true);
         RebuildVisiblePages();
         if (_visiblePages.Count == 0)
             return;
@@ -391,6 +422,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var current = _visiblePages[_wizardPage];
         current.Root.SetActive(true);
         current.Refresh();
+        UpdateStepIndicator(current);
+        if (current.Root != _lastShownPage) // only real page changes animate (not the 1s same-page refresh)
+        {
+            StartPageTransition(current.Root);
+            _lastShownPage = current.Root;
+        }
 
         var isLast = _wizardPage >= _visiblePages.Count - 1;
         _wizardBackButton.interactable = _wizardPage > 0;
@@ -406,6 +443,76 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             if (page.IsPresent == null || page.IsPresent())
                 _visiblePages.Add(page);
         _visiblePages.Sort((a, b) => a.Order.CompareTo(b.Order)); // issue #36: show pages in canonical step order
+    }
+
+    // ---- Issue #56: wizard step indicator + page transitions ----
+
+    // The step indicator: a centred "Step N of M · Title" header above a row of progress dots. Built once
+    // at the top of the wizard (above the active page); updated each refresh by UpdateStepIndicator.
+    private void BuildStepIndicator(Transform parent)
+    {
+        _stepIndicator = MakeSection(parent);
+        _stepHeaderText = MakeText(_stepIndicator.transform, "StepHeader", 15, TextAnchor.MiddleCenter, FontStyle.Bold);
+        _stepHeaderText.color = SiliconAlleyTheme.Header;
+
+        // A centred row of fixed-size dots. MakeRow force-expands its children, so build the row by hand.
+        var dotsGo = new GameObject("StepDots", typeof(RectTransform));
+        dotsGo.transform.SetParent(_stepIndicator.transform, false);
+        var h = dotsGo.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = 6f;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleCenter;
+        dotsGo.AddComponent<LayoutElement>().minHeight = 16f;
+
+        _stepDots = new Image[WizardStepCapacity];
+        for (var i = 0; i < _stepDots.Length; i++)
+        {
+            var dot = MakeImage(dotsGo.transform, "Dot", SiliconAlleyTheme.Slate);
+            if (SiliconAlleyTheme.ButtonSprite != null) // a small rounded pill (Simple — borders don't fit a 12px dot)
+            {
+                dot.sprite = SiliconAlleyTheme.ButtonSprite;
+                dot.type = Image.Type.Simple;
+            }
+            var le = dot.gameObject.AddComponent<LayoutElement>();
+            le.minHeight = le.preferredHeight = 12f;
+            le.minWidth = le.preferredWidth = 12f;
+            _stepDots[i] = dot;
+        }
+    }
+
+    // Header text + dot states for the current visible page (current = bright + wider, done = blended, todo = slate).
+    private void UpdateStepIndicator(WizardPage current)
+    {
+        var count = _visiblePages.Count;
+        _stepHeaderText.text = Compose("siliconalley:wiz_step_label",
+            ("n", (_wizardPage + 1).ToString(CultureInfo.InvariantCulture)),
+            ("m", count.ToString(CultureInfo.InvariantCulture)),
+            ("title", current.TitleKey.GetLocalization()));
+        var done = Color.Lerp(SiliconAlleyTheme.Slate, SiliconAlleyTheme.Accent, 0.45f);
+        for (var i = 0; i < _stepDots.Length; i++)
+        {
+            var on = i < count;
+            _stepDots[i].gameObject.SetActive(on);
+            if (!on)
+                continue;
+            var le = _stepDots[i].GetComponent<LayoutElement>();
+            le.minWidth = le.preferredWidth = i == _wizardPage ? 18f : 12f; // the current step reads as a wider pill
+            _stepDots[i].color = i == _wizardPage ? SiliconAlleyTheme.Accent
+                : i < _wizardPage ? done
+                : SiliconAlleyTheme.Slate;
+        }
+    }
+
+    // Begin the fade + scale-pop for the page that just became current (advanced each frame in Update).
+    private void StartPageTransition(GameObject page)
+    {
+        _animCg = page.GetComponent<CanvasGroup>();
+        _animRt = (RectTransform)page.transform;
+        _animT = 0f;
+        if (_animCg != null)
+            _animCg.alpha = 0f;
+        _animRt.localScale = new Vector3(ScalePopFrom, ScalePopFrom, 1f);
     }
 
     // Concept page: today's scope + focus controls plus read-only product name and baseline readouts.
@@ -1257,6 +1364,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // ---- Design wizard (issue #35): paged Concept → … → Summary, shown in the Design phase ----
         _wizardSection = MakeSection(root);
         MakeDivider(_wizardSection.transform);
+        BuildStepIndicator(_wizardSection.transform); // issue #56: step indicator above the active page
 
         // Concept page: today's scope + focus controls, read-only product name and baseline readouts.
         _conceptPage = MakeSection(_wizardSection.transform);
@@ -1375,8 +1483,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Register the wizard pages. RebuildVisiblePages sorts by Order (canonical step), so the order of these
         // calls doesn't matter — each sibling just registers with its step number and gates with IsPresent.
-        _wizardPages.Add(new WizardPage { Order = 0, Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage });
-        _wizardPages.Add(new WizardPage { Order = 100, Root = _summaryPage, IsPresent = () => true, Refresh = RefreshSummaryPage });
+        _wizardPages.Add(new WizardPage { Order = 0, Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage, TitleKey = "siliconalley:wiz_step_concept" });
+        _wizardPages.Add(new WizardPage { Order = 100, Root = _summaryPage, IsPresent = () => true, Refresh = RefreshSummaryPage, TitleKey = "siliconalley:wiz_step_summary" });
         // Issue #26: Features (step 2), present for any business type that has a feature list.
         _wizardPages.Add(new WizardPage
         {
@@ -1384,6 +1492,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             Root = _featuresPage,
             IsPresent = () => SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshFeaturesPage,
+            TitleKey = "siliconalley:wiz_step_features",
         });
         // Issue #36: Editors & tools (step 3).
         _wizardPages.Add(new WizardPage
@@ -1392,6 +1501,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             Root = _toolsPage,
             IsPresent = () => SiliconAlleyTools.ToolsFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshToolsPage,
+            TitleKey = "siliconalley:wiz_step_tools",
         });
         // Issue #39: Dependencies (step 3b) — only once features are selected (else there's nothing to cover).
         _wizardPages.Add(new WizardPage
@@ -1400,6 +1510,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             Root = _dependenciesPage,
             IsPresent = () => SiliconAlleyState.GetFeatureMask(_currentKey) != 0,
             Refresh = RefreshDependenciesPage,
+            TitleKey = "siliconalley:wiz_step_deps",
         });
         // Issue #37: Operating systems (step 4).
         _wizardPages.Add(new WizardPage
@@ -1408,9 +1519,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             Root = _platformsPage,
             IsPresent = () => SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshPlatformsPage,
+            TitleKey = "siliconalley:wiz_step_platforms",
         });
         // Issue #38: Market / audience segment (step 5). Segments are universal, so the page is always present.
-        _wizardPages.Add(new WizardPage { Order = 40, Root = _marketPage, IsPresent = () => true, Refresh = RefreshMarketPage });
+        _wizardPages.Add(new WizardPage { Order = 40, Root = _marketPage, IsPresent = () => true, Refresh = RefreshMarketPage, TitleKey = "siliconalley:wiz_step_market" });
+
+        // Issue #56: each page fades/scales in on entry — give every page a CanvasGroup to drive the alpha.
+        foreach (var page in _wizardPages)
+            if (page.Root.GetComponent<CanvasGroup>() == null)
+                page.Root.AddComponent<CanvasGroup>();
 
         // Nav row: Back · Next/Confirm (Next's label flips to Confirm on the Summary page).
         _wizardNavRow = MakeRow(_wizardSection.transform, 10f, 40);
