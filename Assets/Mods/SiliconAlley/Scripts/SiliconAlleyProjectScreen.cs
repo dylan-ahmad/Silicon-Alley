@@ -153,6 +153,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Marketing section (issue #21): shown pre-release (Design→Testing); cash-funded awareness campaign.
     private GameObject _marketingSection;
     private TMP_Text _mktAwarenessText, _adSpendLabel;
+    private TMP_Text _mktSynergyText; // issue #29: free awareness from a player-operated marketing agency
     private Image _adSpendImage;
     private Button _pressReleaseButton, _pressBuildButton, _hypeButton;
     private TMP_Text _pressReleaseLabel, _pressBuildLabel, _hypeLabel;
@@ -813,6 +814,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("awareness", Mathf.RoundToInt(SiliconAlleyState.GetAwareness(key)).ToString(CultureInfo.InvariantCulture)),
             ("hype", Mathf.RoundToInt(SiliconAlleyState.GetHype(key)).ToString(CultureInfo.InvariantCulture)));
 
+        // Issue #29: surface the free awareness from a player-operated marketing agency (hidden when none owned).
+        var agencies = SiliconAlleyOfficeSimulator.OwnedMarketingAgencies();
+        _mktSynergyText.gameObject.SetActive(agencies > 0);
+        if (agencies > 0)
+            _mktSynergyText.text = Compose("siliconalley:screen_mkt_synergy",
+                ("rate", (agencies * SiliconAlleyOfficeSimulator.MarketingSynergyAwarenessPerHour).ToString("0.0", CultureInfo.InvariantCulture)),
+                ("count", agencies.ToString(CultureInfo.InvariantCulture)));
+
         _pressReleaseLabel.text = Compose("siliconalley:screen_mkt_press_release", ("cost", Money(SiliconAlleyState.PressReleaseCost)));
         _pressBuildLabel.text = Compose("siliconalley:screen_mkt_press_build", ("cost", Money(SiliconAlleyState.PressBuildCost)));
         _hypeLabel.text = Compose("siliconalley:screen_mkt_hype", ("cost", Money(SiliconAlleyState.HypeCost)));
@@ -1438,6 +1447,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeDivider(_marketingSection.transform);
         MakeHeader(_marketingSection.transform, "siliconalley:screen_mkt_header");
         _mktAwarenessText = MakeText(_marketingSection.transform, "MktAwareness", 16, TextAnchor.MiddleLeft);
+        _mktSynergyText = MakeText(_marketingSection.transform, "MktSynergy", 14, TextAnchor.MiddleLeft, FontStyle.Italic); // #29
         _pressReleaseButton = MakeButton(_marketingSection.transform, "", OnPressRelease);
         _pressReleaseLabel = _pressReleaseButton.GetComponentInChildren<TMP_Text>();
         _pressBuildButton = MakeButton(_marketingSection.transform, "", OnPressBuild);

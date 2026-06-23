@@ -34,6 +34,14 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     private const float ContractQualityFloor = 0.5f;   // payout = ContractPayout * (Floor + (1-Floor)*quality)
     private const float ContractMissRepPenalty = 0.5f; // reputation lost (toward 0) when a contract deadline lapses
 
+    // Issue #29 (Marketing synergy): free awareness/hour each player-operated marketing agency adds to every IT
+    // studio (vs the cash AdSpendAwarenessPerHour 0.6 — running your own marketing is cheaper than buying it).
+    // Public so the project screen can show the same per-hour synergy the simulator applies.
+    public const float MarketingSynergyAwarenessPerHour = 0.5f;
+    // The base-game marketing-agency business type the game tags such buildings with (decompiled: the game's own
+    // "is this a marketing agency?" check uses exactly this businessTypeName).
+    private const string MarketingAgencyTypeName = "ba:businesstype_marketingagency";
+
     // Issue #2: the two existing game skills the businesses draw on. Programmers lead Development/Testing;
     // graphic designers lead the Design phase (for the business types that list the designer skill).
     private const string ProgrammerSkill = "ba:skill_programmer";
@@ -161,6 +169,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             else
                 SiliconAlleyState.SetAdSpend(key, false);
         }
+        // Issue #29 (Marketing synergy): if the player also operates marketing-agency businesses, they promote
+        // this studio's products for FREE — a small awareness/hour per agency, no per-hour cash (cheaper than Ad
+        // Spend). Derived from building ownership (no state); 0 agencies ⇒ +0 ⇒ unchanged. Layered on top.
+        var agencies = OwnedMarketingAgencies();
+        if (agencies > 0)
+            SiliconAlleyState.AddAwareness(key, MarketingSynergyAwarenessPerHour * agencies);
         SiliconAlleyState.DecayMarketing(key); // no-op for an unmarketed/legacy studio (awareness 0)
 
         // Issue #23 (Publisher deals): enforce the deadline every hour, independent of staffing/Hold, so a
@@ -588,6 +602,22 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     public static float MarketFactor(BuildingRegistration registration, int kind)
     {
         return 1f / (1f + CompetitorCount(registration) * SiliconAlleyState.CompetitionCoefficient(kind));
+    }
+
+    // Issue #29 (Marketing synergy): how many marketing-agency businesses the player operates. Each one promotes
+    // the player's IT studios for free (MarketingSynergyAwarenessPerHour each). Player ownership = RentedByPlayer
+    // (the game's own IsPlayerOwnedBusiness rule); a marketing agency carries MarketingAgencyTypeName. Static so
+    // the project screen can surface the same synergy the simulator applies. 0 ⇒ no synergy ⇒ behaviour unchanged.
+    public static int OwnedMarketingAgencies()
+    {
+        var current = SaveGameManager.Current;
+        if (current == null || current.BuildingRegistrations == null)
+            return 0;
+        var count = 0;
+        foreach (var reg in current.BuildingRegistrations)
+            if (reg.RentedByPlayer && reg.businessTypeName == MarketingAgencyTypeName)
+                count++;
+        return count;
     }
 
     // Project progress this studio accrues per in-game hour at the current hour's staffing

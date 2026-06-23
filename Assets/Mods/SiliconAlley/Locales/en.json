@@ -66,6 +66,7 @@
   "siliconalley:screen_ship": "Ship now",
   "siliconalley:screen_mkt_header": "Marketing",
   "siliconalley:screen_mkt_awareness": "Awareness: {awareness} · hype {hype}",
+  "siliconalley:screen_mkt_synergy": "Marketing synergy: +{rate}/h free from {count} agency(ies) you operate",
   "siliconalley:screen_mkt_press_release": "Press Release ({cost}) — quick awareness bump",
   "siliconalley:screen_mkt_press_build": "Press Build ({cost}) — big bump, best late in Development",
   "siliconalley:screen_mkt_hype": "Hype ({cost}) — sustain awareness between phases",
