@@ -82,6 +82,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // Control references rebuilt once in Build().
     private TMP_Text _titleText, _studioText, _phaseText, _summaryText;
+    private Image _typeIcon, _phaseIcon; // issue #55: current business-type + phase icons (next to studio name / phase)
     private GameObject _wizardSection, _developmentSection, _testingSection, _releaseSection;
     // ---- Design wizard (issue #35): a paged Concept → … → Summary flow shown during the Design phase.
     // Pages are shown one at a time; sub-issues (#26 features / #36 tools / #37 OS / #38 market) insert their
@@ -297,6 +298,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("business", reg.GetDisplayName()), ("product", ProductName(businessType)));
         _phaseText.text = Compose("siliconalley:screen_phase",
             ("phase", phaseName), ("progress", Pct(SiliconAlleyState.PhaseProgressFraction(rawProgress, size))));
+        // Issue #55: reflect the current business type + phase as icons next to their labels.
+        SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(businessType?.businessTypeName));
+        SetIconSprite(_phaseIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.PhaseNameKey(phase)));
 
         var avgQ = SiliconAlleyState.GetAverageQuality(key);
         _summaryText.text = Compose("siliconalley:screen_summary",
@@ -452,6 +456,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 ("size", Mathf.RoundToInt(f.SizeCost * 100f).ToString(CultureInfo.InvariantCulture)),
                 ("quality", Mathf.RoundToInt(f.QualityContribution * 100f).ToString(CultureInfo.InvariantCulture)));
             _featureImages[i].color = (mask & (1 << f.Bit)) != 0 ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+            SetButtonIcon(_featureButtons[i], SiliconAlleyTheme.IconFor(f.NameKey)); // issue #55: per-feature icon (changes with type)
         }
         _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
@@ -496,6 +501,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 ("share", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture)),
                 ("scope", Mathf.RoundToInt(p.ScopeCost * 100f).ToString(CultureInfo.InvariantCulture)));
             _platformImages[i].color = (mask & (1 << p.Bit)) != 0 ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+            SetButtonIcon(_platformButtons[i], SiliconAlleyTheme.IconFor(p.NameKey)); // issue #55: per-platform icon (changes with type)
         }
         _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
             ("market", PlatformMarketText(key, type)),
@@ -558,6 +564,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             }
             _toolLabels[i].text = Compose("siliconalley:wiz_tool_row", ("name", t.NameKey.GetLocalization()), ("state", state));
             _toolImages[i].color = color;
+            SetButtonIcon(_toolButtons[i], SiliconAlleyTheme.IconFor(t.NameKey)); // issue #55: per-tool icon (changes with type)
         }
         _toolsReadout.text = Compose("siliconalley:wiz_tools_readout",
             ("quality", Mathf.RoundToInt(SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type) * 100f).ToString(CultureInfo.InvariantCulture)),
@@ -1234,13 +1241,17 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _titleText = MakeText(titleRow.transform, "Title", 22, TextAnchor.MiddleLeft, FontStyle.Bold);
         FixWidth(MakeButton(titleRow.transform, "X", Close), 34f);
 
-        // Studio selector: [<]  name  [>]
+        // Studio selector: [<]  [type icon] name  [>]
         var studioRow = MakeRow(root);
         FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 44f);
+        _typeIcon = MakeIcon(studioRow.transform, null, 22f, SiliconAlleyTheme.Text); // issue #55: current business-type icon
         _studioText = MakeText(studioRow.transform, "Studio", 17, TextAnchor.MiddleCenter);
         FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 44f);
 
-        _phaseText = MakeText(root, "Phase", 16, TextAnchor.MiddleLeft);
+        // Phase indicator: [phase icon] phase + progress (issue #55 adds the icon).
+        var phaseRow = MakeRow(root, 6f, 24);
+        _phaseIcon = MakeIcon(phaseRow.transform, null, 20f, SiliconAlleyTheme.Header);
+        _phaseText = MakeText(phaseRow.transform, "Phase", 16, TextAnchor.MiddleLeft);
         _summaryText = MakeText(root, "Summary", 15, TextAnchor.MiddleLeft);
 
         // ---- Design wizard (issue #35): paged Concept → … → Summary, shown in the Design phase ----
@@ -1258,6 +1269,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var btn = MakeButton(scopeRow.transform, scopeKeys[i].GetLocalization(), () => OnScopeSelected(kind));
             _scopeButtons[i] = btn;
             _scopeImages[i] = btn.GetComponent<Image>();
+            SetButtonIcon(btn, SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
         }
         _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", 15, TextAnchor.MiddleLeft);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_focus");
@@ -1348,6 +1360,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var btn = MakeButton(segmentRow.transform, SiliconAlleySegments.All[i].NameKey.GetLocalization(), () => OnSelectSegment(ordinal));
             _segmentButtons[i] = btn;
             _segmentImages[i] = btn.GetComponent<Image>();
+            SetButtonIcon(btn, SiliconAlleyTheme.IconFor(SiliconAlleySegments.All[i].NameKey)); // issue #55: segment icon (fixed set)
         }
         _marketReadout = MakeText(_marketPage.transform, "MarketReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 

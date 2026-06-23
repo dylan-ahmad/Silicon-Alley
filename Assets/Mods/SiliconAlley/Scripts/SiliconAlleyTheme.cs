@@ -1,5 +1,7 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
+using System.IO;
 using BAModAPI;
 using TMPro;
 using UnityEngine;
@@ -51,6 +53,14 @@ public static class SiliconAlleyTheme
 
     public static bool SpritesReady => PanelSprite != null && CardSprite != null && ButtonSprite != null;
 
+    // ---- Icon set (issue #55). Every concept (feature/tool/platform/segment/phase/type/scope) carries a
+    // stable NameKey; the icon for it is the bundled PNG whose file stem = the NameKey minus "siliconalley:"
+    // (e.g. feature_office_cloudsync.png). Loaded from Assets/Mods/SiliconAlley/UI/Icons/ into this map keyed
+    // by lowercased file stem. Resolution is two-tier (see IconFor): exact concept icon → per-category
+    // placeholder (cat_<category>) → null (graceful, no broken sprite). ----
+    public static Dictionary<string, Sprite>? Icons { get; private set; }
+    public static bool IconsReady => Icons != null && Icons.Count > 0;
+
     // The game's TMP font (Exo2), resolved lazily and cached so text matches the game's typography.
     private static TMP_FontAsset? _font;
     private static bool _fontResolved;
@@ -85,6 +95,61 @@ public static class SiliconAlleyTheme
             logger?.Info("SiliconAlley: UI theme sprite kit loaded (panel/card/button).");
         else
             logger?.Warn("SiliconAlley: UI theme sprite kit missing/partial; flat-colour fallback for absent sprites.");
+
+        Icons = LoadIcons(bundle, logger);
+    }
+
+    // Load every sprite under …/UI/Icons/ into a name→sprite map (key = lowercased file stem). Adding an icon
+    // is drop-in (no code change). Tolerant of a missing folder (older bundle) ⇒ empty map ⇒ graceful fallback.
+    private static Dictionary<string, Sprite> LoadIcons(AssetBundle bundle, IModLogger? logger)
+    {
+        var icons = new Dictionary<string, Sprite>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in bundle.GetAllAssetNames()) // bundle paths are lowercased
+        {
+            if (name.IndexOf("/ui/icons/", StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+            if (!name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var sprite = bundle.LoadAsset<Sprite>(name);
+            if (sprite == null)
+                continue;
+            icons[Path.GetFileNameWithoutExtension(name)] = sprite;
+        }
+        if (icons.Count > 0)
+            logger?.Info($"SiliconAlley: UI icon set loaded ({icons.Count} icon(s)).");
+        else
+            logger?.Warn("SiliconAlley: no UI icons in bundle; concept icons will be absent (text-only fallback).");
+        return icons;
+    }
+
+    // Resolve the icon for a concept, given its NameKey (e.g. "siliconalley:feature_office_cloudsync") or a
+    // bare key. Two-tier + graceful: exact concept icon → per-category placeholder (cat_<category>) → null.
+    public static Sprite? IconFor(string? nameKeyOrKey)
+    {
+        if (Icons == null || string.IsNullOrEmpty(nameKeyOrKey))
+            return null;
+        var key = IconKey(nameKeyOrKey!);
+        if (Icons.TryGetValue(key, out var exact))
+            return exact;
+        var category = CategoryOf(key);
+        if (category.Length > 0 && Icons.TryGetValue("cat_" + category, out var placeholder))
+            return placeholder;
+        return null;
+    }
+
+    // The icon-file stem for a concept key: drop the "siliconalley:" prefix and lowercase.
+    private static string IconKey(string nameKey)
+    {
+        const string prefix = "siliconalley:";
+        var k = nameKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? nameKey.Substring(prefix.Length) : nameKey;
+        return k.ToLowerInvariant();
+    }
+
+    // The concept category = the text before the first underscore (feature/tool/platform/segment/phase/…).
+    private static string CategoryOf(string key)
+    {
+        var idx = key.IndexOf('_');
+        return idx > 0 ? key.Substring(0, idx) : key;
     }
 
     // Resolve the game's TMP font (Exo2). Falls back to any loaded TMP font asset (preferring the "Exo"

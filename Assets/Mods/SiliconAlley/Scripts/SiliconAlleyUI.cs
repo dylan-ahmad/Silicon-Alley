@@ -117,6 +117,67 @@ public static class SiliconAlleyUI
         return button;
     }
 
+    // ---- Icons (issue #55). Concept icons are tinted, non-9-sliced (Simple) images; a null sprite is
+    // hidden (Image disabled) so no white box shows. ----
+
+    // A standalone icon image for a header/row (phase indicator, business-type selector). Sized via a
+    // LayoutElement so it behaves inside the Make* layout groups; null sprite ⇒ hidden, no broken sprite.
+    public static Image MakeIcon(Transform parent, Sprite? sprite, float size, Color? tint = null)
+    {
+        var image = MakeImage(parent, "Icon", tint ?? SiliconAlleyTheme.Text);
+        image.type = Image.Type.Simple;
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+        var le = image.gameObject.AddComponent<LayoutElement>();
+        le.minWidth = le.preferredWidth = size;
+        le.minHeight = le.preferredHeight = size;
+        le.flexibleWidth = 0f;
+        SetIconSprite(image, sprite);
+        return image;
+    }
+
+    // Swap an icon image's sprite, hiding the whole image when the sprite is null (so no default white box
+    // renders). Cheap + idempotent — safe to call every refresh.
+    public static void SetIconSprite(Image image, Sprite? sprite)
+    {
+        image.sprite = sprite;
+        image.enabled = sprite != null;
+    }
+
+    // Place (or update) a left-aligned icon inside a button built by MakeButton, and inset its "Label" so the
+    // text clears the icon. Idempotent: finds-or-creates the "Icon" child, so it's safe to call every refresh
+    // (the feature/tool/platform pools are relabelled per business type). A null icon hides it + un-insets the
+    // label, reverting to the text-only look (graceful fallback).
+    public static void SetButtonIcon(Button button, Sprite? icon, float size = 20f, Color? tint = null)
+    {
+        var existing = button.transform.Find("Icon");
+        Image image;
+        if (existing != null)
+        {
+            image = existing.GetComponent<Image>();
+        }
+        else
+        {
+            image = MakeImage(button.transform, "Icon", tint ?? SiliconAlleyTheme.Text);
+            image.type = Image.Type.Simple;
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+            var rt = image.rectTransform;
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0.5f);
+            rt.sizeDelta = new Vector2(size, size);
+            rt.anchoredPosition = new Vector2(10f, 0f); // left padding inside the button
+        }
+
+        SetIconSprite(image, icon);
+
+        var label = button.transform.Find("Label")?.GetComponent<TMP_Text>();
+        if (label != null)
+        {
+            var inset = icon != null ? size + 16f : 0f; // keep centred text clear of the icon when present
+            label.margin = new Vector4(inset, label.margin.y, label.margin.z, label.margin.w);
+        }
+    }
+
     // ---- Flat primitives + layout containers (unchanged behaviour; backdrop/divider stay flat). ----
 
     // A thin separator line for visual grouping between sections.
