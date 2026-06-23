@@ -322,6 +322,64 @@ public static class SiliconAlleyUI
         c.BadgeLabel.text = text;
     }
 
+    // ---- Review primitives (issue #58). A rounded card panel with a vertical content layout + scannable
+    // "[icon] label …… value" stat rows. Reused by the summary review card (and later dashboard/sections). ----
+
+    // A rounded card ready to hold stacked content (padding + vertical layout). Returns the card GameObject.
+    public static GameObject MakeCardPanel(Transform parent, string name, int pad = 12)
+    {
+        var card = MakeCard(parent, name);
+        var v = card.gameObject.AddComponent<VerticalLayoutGroup>();
+        v.padding = new RectOffset(pad, pad, pad, pad);
+        v.spacing = 6f;
+        v.childControlWidth = v.childControlHeight = true;
+        v.childForceExpandWidth = true;
+        v.childForceExpandHeight = false;
+        v.childAlignment = TextAnchor.UpperLeft;
+        card.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+        return card.gameObject;
+    }
+
+    public sealed class StatRow
+    {
+        public GameObject Root;
+        public Image Icon;
+        public TMP_Text Label;
+        public TMP_Text Value;
+    }
+
+    // "[icon 22px] label (muted, hugs left) …… value (bold, right-aligned, fills + wraps)".
+    public static StatRow MakeStatRow(Transform parent)
+    {
+        var go = new GameObject("StatRow", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = 8f;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleLeft;
+        go.AddComponent<LayoutElement>().minHeight = 26f;
+
+        var icon = MakeImage(go.transform, "Icon", SiliconAlleyTheme.TextMuted);
+        icon.type = Image.Type.Simple;
+        icon.preserveAspect = true;
+        icon.raycastTarget = false;
+        var il = icon.gameObject.AddComponent<LayoutElement>();
+        il.minWidth = il.preferredWidth = 22f;
+        il.minHeight = il.preferredHeight = 22f;
+
+        var label = MakeText(go.transform, "Label", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        label.color = SiliconAlleyTheme.TextMuted;
+        label.enableWordWrapping = false;
+        label.GetComponent<LayoutElement>().flexibleWidth = 0f; // hug content on the left
+
+        var value = MakeText(go.transform, "Value", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft, FontStyle.Bold);
+        value.alignment = TextAlignmentOptions.Right;
+        value.GetComponent<LayoutElement>().flexibleWidth = 1f; // fill the rest; wraps if the value is long
+
+        return new StatRow { Root = go, Icon = icon, Label = label, Value = value };
+    }
+
     // ---- Flat primitives + layout containers (unchanged behaviour; backdrop/divider stay flat). ----
 
     // A thin separator line for visual grouping between sections.
