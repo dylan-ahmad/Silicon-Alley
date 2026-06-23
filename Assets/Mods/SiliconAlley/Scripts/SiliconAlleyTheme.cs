@@ -25,6 +25,7 @@ public static class SiliconAlleyTheme
     public static readonly Color Accent    = new Color(0.20f,  0.50f,  0.86f,  1f);     // primary / selected (game blue)
     public static readonly Color Slate     = new Color(0.18f,  0.21f,  0.27f,  1f);     // default button
     public static readonly Color Warn      = new Color(0.80f,  0.55f,  0.20f,  1f);     // amber — licensed/royalty (#36)
+    public static readonly Color Ok        = new Color(0.33f,  0.70f,  0.45f,  1f);     // green — owned / covered (#57)
     public static readonly Color Text      = new Color(0.90f,  0.92f,  0.96f,  1f);     // body text
     public static readonly Color TextMuted = new Color(0.66f,  0.70f,  0.78f,  1f);     // secondary text
     public static readonly Color Header    = new Color(0.52f,  0.72f,  1f,     1f);     // section-header accent

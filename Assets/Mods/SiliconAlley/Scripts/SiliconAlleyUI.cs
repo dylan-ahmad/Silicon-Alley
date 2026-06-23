@@ -178,6 +178,150 @@ public static class SiliconAlleyUI
         }
     }
 
+    // ---- Cards (issue #57). A design-document card: [icon] [title + cost/benefit chips] [state badge].
+    // Reusable across the wizard pickers. onClick optional — pass null for a read-only card (no Button, no
+    // hover), e.g. the Dependencies coverage rows. The screen tints c.Card + sets the badge per state. ----
+
+    public sealed class CardItem
+    {
+        public GameObject Root;
+        public Button Button;       // null for a read-only card
+        public Image Card;          // background — set its colour for the state tint
+        public Image Icon;
+        public TMP_Text Title;
+        public Image[] Chips;
+        public TMP_Text[] ChipLabels;
+        public Image Badge;
+        public TMP_Text BadgeLabel;
+    }
+
+    public static CardItem MakeCardItem(Transform parent, UnityAction onClick, int chipCapacity = 3)
+    {
+        var go = new GameObject("CardItem", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var card = go.AddComponent<Image>();
+        card.color = SiliconAlleyTheme.Card;
+        ApplySlice(card, SiliconAlleyTheme.CardSprite);
+
+        var item = new CardItem { Root = go, Card = card };
+        if (onClick != null)
+        {
+            var button = go.AddComponent<Button>();
+            button.targetGraphic = card;
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(0.88f, 0.88f, 0.88f, 1f);
+            colors.pressedColor = new Color(0.72f, 0.72f, 0.72f, 1f);
+            colors.selectedColor = Color.white;
+            colors.disabledColor = new Color(0.6f, 0.6f, 0.6f, 0.8f);
+            colors.fadeDuration = 0.08f;
+            button.colors = colors;
+            button.onClick.AddListener(onClick);
+            item.Button = button;
+        }
+
+        var row = go.AddComponent<HorizontalLayoutGroup>();
+        row.padding = new RectOffset(10, 10, 8, 8);
+        row.spacing = 10f;
+        row.childControlWidth = row.childControlHeight = true;
+        row.childForceExpandWidth = row.childForceExpandHeight = false;
+        row.childAlignment = TextAnchor.MiddleLeft;
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = 52f;
+        le.flexibleWidth = 1f;
+
+        // Icon (left, fixed).
+        item.Icon = MakeImage(go.transform, "Icon", SiliconAlleyTheme.Text);
+        item.Icon.type = Image.Type.Simple;
+        item.Icon.preserveAspect = true;
+        item.Icon.raycastTarget = false;
+        var iconLe = item.Icon.gameObject.AddComponent<LayoutElement>();
+        iconLe.minWidth = iconLe.preferredWidth = 30f;
+        iconLe.minHeight = iconLe.preferredHeight = 30f;
+
+        // Body (title + chips), flexible width so the badge is pushed to the right.
+        var body = new GameObject("Body", typeof(RectTransform));
+        body.transform.SetParent(go.transform, false);
+        var bodyV = body.AddComponent<VerticalLayoutGroup>();
+        bodyV.spacing = 4f;
+        bodyV.childControlWidth = bodyV.childControlHeight = true;
+        bodyV.childForceExpandWidth = true;   // children fill the body width (so long titles wrap, not overflow)
+        bodyV.childForceExpandHeight = false;
+        bodyV.childAlignment = TextAnchor.MiddleLeft;
+        body.AddComponent<LayoutElement>().flexibleWidth = 1f;
+
+        item.Title = MakeText(body.transform, "Title", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft, FontStyle.Bold);
+        item.Title.raycastTarget = false;
+
+        var chipsGo = new GameObject("Chips", typeof(RectTransform));
+        chipsGo.transform.SetParent(body.transform, false);
+        var chipsH = chipsGo.AddComponent<HorizontalLayoutGroup>();
+        chipsH.spacing = 6f;
+        chipsH.childControlWidth = chipsH.childControlHeight = true;
+        chipsH.childForceExpandWidth = chipsH.childForceExpandHeight = false;
+        chipsH.childAlignment = TextAnchor.MiddleLeft;
+        chipsGo.AddComponent<LayoutElement>().minHeight = 18f;
+
+        item.Chips = new Image[chipCapacity];
+        item.ChipLabels = new TMP_Text[chipCapacity];
+        for (var i = 0; i < chipCapacity; i++)
+            item.Chips[i] = MakeChip(chipsGo.transform, SiliconAlleyTheme.Elevated, SiliconAlleyTheme.TextMuted, out item.ChipLabels[i]);
+
+        // State badge (right, fixed to its content).
+        item.Badge = MakeChip(go.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.Text, out item.BadgeLabel);
+        return item;
+    }
+
+    // A small rounded pill that auto-sizes to its text (chips + state badges). No ContentSizeFitter: the
+    // pill's own HorizontalLayoutGroup reports its preferred width to the parent layout group.
+    private static Image MakeChip(Transform parent, Color bg, Color fg, out TMP_Text label)
+    {
+        var go = new GameObject("Chip", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var img = go.AddComponent<Image>();
+        img.color = bg;
+        img.raycastTarget = false;
+        if (SiliconAlleyTheme.ButtonSprite != null)
+        {
+            img.sprite = SiliconAlleyTheme.ButtonSprite;
+            img.type = Image.Type.Simple; // Simple — the 9-slice border doesn't fit a ~18px pill
+        }
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.padding = new RectOffset(8, 8, 2, 2);
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleCenter;
+
+        label = MakeText(go.transform, "ChipLabel", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleCenter);
+        label.color = fg;
+        label.enableWordWrapping = false;
+        label.GetComponent<LayoutElement>().minHeight = 16f; // trim the chip height
+        return img;
+    }
+
+    // Fill the first texts.Length chips with text; hide the remaining chip slots.
+    public static void SetCardChips(CardItem c, params string[] texts)
+    {
+        for (var i = 0; i < c.Chips.Length; i++)
+        {
+            var on = texts != null && i < texts.Length && !string.IsNullOrEmpty(texts[i]);
+            c.Chips[i].gameObject.SetActive(on);
+            if (on)
+                c.ChipLabels[i].text = texts[i];
+        }
+    }
+
+    // Set the state badge's text + colour; hide it entirely when text is null/empty.
+    public static void SetCardBadge(CardItem c, string text, Color color)
+    {
+        var on = !string.IsNullOrEmpty(text);
+        c.Badge.gameObject.SetActive(on);
+        if (!on)
+            return;
+        c.Badge.color = color;
+        c.BadgeLabel.text = text;
+    }
+
     // ---- Flat primitives + layout containers (unchanged behaviour; backdrop/divider stay flat). ----
 
     // A thin separator line for visual grouping between sections.
