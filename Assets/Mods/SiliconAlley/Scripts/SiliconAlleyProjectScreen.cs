@@ -122,33 +122,26 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Features page (issue #26): a fixed pool of toggle buttons (sized to the largest feature table), relabelled
     // and shown/hidden per business type each refresh; bit i toggles the matching FeatureMask bit.
     private GameObject _featuresPage;
-    private Button[] _featureButtons;
-    private Image[] _featureImages;
-    private TMP_Text[] _featureLabels;
+    private SiliconAlleyUI.CardItem[] _featureCards; // issue #57: one card per feature (icon + chips + state)
     private TMP_Text _featuresReadout;
-    // Operating-systems page (issue #37): same toggle-pool pattern as features; bit i toggles a PlatformMask bit.
+    // Operating-systems page (issue #37): same card-pool pattern as features; bit i toggles a PlatformMask bit.
     private GameObject _platformsPage;
-    private Button[] _platformButtons;
-    private Image[] _platformImages;
-    private TMP_Text[] _platformLabels;
+    private SiliconAlleyUI.CardItem[] _platformCards;
     private TMP_Text _platformsReadout;
-    // Editors & tools page (issue #36): one CYCLE button per tool (Off → Licensed → Owned); the studio-level
+    // Editors & tools page (issue #36): one CYCLE card per tool (Off → Licensed → Owned); the studio-level
     // OwnedToolsMask + per-project UsedToolsMask back it. Building (own) charges R&D cash via SiliconAlleyMoney.
     private GameObject _toolsPage;
-    private Button[] _toolButtons;
-    private Image[] _toolImages;
-    private TMP_Text[] _toolLabels;
+    private SiliconAlleyUI.CardItem[] _toolCards;
     private TMP_Text _toolsReadout;
-    // Market page (issue #38): single-select audience segment (Broad/Enterprise/Prosumer/Consumer), like the
-    // scope buttons; shifts the price↔volume tradeoff. Backed by the per-project SegmentId ordinal.
+    // Market page (issue #38): single-select audience segment (Broad/Enterprise/Prosumer/Consumer); shifts
+    // the price↔volume tradeoff. Backed by the per-project SegmentId ordinal. Cards stack vertically (#57).
     private GameObject _marketPage;
-    private Button[] _segmentButtons;
-    private Image[] _segmentImages;
+    private SiliconAlleyUI.CardItem[] _segmentCards;
     private TMP_Text _marketReadout;
-    // Dependencies page (issue #39): read-only feature→tool coverage matrix (no input — derived from the
-    // Features + Tools choices). One text row per selected feature, covered/uncovered, + a coverage readout.
+    // Dependencies page (issue #39): read-only feature→tool coverage cards (no input — derived from the
+    // Features + Tools choices). One card per selected feature, covered/uncovered, + a coverage readout.
     private GameObject _dependenciesPage;
-    private TMP_Text[] _depRows;
+    private SiliconAlleyUI.CardItem[] _depCards;
     private TMP_Text _depReadout;
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
@@ -551,19 +544,22 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var key = _currentKey;
         var feats = SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName);
         var mask = SiliconAlleyState.GetFeatureMask(key);
-        for (var i = 0; i < _featureButtons.Length; i++)
+        for (var i = 0; i < _featureCards.Length; i++)
         {
+            var c = _featureCards[i];
             var has = i < feats.Length;
-            _featureButtons[i].gameObject.SetActive(has);
+            c.Root.SetActive(has);
             if (!has)
                 continue;
             var f = feats[i];
-            _featureLabels[i].text = Compose("siliconalley:wiz_feature_row",
-                ("name", f.NameKey.GetLocalization()),
-                ("size", Mathf.RoundToInt(f.SizeCost * 100f).ToString(CultureInfo.InvariantCulture)),
-                ("quality", Mathf.RoundToInt(f.QualityContribution * 100f).ToString(CultureInfo.InvariantCulture)));
-            _featureImages[i].color = (mask & (1 << f.Bit)) != 0 ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
-            SetButtonIcon(_featureButtons[i], SiliconAlleyTheme.IconFor(f.NameKey)); // issue #55: per-feature icon (changes with type)
+            var selected = (mask & (1 << f.Bit)) != 0;
+            SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(f.NameKey)); // #55 icon
+            c.Title.text = f.NameKey.GetLocalization();
+            SetCardChips(c, // #57: cost/benefit chips
+                Compose("siliconalley:wiz_chip_size", ("v", Mathf.RoundToInt(f.SizeCost * 100f).ToString(CultureInfo.InvariantCulture))),
+                Compose("siliconalley:wiz_chip_ceiling", ("v", Mathf.RoundToInt(f.QualityContribution * 100f).ToString(CultureInfo.InvariantCulture))));
+            c.Card.color = selected ? Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f) : SiliconAlleyTheme.Card;
+            SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
         _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
@@ -596,19 +592,22 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var type = _ctxBusinessType?.businessTypeName;
         var plats = SiliconAlleyPlatforms.PlatformsFor(type);
         var mask = SiliconAlleyState.GetPlatformMask(key);
-        for (var i = 0; i < _platformButtons.Length; i++)
+        for (var i = 0; i < _platformCards.Length; i++)
         {
+            var c = _platformCards[i];
             var has = i < plats.Length;
-            _platformButtons[i].gameObject.SetActive(has);
+            c.Root.SetActive(has);
             if (!has)
                 continue;
             var p = plats[i];
-            _platformLabels[i].text = Compose("siliconalley:wiz_platform_row",
-                ("name", p.NameKey.GetLocalization()),
-                ("share", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture)),
-                ("scope", Mathf.RoundToInt(p.ScopeCost * 100f).ToString(CultureInfo.InvariantCulture)));
-            _platformImages[i].color = (mask & (1 << p.Bit)) != 0 ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
-            SetButtonIcon(_platformButtons[i], SiliconAlleyTheme.IconFor(p.NameKey)); // issue #55: per-platform icon (changes with type)
+            var selected = (mask & (1 << p.Bit)) != 0;
+            SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(p.NameKey)); // #55 icon
+            c.Title.text = p.NameKey.GetLocalization();
+            SetCardChips(c, // #57: cost/benefit chips
+                Compose("siliconalley:wiz_chip_reach", ("v", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture))),
+                Compose("siliconalley:wiz_chip_size", ("v", Mathf.RoundToInt(p.ScopeCost * 100f).ToString(CultureInfo.InvariantCulture))));
+            c.Card.color = selected ? Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f) : SiliconAlleyTheme.Card;
+            SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
         _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
             ("market", PlatformMarketText(key, type)),
@@ -639,39 +638,45 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var key = _currentKey;
         var type = _ctxBusinessType?.businessTypeName;
         var tools = SiliconAlleyTools.ToolsFor(type);
-        for (var i = 0; i < _toolButtons.Length; i++)
+        for (var i = 0; i < _toolCards.Length; i++)
         {
+            var c = _toolCards[i];
             var has = i < tools.Length;
-            _toolButtons[i].gameObject.SetActive(has);
+            c.Root.SetActive(has);
             if (!has)
                 continue;
             var t = tools[i];
             var owned = SiliconAlleyState.IsToolOwned(key, t.Bit);
             var used = SiliconAlleyState.IsToolUsed(key, t.Bit);
-            var quality = Mathf.RoundToInt(t.QualityBonus * 100f).ToString(CultureInfo.InvariantCulture);
-            var royalty = Mathf.RoundToInt(t.RoyaltyRate * 100f).ToString(CultureInfo.InvariantCulture);
-            var cost = Mathf.RoundToInt(t.BuildCost).ToString(CultureInfo.InvariantCulture);
-            string state;
-            Color color;
-            if (owned)
+            var quality = Compose("siliconalley:wiz_chip_quality", ("v", Mathf.RoundToInt(t.QualityBonus * 100f).ToString(CultureInfo.InvariantCulture)));
+            var royalty = Compose("siliconalley:wiz_chip_royalty", ("v", Mathf.RoundToInt(t.RoyaltyRate * 100f).ToString(CultureInfo.InvariantCulture)));
+            var build = Compose("siliconalley:wiz_chip_build", ("v", Mathf.RoundToInt(t.BuildCost).ToString(CultureInfo.InvariantCulture)));
+            SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(t.NameKey)); // #55 icon
+            c.Title.text = t.NameKey.GetLocalization();
+            if (owned && used) // owned + in this product
             {
-                state = Compose(used ? "siliconalley:wiz_tool_owned_used" : "siliconalley:wiz_tool_owned_off", ("quality", quality));
-                color = used ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+                SetCardChips(c, quality);
+                c.Card.color = Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f);
+                SetCardBadge(c, "siliconalley:wiz_state_owned".GetLocalization(), SiliconAlleyTheme.Ok);
             }
-            else if (used)
+            else if (owned) // owned studio asset, not used here
             {
-                state = Compose("siliconalley:wiz_tool_licensed",
-                    ("vendor", t.LicensorNameKey.GetLocalization()), ("royalty", royalty), ("quality", quality), ("cost", cost));
-                color = SiliconAlleyTheme.Warn;
+                SetCardChips(c, quality);
+                c.Card.color = SiliconAlleyTheme.Card;
+                SetCardBadge(c, "siliconalley:wiz_state_owned".GetLocalization(), SiliconAlleyTheme.Slate);
             }
-            else
+            else if (used) // licensed (royalty)
             {
-                state = Compose("siliconalley:wiz_tool_off", ("royalty", royalty), ("cost", cost));
-                color = SiliconAlleyTheme.Slate;
+                SetCardChips(c, quality, royalty, build);
+                c.Card.color = Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Warn, 0.30f);
+                SetCardBadge(c, "siliconalley:wiz_state_licensed".GetLocalization(), SiliconAlleyTheme.Warn);
             }
-            _toolLabels[i].text = Compose("siliconalley:wiz_tool_row", ("name", t.NameKey.GetLocalization()), ("state", state));
-            _toolImages[i].color = color;
-            SetButtonIcon(_toolButtons[i], SiliconAlleyTheme.IconFor(t.NameKey)); // issue #55: per-tool icon (changes with type)
+            else // off
+            {
+                SetCardChips(c, royalty, build);
+                c.Card.color = SiliconAlleyTheme.Card;
+                SetCardBadge(c, "siliconalley:wiz_state_off".GetLocalization(), SiliconAlleyTheme.Slate);
+            }
         }
         _toolsReadout.text = Compose("siliconalley:wiz_tools_readout",
             ("quality", Mathf.RoundToInt(SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type) * 100f).ToString(CultureInfo.InvariantCulture)),
@@ -705,8 +710,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         var key = _currentKey;
         var current = SiliconAlleyState.GetSegmentId(key);
-        for (var i = 0; i < _segmentButtons.Length; i++)
-            _segmentImages[i].color = i == current ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+        for (var i = 0; i < _segmentCards.Length; i++)
+        {
+            var c = _segmentCards[i];
+            var s = SiliconAlleySegments.All[i];
+            var selected = i == current;
+            SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(s.NameKey)); // #55 icon
+            c.Title.text = s.NameKey.GetLocalization();
+            SetCardChips(c, // #57: price/volume + market-size chips
+                Compose("siliconalley:wiz_chip_price", ("v", s.PriceFactor.ToString("0.0", CultureInfo.InvariantCulture))),
+                Compose("siliconalley:wiz_chip_volume", ("v", s.VolumeFactor.ToString("0.0", CultureInfo.InvariantCulture))),
+                s.MarketSizeKey.GetLocalization());
+            c.Card.color = selected ? Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f) : SiliconAlleyTheme.Card;
+            SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
+        }
         _marketReadout.text = SegmentText(current);
     }
 
@@ -751,19 +768,27 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var row = 0;
         foreach (var f in SiliconAlleyFeatures.FeaturesFor(type))
         {
-            if ((featureMask & (1 << f.Bit)) == 0 || row >= _depRows.Length)
-                continue; // only selected features get a row
-            var name = f.NameKey.GetLocalization();
+            if ((featureMask & (1 << f.Bit)) == 0 || row >= _depCards.Length)
+                continue; // only selected features get a card
+            var c = _depCards[row];
+            SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(f.NameKey)); // #55 icon
+            c.Title.text = f.NameKey.GetLocalization();
+            c.Card.color = SiliconAlleyTheme.Card;
             if (SiliconAlleyDependencies.IsCovered(type, f.Bit, owned, used))
-                _depRows[row].text = Compose("siliconalley:wiz_dep_covered", ("name", name));
+            {
+                SetCardChips(c);
+                SetCardBadge(c, "siliconalley:wiz_state_covered".GetLocalization(), SiliconAlleyTheme.Ok);
+            }
             else
-                _depRows[row].text = Compose("siliconalley:wiz_dep_uncovered",
-                    ("name", name), ("tools", ProviderToolNames(type, f.Bit)));
-            _depRows[row].gameObject.SetActive(true);
+            {
+                SetCardChips(c, Compose("siliconalley:wiz_chip_needs", ("tools", ProviderToolNames(type, f.Bit))));
+                SetCardBadge(c, "siliconalley:wiz_state_uncovered".GetLocalization(), SiliconAlleyTheme.Warn);
+            }
+            c.Root.SetActive(true);
             row++;
         }
-        for (; row < _depRows.Length; row++)
-            _depRows[row].gameObject.SetActive(false);
+        for (; row < _depCards.Length; row++)
+            _depCards[row].Root.SetActive(false);
 
         SiliconAlleyDependencies.Coverage(featureMask, owned, used, type, out var covered, out var total);
         _depReadout.text = Compose("siliconalley:wiz_deps_readout",
@@ -1405,16 +1430,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _featuresPage = MakeSection(_wizardSection.transform);
         MakeHeader(_featuresPage.transform, "siliconalley:wiz_features_header");
         var featureSlots = SiliconAlleyFeatures.MaxCount;
-        _featureButtons = new Button[featureSlots];
-        _featureImages = new Image[featureSlots];
-        _featureLabels = new TMP_Text[featureSlots];
+        _featureCards = new SiliconAlleyUI.CardItem[featureSlots];
         for (var i = 0; i < featureSlots; i++)
         {
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
-            var btn = MakeButton(_featuresPage.transform, "", () => OnToggleFeature(slot));
-            _featureButtons[i] = btn;
-            _featureImages[i] = btn.GetComponent<Image>();
-            _featureLabels[i] = btn.GetComponentInChildren<TMP_Text>();
+            _featureCards[i] = MakeCardItem(_featuresPage.transform, () => OnToggleFeature(slot));
         }
         _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -1423,16 +1443,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _platformsPage = MakeSection(_wizardSection.transform);
         MakeHeader(_platformsPage.transform, "siliconalley:wiz_platforms_header");
         var platformSlots = SiliconAlleyPlatforms.MaxCount;
-        _platformButtons = new Button[platformSlots];
-        _platformImages = new Image[platformSlots];
-        _platformLabels = new TMP_Text[platformSlots];
+        _platformCards = new SiliconAlleyUI.CardItem[platformSlots];
         for (var i = 0; i < platformSlots; i++)
         {
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
-            var btn = MakeButton(_platformsPage.transform, "", () => OnTogglePlatform(slot));
-            _platformButtons[i] = btn;
-            _platformImages[i] = btn.GetComponent<Image>();
-            _platformLabels[i] = btn.GetComponentInChildren<TMP_Text>();
+            _platformCards[i] = MakeCardItem(_platformsPage.transform, () => OnTogglePlatform(slot));
         }
         _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -1441,16 +1456,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _toolsPage = MakeSection(_wizardSection.transform);
         MakeHeader(_toolsPage.transform, "siliconalley:wiz_tools_header");
         var toolSlots = SiliconAlleyTools.MaxCount;
-        _toolButtons = new Button[toolSlots];
-        _toolImages = new Image[toolSlots];
-        _toolLabels = new TMP_Text[toolSlots];
+        _toolCards = new SiliconAlleyUI.CardItem[toolSlots];
         for (var i = 0; i < toolSlots; i++)
         {
             var slot = i; // capture per-slot index for the cycle closure (the bit is resolved at click time)
-            var btn = MakeButton(_toolsPage.transform, "", () => OnCycleTool(slot));
-            _toolButtons[i] = btn;
-            _toolImages[i] = btn.GetComponent<Image>();
-            _toolLabels[i] = btn.GetComponentInChildren<TMP_Text>();
+            _toolCards[i] = MakeCardItem(_toolsPage.transform, () => OnCycleTool(slot));
         }
         _toolsReadout = MakeText(_toolsPage.transform, "ToolsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -1459,16 +1469,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _marketPage = MakeSection(_wizardSection.transform);
         MakeHeader(_marketPage.transform, "siliconalley:wiz_market_header");
         var segmentCount = SiliconAlleySegments.Count;
-        _segmentButtons = new Button[segmentCount];
-        _segmentImages = new Image[segmentCount];
-        var segmentRow = MakeRow(_marketPage.transform);
+        _segmentCards = new SiliconAlleyUI.CardItem[segmentCount];
         for (var i = 0; i < segmentCount; i++)
         {
             var ordinal = i; // capture per-segment ordinal for the select closure
-            var btn = MakeButton(segmentRow.transform, SiliconAlleySegments.All[i].NameKey.GetLocalization(), () => OnSelectSegment(ordinal));
-            _segmentButtons[i] = btn;
-            _segmentImages[i] = btn.GetComponent<Image>();
-            SetButtonIcon(btn, SiliconAlleyTheme.IconFor(SiliconAlleySegments.All[i].NameKey)); // issue #55: segment icon (fixed set)
+            _segmentCards[i] = MakeCardItem(_marketPage.transform, () => OnSelectSegment(ordinal)); // #57: vertical card stack
         }
         _marketReadout = MakeText(_marketPage.transform, "MarketReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -1476,9 +1481,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // feature, sized to the largest feature table), relabelled covered/uncovered each refresh; no input.
         _dependenciesPage = MakeSection(_wizardSection.transform);
         MakeHeader(_dependenciesPage.transform, "siliconalley:wiz_deps_header");
-        _depRows = new TMP_Text[SiliconAlleyFeatures.MaxCount];
-        for (var i = 0; i < _depRows.Length; i++)
-            _depRows[i] = MakeText(_dependenciesPage.transform, "DepRow", 14, TextAnchor.MiddleLeft);
+        _depCards = new SiliconAlleyUI.CardItem[SiliconAlleyFeatures.MaxCount];
+        for (var i = 0; i < _depCards.Length; i++)
+            _depCards[i] = MakeCardItem(_dependenciesPage.transform, null, 1); // read-only coverage card (1 "needs …" chip)
         _depReadout = MakeText(_dependenciesPage.transform, "DepReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // Register the wizard pages. RebuildVisiblePages sorts by Order (canonical step), so the order of these
