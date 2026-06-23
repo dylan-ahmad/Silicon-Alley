@@ -118,7 +118,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private Slider _focusSlider;
     // Summary page (placeholder rows today; sub-issues fill them in)
     private GameObject _summaryPage;
-    private TMP_Text _sumScopeText, _sumQualityText, _sumCoverageText, _sumCostsText, _sumRoyaltiesText, _sumMarketText;
+    private Image _sumScopeIcon;                       // issue #58: review-card hero scope icon
+    private TMP_Text _sumHeroTitle, _sumHeroSub;
+    private SiliconAlleyUI.StatRow _sumQuality, _sumCoverage, _sumCost, _sumRoyalty, _sumMarket;
     // Features page (issue #26): a fixed pool of toggle buttons (sized to the largest feature table), relabelled
     // and shown/hidden per business type each refresh; bit i toggles the matching FeatureMask bit.
     private GameObject _featuresPage;
@@ -814,44 +816,58 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         var key = _currentKey;
         var kind = SiliconAlleyState.GetProjectType(key);
-        _sumScopeText.text = Compose("siliconalley:wiz_sum_scope",
+        var type = _ctxBusinessType?.businessTypeName;
+
+        // Hero: product name + "scope · size · ship eta", with the per-scope icon.
+        _sumHeroTitle.text = ProductName(_ctxBusinessType);
+        SetIconSprite(_sumScopeIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.ProjectTypeNameKey(kind)));
+        _sumHeroSub.text = Compose("siliconalley:wiz_sum_scope",
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
             ("eta", EtaText(_ctxSize - _ctxProgress, _ctxPerHour)));
 
-        // Quality ceiling — the design-phase baseline raised by the selected features (issue #26; #36 owned
-        // tools will lift it further). Features alone raise it above the 50% baseline, so it's always shown.
-        _sumQualityText.text = Compose("siliconalley:wiz_sum_quality",
-            ("value", Pct(ProjectedCeiling(key)) + "%"));
+        // Quality ceiling (features + owned/used tools).
+        SetStat(_sumQuality, "stat_quality", "siliconalley:wiz_sum_lbl_quality",
+            Pct(ProjectedCeiling(key)) + "%", SiliconAlleyTheme.Accent);
 
-        var type = _ctxBusinessType?.businessTypeName;
-        // #39 dependencies: the feature→tool coverage figure (uncovered features lowered the ceiling above).
+        // #39 dependencies: feature→tool coverage (green when full, amber with gaps).
         SiliconAlleyDependencies.Coverage(SiliconAlleyState.GetFeatureMask(key),
             SiliconAlleyState.GetOwnedToolsMask(key), SiliconAlleyState.GetUsedToolsMask(key), type,
             out var covCovered, out var covTotal);
-        _sumCoverageText.text = Compose("siliconalley:wiz_sum_coverage",
-            ("value", covCovered >= covTotal
-                ? "siliconalley:wiz_coverage_full".GetLocalization()
-                : Compose("siliconalley:wiz_coverage_value",
-                    ("covered", covCovered.ToString(CultureInfo.InvariantCulture)),
-                    ("total", covTotal.ToString(CultureInfo.InvariantCulture)))));
+        var covFull = covCovered >= covTotal;
+        SetStat(_sumCoverage, "stat_coverage", "siliconalley:wiz_sum_lbl_coverage",
+            covFull ? "siliconalley:wiz_coverage_full".GetLocalization()
+                    : Compose("siliconalley:wiz_coverage_value",
+                        ("covered", covCovered.ToString(CultureInfo.InvariantCulture)),
+                        ("total", covTotal.ToString(CultureInfo.InvariantCulture))),
+            covFull ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn);
 
-        // #36 editors & tools: R&D sunk into the owned tools used here, and the ongoing licensed-tool royalty.
+        // #36 editors & tools: up-front R&D for owned tools + ongoing licensed-tool royalty.
         var ownedRnd = OwnedToolsRnd(key, type);
-        _sumCostsText.text = Compose("siliconalley:wiz_sum_costs",
-            ("value", ownedRnd <= 0f
-                ? "siliconalley:wiz_placeholder_none".GetLocalization()
-                : Compose("siliconalley:wiz_cost_value", ("amount", Mathf.RoundToInt(ownedRnd).ToString(CultureInfo.InvariantCulture)))));
+        SetStat(_sumCost, "stat_cost", "siliconalley:wiz_sum_lbl_cost",
+            ownedRnd <= 0f ? "siliconalley:wiz_placeholder_none".GetLocalization()
+                           : Compose("siliconalley:wiz_cost_value", ("amount", Mathf.RoundToInt(ownedRnd).ToString(CultureInfo.InvariantCulture))),
+            ownedRnd <= 0f ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Warn);
         var licensed = LicensedToolCount(key, type);
-        _sumRoyaltiesText.text = Compose("siliconalley:wiz_sum_royalties",
-            ("value", licensed <= 0
-                ? "siliconalley:wiz_placeholder_noroyalties".GetLocalization()
-                : Compose("siliconalley:wiz_royalty_value",
-                    ("royalty", Mathf.RoundToInt(SiliconAlleyState.ToolRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
-                    ("count", licensed.ToString(CultureInfo.InvariantCulture)))));
-        // Epic #34: the Summary aggregates the reachable market = platform reach (#37) × segment volume (#38).
-        _sumMarketText.text = Compose("siliconalley:wiz_sum_market",
-            ("value", MarketSummaryText(key, type)));
+        SetStat(_sumRoyalty, "stat_royalty", "siliconalley:wiz_sum_lbl_royalties",
+            licensed <= 0 ? "siliconalley:wiz_placeholder_noroyalties".GetLocalization()
+                          : Compose("siliconalley:wiz_royalty_value",
+                              ("royalty", Mathf.RoundToInt(SiliconAlleyState.ToolRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+                              ("count", licensed.ToString(CultureInfo.InvariantCulture))),
+            licensed <= 0 ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Warn);
+
+        // Epic #34: reachable market = platform reach (#37) × segment volume (#38).
+        SetStat(_sumMarket, "stat_market", "siliconalley:wiz_sum_lbl_market",
+            MarketSummaryText(key, type), SiliconAlleyTheme.Text);
+    }
+
+    // Issue #58: fill one review-card stat row (icon + label + emphasised, colour-coded value).
+    private void SetStat(SiliconAlleyUI.StatRow row, string iconStem, string labelKey, string value, Color valueColor)
+    {
+        SetIconSprite(row.Icon, SiliconAlleyTheme.IconFor(iconStem));
+        row.Label.text = labelKey.GetLocalization();
+        row.Value.text = value;
+        row.Value.color = valueColor;
     }
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
@@ -1415,15 +1431,22 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _leadText = MakeText(_conceptPage.transform, "Lead", 15, TextAnchor.MiddleLeft);
         _etaText = MakeText(_conceptPage.transform, "Eta", 15, TextAnchor.MiddleLeft);
 
-        // Summary page: read-only review aggregated before commit (placeholder rows sub-issues fill in).
+        // Summary page (issue #58): a scannable review CARD — product/scope/ETA hero + icon stat rows.
         _summaryPage = MakeSection(_wizardSection.transform);
         MakeHeader(_summaryPage.transform, "siliconalley:wiz_summary_header");
-        _sumScopeText = MakeText(_summaryPage.transform, "SumScope", 15, TextAnchor.MiddleLeft);
-        _sumQualityText = MakeText(_summaryPage.transform, "SumQuality", 15, TextAnchor.MiddleLeft);
-        _sumCoverageText = MakeText(_summaryPage.transform, "SumCoverage", 15, TextAnchor.MiddleLeft);
-        _sumCostsText = MakeText(_summaryPage.transform, "SumCosts", 15, TextAnchor.MiddleLeft);
-        _sumRoyaltiesText = MakeText(_summaryPage.transform, "SumRoyalties", 15, TextAnchor.MiddleLeft);
-        _sumMarketText = MakeText(_summaryPage.transform, "SumMarket", 15, TextAnchor.MiddleLeft);
+        var reviewCard = MakeCardPanel(_summaryPage.transform, "ReviewCard");
+        var heroRow = MakeRow(reviewCard.transform, 10f, 40);
+        _sumScopeIcon = MakeIcon(heroRow.transform, null, 28f, SiliconAlleyTheme.Header);
+        var heroCol = MakeSection(heroRow.transform);
+        _sumHeroTitle = MakeText(heroCol.transform, "HeroTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _sumHeroSub = MakeText(heroCol.transform, "HeroSub", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _sumHeroSub.color = SiliconAlleyTheme.TextMuted;
+        MakeDivider(reviewCard.transform);
+        _sumQuality = MakeStatRow(reviewCard.transform);
+        _sumCoverage = MakeStatRow(reviewCard.transform);
+        _sumCost = MakeStatRow(reviewCard.transform);
+        _sumRoyalty = MakeStatRow(reviewCard.transform);
+        _sumMarket = MakeStatRow(reviewCard.transform);
 
         // Features page (issue #26): the design-document feature picker. A reusable pool of toggle buttons,
         // sized to the largest feature table; RefreshFeaturesPage relabels + shows the current type's list.

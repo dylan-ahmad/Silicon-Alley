@@ -22,9 +22,14 @@ and rasterized to 128px (the mod tints them to the theme). Credit by author:
   fluffy-cloud._
 - **Delapouite** — https://delapouite.com — _cyber-eye, game-console, cloud-upload, puzzle, id-card,
   checklist, sparkles, spring, share, stack, database, window, control-tower, palette, smartphone,
-  public-speaker, bank, shopping-cart, pencil-ruler, speedometer._
+  public-speaker, bank, shopping-cart, pencil-ruler, speedometer, round-star, check-mark, coins,
+  receive-money._
 - **Skoll** (game-icons.net) — _siren, combination-lock, sound-waves, pc._
 - **Sbed** (game-icons.net) — _wrench._
+
+Summary review-card stat icons (issue #58): `stat_quality`=delapouite/round-star,
+`stat_coverage`=delapouite/check-mark, `stat_cost`=delapouite/coins, `stat_royalty`=delapouite/receive-money,
+`stat_market`=lorc/world.
 
 All of the above are available at game-icons.net under CC BY 3.0.
 
