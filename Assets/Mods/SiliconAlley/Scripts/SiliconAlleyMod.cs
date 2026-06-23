@@ -47,6 +47,11 @@ public class SiliconAlleyMod : IModBigAmbitions
             return Task.CompletedTask;
         }
 
+        // Issue #54: cache the bundled UI theme/sprite kit now (init load) so it is ready before the
+        // project screen builds on city load. Tolerant of an older bundle without the sprites (flat
+        // fallback) — presentation only, no save-compat surface.
+        SiliconAlleyTheme.Load(bundle, context.Logger);
+
         foreach (var path in ItemAssetPaths)
         {
             var item = bundle.LoadAsset<Item>(path);

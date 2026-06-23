@@ -13,6 +13,7 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using static SiliconAlleyUI; // issue #54: Make* helpers now live in the shared styled-component layer
 
 [assembly: RegisterModClass(typeof(SiliconAlleyProjectScreenMod))]
 
@@ -69,7 +70,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         (int)SiliconAlleyState.ProjectKind.Ambitious,
     };
 
-    private TMP_FontAsset _font;
     private GameObject _root;
     private RectTransform _windowRt, _contentRt; // window = clamped panel; content = scrollable stack
     private bool _built;
@@ -167,14 +167,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
     private GameObject _contractSection;
     private TMP_Text _contractText;
-
-    private static readonly Color PanelColor = new Color(0.086f, 0.098f, 0.125f, 0.98f); // deep navy HUD
-    private static readonly Color ButtonColor = new Color(0.18f, 0.21f, 0.27f, 1f);       // slate
-    private static readonly Color ButtonSelected = new Color(0.20f, 0.50f, 0.86f, 1f);    // game blue
-    private static readonly Color ButtonWarn = new Color(0.80f, 0.55f, 0.20f, 1f);        // amber — licensed (paying royalty) (issue #36)
-    private static readonly Color TextColor = new Color(0.90f, 0.92f, 0.96f, 1f);
-    private static readonly Color HeaderColor = new Color(0.52f, 0.72f, 1f, 1f);   // section-header accent
-    private static readonly Color DividerColor = new Color(1f, 1f, 1f, 0.08f);     // thin separator line
 
     private void Awake()
     {
@@ -433,7 +425,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         var currentKind = SiliconAlleyState.GetProjectType(key);
         for (var i = 0; i < 3; i++)
-            _scopeImages[i].color = ScopeKinds[i] == currentKind ? ButtonSelected : ButtonColor;
+            _scopeImages[i].color = ScopeKinds[i] == currentKind ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
 
         _suppress = true; // setting the value must not write back through OnFocusChanged
         _focusSlider.value = SiliconAlleyState.GetDesignFocus(key);
@@ -459,7 +451,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 ("name", f.NameKey.GetLocalization()),
                 ("size", Mathf.RoundToInt(f.SizeCost * 100f).ToString(CultureInfo.InvariantCulture)),
                 ("quality", Mathf.RoundToInt(f.QualityContribution * 100f).ToString(CultureInfo.InvariantCulture)));
-            _featureImages[i].color = (mask & (1 << f.Bit)) != 0 ? ButtonSelected : ButtonColor;
+            _featureImages[i].color = (mask & (1 << f.Bit)) != 0 ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
         }
         _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
@@ -503,7 +495,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 ("name", p.NameKey.GetLocalization()),
                 ("share", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture)),
                 ("scope", Mathf.RoundToInt(p.ScopeCost * 100f).ToString(CultureInfo.InvariantCulture)));
-            _platformImages[i].color = (mask & (1 << p.Bit)) != 0 ? ButtonSelected : ButtonColor;
+            _platformImages[i].color = (mask & (1 << p.Bit)) != 0 ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
         }
         _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
             ("market", PlatformMarketText(key, type)),
@@ -551,18 +543,18 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             if (owned)
             {
                 state = Compose(used ? "siliconalley:wiz_tool_owned_used" : "siliconalley:wiz_tool_owned_off", ("quality", quality));
-                color = used ? ButtonSelected : ButtonColor;
+                color = used ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
             }
             else if (used)
             {
                 state = Compose("siliconalley:wiz_tool_licensed",
                     ("vendor", t.LicensorNameKey.GetLocalization()), ("royalty", royalty), ("quality", quality), ("cost", cost));
-                color = ButtonWarn;
+                color = SiliconAlleyTheme.Warn;
             }
             else
             {
                 state = Compose("siliconalley:wiz_tool_off", ("royalty", royalty), ("cost", cost));
-                color = ButtonColor;
+                color = SiliconAlleyTheme.Slate;
             }
             _toolLabels[i].text = Compose("siliconalley:wiz_tool_row", ("name", t.NameKey.GetLocalization()), ("state", state));
             _toolImages[i].color = color;
@@ -600,7 +592,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var key = _currentKey;
         var current = SiliconAlleyState.GetSegmentId(key);
         for (var i = 0; i < _segmentButtons.Length; i++)
-            _segmentImages[i].color = i == current ? ButtonSelected : ButtonColor;
+            _segmentImages[i].color = i == current ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
         _marketReadout.text = SegmentText(current);
     }
 
@@ -751,7 +743,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var on = SiliconAlleyState.IsOvertime(key);
         _overtimeLabel.text = Compose("siliconalley:screen_overtime",
             ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()));
-        _overtimeImage.color = on ? ButtonSelected : ButtonColor;
+        _overtimeImage.color = on ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
     }
 
     private void RefreshTesting(BuildingRegistration reg, string key, float perHour)
@@ -767,7 +759,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var held = SiliconAlleyState.IsHold(key);
         _holdLabel.text = Compose("siliconalley:screen_hold",
             ("state", (held ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()));
-        _holdImage.color = held ? ButtonSelected : ButtonColor;
+        _holdImage.color = held ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
     }
 
     private void RefreshRelease(BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
@@ -834,7 +826,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _adSpendLabel.text = Compose("siliconalley:screen_mkt_adspend",
             ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()),
             ("cost", Money(SiliconAlleyState.AdSpendCostPerHour)));
-        _adSpendImage.color = on ? ButtonSelected : ButtonColor;
+        _adSpendImage.color = on ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
     }
 
     // Issue #17/#22/#23 (Publishers): with no active deal, show one sign button per ELIGIBLE publisher (focus
@@ -1175,8 +1167,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void Build()
     {
-        _font = ResolveFont();
-
         _root = new GameObject("SiliconAlleyProjectCanvas",
             typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         var canvas = _root.GetComponent<Canvas>();
@@ -1199,7 +1189,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Window: fixed-width panel, centred, height clamped each Refresh; hosts a vertical ScrollRect so
         // tall content (e.g. the ship report + Design stacked) scrolls instead of overflowing the screen.
-        var window = MakeImage(_root.transform, "Window", PanelColor);
+        var window = MakePanel(_root.transform, "Window");
         _windowRt = window.rectTransform;
         _windowRt.anchorMin = _windowRt.anchorMax = new Vector2(0.5f, 0.5f);
         _windowRt.sizeDelta = new Vector2(WindowWidth, 600f);
@@ -1497,211 +1487,5 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeButton(footer.transform, "siliconalley:screen_close".GetLocalization(), Close);
 
         _root.SetActive(false);
-    }
-
-    private void MakeHeader(Transform parent, string key)
-    {
-        var header = MakeText(parent, "Header", 15, TextAnchor.MiddleLeft, FontStyle.Bold);
-        header.color = HeaderColor;
-        header.text = key.GetLocalization();
-    }
-
-    // A thin separator line for visual grouping between sections.
-    private void MakeDivider(Transform parent)
-    {
-        var divider = MakeImage(parent, "Divider", DividerColor);
-        var le = divider.gameObject.AddComponent<LayoutElement>();
-        le.minHeight = le.preferredHeight = 2f;
-    }
-
-    // Resolve the game's TMP font (Exo2) so our text matches the game's typography. Falls back to any
-    // loaded TMP font asset (preferring the "Exo" family) if no project default is set.
-    private static TMP_FontAsset ResolveFont()
-    {
-        if (TMP_Settings.defaultFontAsset != null)
-            return TMP_Settings.defaultFontAsset;
-        TMP_FontAsset first = null;
-        foreach (var fa in Resources.FindObjectsOfTypeAll<TMP_FontAsset>())
-        {
-            if (fa == null)
-                continue;
-            first ??= fa;
-            if (fa.name.IndexOf("Exo", StringComparison.OrdinalIgnoreCase) >= 0)
-                return fa;
-        }
-        return first;
-    }
-
-    private TMP_Text MakeText(Transform parent, string name, int size, TextAnchor anchor, FontStyle style = FontStyle.Normal)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var text = go.AddComponent<TextMeshProUGUI>();
-        if (_font != null)
-            text.font = _font;
-        text.fontSize = size;
-        text.fontStyle = style == FontStyle.Bold ? FontStyles.Bold
-            : style == FontStyle.Italic ? FontStyles.Italic
-            : FontStyles.Normal;
-        text.alignment = anchor == TextAnchor.MiddleCenter ? TextAlignmentOptions.Center : TextAlignmentOptions.Left;
-        text.color = TextColor;
-        text.enableWordWrapping = true;
-        text.overflowMode = TextOverflowModes.Overflow;
-        text.raycastTarget = false;
-        go.AddComponent<LayoutElement>().minHeight = size + 10;
-        return text;
-    }
-
-    // A standalone label inside a horizontal row (no button behaviour).
-    private TMP_Text MakeTextButtonless(Transform parent, string value)
-    {
-        var t = MakeText(parent, "Label", 14, TextAnchor.MiddleCenter);
-        t.text = value;
-        return t;
-    }
-
-    private Button MakeButton(Transform parent, string label, UnityAction onClick, bool primary = false)
-    {
-        var go = new GameObject("Button", typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var image = go.AddComponent<Image>();
-        image.color = primary ? ButtonSelected : ButtonColor;
-        var button = go.AddComponent<Button>();
-        button.targetGraphic = image;
-        // Hover/press/disabled feedback. normalColor stays white so each button's own image.color shows
-        // through (the scope/overtime/hold buttons recolour their image to signal state); the others tint.
-        var colors = button.colors;
-        colors.normalColor = Color.white;
-        colors.highlightedColor = new Color(0.82f, 0.82f, 0.82f, 1f);
-        colors.pressedColor = new Color(0.66f, 0.66f, 0.66f, 1f);
-        colors.selectedColor = Color.white;
-        colors.disabledColor = new Color(0.5f, 0.5f, 0.5f, 0.6f);
-        colors.fadeDuration = 0.08f;
-        button.colors = colors;
-        var le = go.AddComponent<LayoutElement>();
-        le.minHeight = 38f;
-        le.preferredHeight = 38f;
-        le.flexibleWidth = 1f;
-
-        var text = MakeText(go.transform, "Label", 16, TextAnchor.MiddleCenter, FontStyle.Bold);
-        text.text = label;
-        Stretch(text.rectTransform);
-
-        if (onClick != null)
-            button.onClick.AddListener(onClick);
-        return button;
-    }
-
-    private static void FixWidth(Component control, float width)
-    {
-        var le = control.GetComponent<LayoutElement>() ?? control.gameObject.AddComponent<LayoutElement>();
-        le.preferredWidth = width;
-        le.minWidth = width;
-        le.flexibleWidth = 0f;
-    }
-
-    // A vertical sub-container the screen toggles per phase (SetActive). It reports its own preferred
-    // height, so the panel's ContentSizeFitter shrinks to whichever section is active.
-    private GameObject MakeSection(Transform parent)
-    {
-        var go = new GameObject("Section", typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var v = go.AddComponent<VerticalLayoutGroup>();
-        v.spacing = 8f;
-        v.childControlWidth = v.childControlHeight = true;
-        v.childForceExpandWidth = true;
-        v.childForceExpandHeight = false;
-        v.childAlignment = TextAnchor.UpperLeft;
-        return go;
-    }
-
-    private GameObject MakeRow(Transform parent, float spacing = 8f, int minHeight = 36)
-    {
-        var go = new GameObject("Row", typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var h = go.AddComponent<HorizontalLayoutGroup>();
-        h.spacing = spacing;
-        h.childControlWidth = h.childControlHeight = true;
-        h.childForceExpandWidth = true;
-        h.childForceExpandHeight = false;
-        h.childAlignment = TextAnchor.MiddleCenter;
-        go.AddComponent<LayoutElement>().minHeight = minHeight;
-        return go;
-    }
-
-    private Image MakeImage(Transform parent, string name, Color color)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var image = go.AddComponent<Image>();
-        image.color = color;
-        return image;
-    }
-
-    private static void Stretch(RectTransform rt)
-    {
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = Vector2.zero;
-        rt.offsetMax = Vector2.zero;
-    }
-
-    private static void StretchBand(RectTransform rt, float minY, float maxY)
-    {
-        rt.anchorMin = new Vector2(0f, minY);
-        rt.anchorMax = new Vector2(1f, maxY);
-        rt.offsetMin = new Vector2(rt.offsetMin.x, 0f);
-        rt.offsetMax = new Vector2(rt.offsetMax.x, 0f);
-    }
-
-    // A functional uGUI slider built from the standard background / fill / handle hierarchy.
-    private Slider MakeSlider(Transform parent)
-    {
-        var go = new GameObject("FocusSlider", typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var slider = go.AddComponent<Slider>();
-        var le = go.AddComponent<LayoutElement>();
-        le.minHeight = 24f;
-        le.flexibleWidth = 1f;
-
-        var background = MakeImage(go.transform, "Background", new Color(0.12f, 0.12f, 0.15f, 1f));
-        StretchBand(background.rectTransform, 0.35f, 0.65f);
-
-        var fillArea = new GameObject("Fill Area", typeof(RectTransform));
-        fillArea.transform.SetParent(go.transform, false);
-        var fillAreaRt = (RectTransform)fillArea.transform;
-        StretchBand(fillAreaRt, 0.35f, 0.65f);
-        fillAreaRt.offsetMin = new Vector2(8f, fillAreaRt.offsetMin.y);
-        fillAreaRt.offsetMax = new Vector2(-8f, fillAreaRt.offsetMax.y);
-        var fill = MakeImage(fillArea.transform, "Fill", new Color(0.30f, 0.55f, 0.85f, 1f));
-        var fillRt = fill.rectTransform;
-        fillRt.anchorMin = Vector2.zero;
-        fillRt.anchorMax = Vector2.one;
-        fillRt.offsetMin = Vector2.zero;
-        fillRt.offsetMax = Vector2.zero;
-        fillRt.sizeDelta = new Vector2(10f, 0f);
-
-        var handleArea = new GameObject("Handle Slide Area", typeof(RectTransform));
-        handleArea.transform.SetParent(go.transform, false);
-        var handleAreaRt = (RectTransform)handleArea.transform;
-        handleAreaRt.anchorMin = Vector2.zero;
-        handleAreaRt.anchorMax = Vector2.one;
-        handleAreaRt.offsetMin = new Vector2(8f, 0f);
-        handleAreaRt.offsetMax = new Vector2(-8f, 0f);
-        var handle = MakeImage(handleArea.transform, "Handle", new Color(0.88f, 0.90f, 0.96f, 1f));
-        var handleRt = handle.rectTransform;
-        handleRt.anchorMin = new Vector2(0f, 0f);
-        handleRt.anchorMax = new Vector2(0f, 1f);
-        handleRt.sizeDelta = new Vector2(16f, 0f);
-
-        slider.fillRect = fillRt;
-        slider.handleRect = handleRt;
-        slider.targetGraphic = handle;
-        slider.direction = Slider.Direction.LeftToRight;
-        slider.minValue = 0f;
-        slider.maxValue = 1f;
-        slider.wholeNumbers = false;
-        slider.value = 0.5f;
-        return slider;
     }
 }
