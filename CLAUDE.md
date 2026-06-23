@@ -21,7 +21,10 @@ A pack of IT-company business types for **Big Ambitions**, built with the offici
   - `Scripts/` — `SiliconAlleyMod` (init: register items+businesses, assign simulator, register
     options), `SiliconAlleyOfficeSimulator` (the project simulator), `SiliconAlleyState` (per-building
     state + save serialization), `SiliconAlleyOptions`, `SiliconAlleyClient` (+ dialog),
-    `SiliconAlleyPersistence`.
+    `SiliconAlleyPersistence`. **UI:** `SiliconAlleyProjectScreen` (the F9 code-built project/design
+    window), `SiliconAlleyTheme` + `SiliconAlleyUI` (#54: the bundled theme + 9-slice sprite kit and the
+    reusable, sprite-backed `Make*` styled-component layer — build new screens (#55–#61) on these, not
+    flat colours).
   - `Locales/en.json` — **all in-game text is English** (other languages fall back to `en`).
 - `docs/` — `CAPABILITIES.md` (what the mod API allows, with decompiled citations) + `DESIGN.md`.
 - `decompiled/` — gitignored ILSpy dump of the game DLLs (the API source of truth). Regenerate with
@@ -42,6 +45,13 @@ Workforce Inc.** (other agencies don't offer them).
   not shipped as a bundled ScriptableObject.
 - **No loose files in the mod folder** — the packager sweeps them into the AssetBundle. Keep docs in
   top-level `docs/`, decompiled code in top-level `decompiled/`.
+- **UI sprite kit (#54)** — the 9-slice panel/card/button PNGs in `Assets/Mods/SiliconAlley/UI/` are
+  *meant* to live in the mod folder (the packager bundles them into `siliconalley.unity3d`, like
+  `SiliconAlleyThumbnail.png`). (Re)generate them with the editor menu **Big Ambitions → Silicon Alley →
+  Generate UI Sprites**; the generator lives in `Assets/Editor/SiliconAlleyUI/` (outside the mod folder,
+  so it is never bundled). They load at runtime via `SiliconAlleyTheme.Load` (called from
+  `SiliconAlleyMod.OnLoadAsync`); a missing/old-bundle sprite falls back to flat colour — presentation
+  only, no save-compat surface.
 - Use **`CultureInfo.InvariantCulture`** for any float serialization (dev machine is nl-NL).
 - The **decompiled code is the source of truth** — verify every game type/method/enum there; never
   assume an API.
