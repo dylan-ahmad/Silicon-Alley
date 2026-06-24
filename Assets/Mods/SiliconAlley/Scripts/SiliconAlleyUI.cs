@@ -1,8 +1,10 @@
 #nullable enable
+using System;
 using Localizor;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 // Issue #54 (epic #53 — UI overhaul foundation): the reusable styled-component layer. These are the
@@ -112,6 +114,9 @@ public static class SiliconAlleyUI
         text.text = label;
         Stretch(text.rectTransform);
 
+        // Issue #61: subtle hover/press scale on top of the colour tint (gated on the button's interactable state).
+        go.AddComponent<SiliconAlleyHoverScale>().Gate = button;
+
         if (onClick != null)
             button.onClick.AddListener(onClick);
         return button;
@@ -218,6 +223,7 @@ public static class SiliconAlleyUI
             button.colors = colors;
             button.onClick.AddListener(onClick);
             item.Button = button;
+            go.AddComponent<SiliconAlleyHoverScale>().Gate = button; // issue #61: hover/press scale (clickable cards)
         }
 
         var row = go.AddComponent<HorizontalLayoutGroup>();
@@ -391,6 +397,7 @@ public static class SiliconAlleyUI
         public GameObject Root;
         public Image Track; // background
         public Image Fill;  // accent fill (fillAmount = fraction)
+        public SiliconAlleyAnimatedFill Anim; // issue #61: tweens Fill.fillAmount toward the target
     }
 
     // A full-width progress bar of fixed height. Track tinted Elevated, fill tinted Accent; both reuse the
@@ -421,15 +428,27 @@ public static class SiliconAlleyUI
         fill.fillOrigin = (int)Image.OriginHorizontal.Left;
         Stretch(fill.rectTransform);
 
-        return new ProgressBar { Root = go, Track = track, Fill = fill };
+        // Issue #61: tween the fill toward its target each frame instead of snapping.
+        var anim = fill.gameObject.AddComponent<SiliconAlleyAnimatedFill>();
+        anim.Fill = fill;
+        return new ProgressBar { Root = go, Track = track, Fill = fill, Anim = anim };
     }
 
-    // Set the bar's 0..1 fraction; optionally recolour the fill (e.g. amber while a contract pauses the product).
+    // Set the bar's 0..1 target fraction (the AnimatedFill tweens to it); optionally recolour the fill
+    // instantly (e.g. amber while a contract pauses the product).
     public static void SetProgress(ProgressBar bar, float fraction01, Color? fillColor = null)
     {
-        bar.Fill.fillAmount = Mathf.Clamp01(fraction01);
+        bar.Anim.Target = Mathf.Clamp01(fraction01);
         if (fillColor.HasValue)
             bar.Fill.color = fillColor.Value;
+    }
+
+    // Issue #61: get-or-add a number animator on a label and point it at a new target + formatter. The value
+    // counts toward the target each frame (snaps on first assignment to avoid a count-from-zero on first reveal).
+    public static void AnimateNumber(TMP_Text text, float target, Func<float, string> format)
+    {
+        var anim = text.GetComponent<SiliconAlleyAnimatedNumber>() ?? text.gameObject.AddComponent<SiliconAlleyAnimatedNumber>();
+        anim.Set(text, target, format);
     }
 
     // ---- Flat primitives + layout containers (unchanged behaviour; backdrop/divider stay flat). ----
@@ -554,5 +573,119 @@ public static class SiliconAlleyUI
         slider.wholeNumbers = false;
         slider.value = 0.5f;
         return slider;
+    }
+}
+
+// ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame
+// animation (the #56 manual-lerp convention, Time.unscaledDeltaTime) so they work on any screen with no central
+// Update loop. Presentation only — they animate transforms / fillAmount / text, never gameplay or save state. ----
+
+// A subtle hover/press scale on top of a control's colour tint. Lerps localScale toward 1 / Hover / Press.
+// Gate (optional) is the control's Selectable: while it is non-interactable (e.g. an unaffordable button),
+// the element is held at scale 1 so greyed controls don't react. localScale doesn't feed the LayoutGroup.
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyHoverScale : MonoBehaviour,
+    IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
+{
+    public Selectable? Gate;
+
+    private const float HoverScale = 1.03f;
+    private const float PressScale = 0.97f;
+    private const float Speed = 14f; // exponential approach rate (framerate-independent)
+
+    private bool _hover, _press;
+
+    public void OnPointerEnter(PointerEventData e) => _hover = true;
+    public void OnPointerExit(PointerEventData e) { _hover = false; _press = false; }
+    public void OnPointerDown(PointerEventData e) => _press = true;
+    public void OnPointerUp(PointerEventData e) => _press = false;
+
+    private void OnDisable()
+    {
+        // A re-shown element shouldn't keep a stale hover scale.
+        _hover = _press = false;
+        transform.localScale = Vector3.one;
+    }
+
+    private void Update()
+    {
+        var interactable = Gate == null || Gate.IsInteractable();
+        var target = !interactable ? 1f : _press ? PressScale : _hover ? HoverScale : 1f;
+        var s = transform.localScale.x;
+        if (Mathf.Abs(s - target) < 0.0005f)
+        {
+            if (!Mathf.Approximately(s, target))
+                transform.localScale = new Vector3(target, target, 1f);
+            return;
+        }
+        s = Mathf.Lerp(s, target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        transform.localScale = new Vector3(s, s, 1f);
+    }
+}
+
+// Tweens an Image.fillAmount toward Target each frame, so progress bars glide instead of snapping.
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyAnimatedFill : MonoBehaviour
+{
+    public Image? Fill;
+    public float Target;
+
+    private const float Speed = 9f;
+
+    private void Update()
+    {
+        if (Fill == null)
+            return;
+        var cur = Fill.fillAmount;
+        if (Mathf.Abs(cur - Target) < 0.001f)
+        {
+            if (!Mathf.Approximately(cur, Target))
+                Fill.fillAmount = Target;
+            return;
+        }
+        Fill.fillAmount = Mathf.Lerp(cur, Target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+    }
+}
+
+// Counts a TMP_Text's number toward Target, formatting each frame. Snaps on the first assignment (no
+// count-from-zero on first reveal); animates on later changes.
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyAnimatedNumber : MonoBehaviour
+{
+    private TMP_Text? _text;
+    private Func<float, string>? _format;
+    private float _current, _target;
+    private bool _has;
+
+    private const float Speed = 11f;
+
+    public void Set(TMP_Text text, float target, Func<float, string> format)
+    {
+        _text = text;
+        _format = format;
+        _target = target;
+        if (!_has)
+        {
+            _has = true;
+            _current = target;
+            _text.text = format(_current);
+        }
+    }
+
+    private void Update()
+    {
+        if (_text == null || _format == null)
+            return;
+        if (Mathf.Abs(_current - _target) < 0.01f)
+        {
+            if (!Mathf.Approximately(_current, _target))
+            {
+                _current = _target;
+                _text.text = _format(_current);
+            }
+            return;
+        }
+        _current = Mathf.Lerp(_current, _target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        _text.text = _format(_current);
     }
 }

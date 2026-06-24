@@ -367,10 +367,12 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
             // Stats (the stems light up if their icon ships; otherwise the row keeps a consistent indent).
             SetStat(_quality, "stat_quality", "siliconalley:dash_lbl_quality",
                 SiliconAlleyFormat.Quality(SiliconAlleyState.GetAverageQuality(key)), SiliconAlleyTheme.Accent);
-            SetStat(_reputation, "stat_reputation", "siliconalley:dash_lbl_reputation",
-                SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
-            SetStat(_installed, "stat_installed", "siliconalley:dash_lbl_installed",
-                SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+            // Issue #61: reputation + installed base count to their new value (quality can be "—" and support
+            // is a "$/day" string, so those stay plain).
+            SetStatNum(_reputation, "stat_reputation", "siliconalley:dash_lbl_reputation",
+                SiliconAlleyState.GetReputation(key), FmtF2, SiliconAlleyTheme.Text);
+            SetStatNum(_installed, "stat_installed", "siliconalley:dash_lbl_installed",
+                SiliconAlleyState.GetInstalledBase(key), FmtInt, SiliconAlleyTheme.Text);
             SetStat(_support, "stat_cost", "siliconalley:dash_lbl_support",
                 SiliconAlleyFormat.SupportPerDay(reg, key), SiliconAlleyTheme.Ok);
             SetStat(_shipEta, "stat_eta", "siliconalley:dash_lbl_shipeta",
@@ -384,6 +386,18 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
             row.Value.text = value;
             row.Value.color = valueColor;
         }
+
+        // Issue #61: like SetStat but the numeric value counts to its new target each frame.
+        private static void SetStatNum(SiliconAlleyUI.StatRow row, string iconStem, string labelKey, float target, Func<float, string> format, Color valueColor)
+        {
+            SetIconSprite(row.Icon, SiliconAlleyTheme.IconFor(iconStem));
+            row.Label.text = labelKey.GetLocalization();
+            row.Value.color = valueColor;
+            AnimateNumber(row.Value, target, format);
+        }
+
+        private static readonly Func<float, string> FmtInt = v => Mathf.RoundToInt(v).ToString(CultureInfo.InvariantCulture);
+        private static readonly Func<float, string> FmtF2 = v => v.ToString("F2", CultureInfo.InvariantCulture);
 
         private static string Pct(float fraction01) =>
             Mathf.RoundToInt(Mathf.Clamp01(fraction01) * 100f).ToString(CultureInfo.InvariantCulture);
