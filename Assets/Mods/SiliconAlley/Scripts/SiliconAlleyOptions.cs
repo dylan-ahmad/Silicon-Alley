@@ -20,6 +20,10 @@ public static class SiliconAlleyOptions
                 new[] { "siliconalley:key_f9", "siliconalley:key_f10", "siliconalley:key_f11",
                         "siliconalley:key_f12", "siliconalley:key_tab", "siliconalley:key_backquote" },
                 0, OnScreenKey)
+            .AddDropdown("siliconalley_dashboardkey", "siliconalley:options_dashboardkey",
+                new[] { "siliconalley:key_f8", "siliconalley:key_f7", "siliconalley:key_f6",
+                        "siliconalley:key_f5", "siliconalley:key_tab", "siliconalley:key_backquote" },
+                0, OnDashboardKey)
             .AddSplitter();
 
         OptionsService.Register(context.ModId, options);
@@ -40,4 +44,9 @@ public static class SiliconAlleyOptions
     private static void OnScreenKey(int value) =>
         SiliconAlleyProjectScreen.ToggleKey =
             SiliconAlleyProjectScreen.KeyChoices[Mathf.Clamp(value, 0, SiliconAlleyProjectScreen.KeyChoices.Length - 1)];
+
+    // Issue #59: the key that opens/closes the studio dashboard (machine-local; index maps to KeyChoices).
+    private static void OnDashboardKey(int value) =>
+        SiliconAlleyDashboardScreen.ToggleKey =
+            SiliconAlleyDashboardScreen.KeyChoices[Mathf.Clamp(value, 0, SiliconAlleyDashboardScreen.KeyChoices.Length - 1)];
 }

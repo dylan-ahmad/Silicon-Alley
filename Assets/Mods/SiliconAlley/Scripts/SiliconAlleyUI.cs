@@ -273,8 +273,9 @@ public static class SiliconAlleyUI
     }
 
     // A small rounded pill that auto-sizes to its text (chips + state badges). No ContentSizeFitter: the
-    // pill's own HorizontalLayoutGroup reports its preferred width to the parent layout group.
-    private static Image MakeChip(Transform parent, Color bg, Color fg, out TMP_Text label)
+    // pill's own HorizontalLayoutGroup reports its preferred width to the parent layout group. Public so
+    // other screens reuse it (e.g. the dashboard's demand-trend pill, issue #59).
+    public static Image MakeChip(Transform parent, Color bg, Color fg, out TMP_Text label)
     {
         var go = new GameObject("Chip", typeof(RectTransform));
         go.transform.SetParent(parent, false);
@@ -378,6 +379,57 @@ public static class SiliconAlleyUI
         value.GetComponent<LayoutElement>().flexibleWidth = 1f; // fill the rest; wraps if the value is long
 
         return new StatRow { Root = go, Icon = icon, Label = label, Value = value };
+    }
+
+    // ---- Progress bar (issue #59). A rounded track + accent fill for a 0..1 fraction. The fill is a
+    // single Image driven by fillAmount (Image.Type.Filled) — NOT a width-sized child — so SetProgress on
+    // the 1s refresh tick never feeds the VerticalLayoutGroup/ContentSizeFitter (no layout rebuild / height
+    // jitter, the same layout-safety reason #56 keeps alpha/scale off the layout path). ----
+
+    public sealed class ProgressBar
+    {
+        public GameObject Root;
+        public Image Track; // background
+        public Image Fill;  // accent fill (fillAmount = fraction)
+    }
+
+    // A full-width progress bar of fixed height. Track tinted Elevated, fill tinted Accent; both reuse the
+    // rounded ButtonSprite when present (flat-colour fallback when the bundle lacks it).
+    public static ProgressBar MakeProgressBar(Transform parent, float height = 10f)
+    {
+        var go = new GameObject("ProgressBar", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = height;
+        le.flexibleWidth = 1f;
+
+        var track = MakeImage(go.transform, "Track", SiliconAlleyTheme.Elevated);
+        track.raycastTarget = false;
+        if (SiliconAlleyTheme.ButtonSprite != null)
+        {
+            track.sprite = SiliconAlleyTheme.ButtonSprite;
+            track.type = Image.Type.Simple;
+        }
+        Stretch(track.rectTransform);
+
+        var fill = MakeImage(go.transform, "Fill", SiliconAlleyTheme.Accent);
+        fill.raycastTarget = false;
+        if (SiliconAlleyTheme.ButtonSprite != null)
+            fill.sprite = SiliconAlleyTheme.ButtonSprite;
+        fill.type = Image.Type.Filled;
+        fill.fillMethod = Image.FillMethod.Horizontal;
+        fill.fillOrigin = (int)Image.OriginHorizontal.Left;
+        Stretch(fill.rectTransform);
+
+        return new ProgressBar { Root = go, Track = track, Fill = fill };
+    }
+
+    // Set the bar's 0..1 fraction; optionally recolour the fill (e.g. amber while a contract pauses the product).
+    public static void SetProgress(ProgressBar bar, float fraction01, Color? fillColor = null)
+    {
+        bar.Fill.fillAmount = Mathf.Clamp01(fraction01);
+        if (fillColor.HasValue)
+            bar.Fill.color = fillColor.Value;
     }
 
     // ---- Flat primitives + layout containers (unchanged behaviour; backdrop/divider stay flat). ----

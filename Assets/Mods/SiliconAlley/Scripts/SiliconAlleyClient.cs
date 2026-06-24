@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Text;
 using System.Threading.Tasks;
 using BAModAPI;
-using BigAmbitions.Items;
 using Dialogs;
 using Entities;
 using Helpers;
@@ -86,13 +84,15 @@ public class SiliconAlleyClient : IModBigAmbitions
     }
 
     // A business is the player's when its type is ours and it has no rival owner (businessOwnerRivalId
-    // empty) — the same rule the client dashboard uses (SiliconAlleyClientDialog.BuildStatus).
+    // empty) — the shared rule the welcome, the client dialog and the studio dashboard all gate on.
     public static bool IsPlayerOwned(BuildingRegistration registration)
         => registration?.businessTypeName != null
            && registration.businessTypeName.StartsWith(BusinessTypePrefix)
            && string.IsNullOrEmpty(registration.businessOwnerRivalId);
 
-    private static bool PlayerOwnsStudio()
+    // True when the player owns at least one Silicon Alley studio. Public so the client dialog can gate its
+    // "View studios" offer (issue #59) on the same rule the welcome + dashboard use.
+    public static bool PlayerOwnsStudio()
     {
         var current = SaveGameManager.Current;
         if (current?.BuildingRegistrations == null)
@@ -134,8 +134,19 @@ public class SiliconAlleyClientDialog : Dialog
 
     private DialogEntry Start()
     {
-        var status = BuildStatus();
-        // Issue #27: if a studio is free to take a contract, offer one (Accept/Hang up); else just show status.
+        // No studios yet: a text nudge (the card dashboard would be empty), Hang up only.
+        if (!SiliconAlleyClient.PlayerOwnsStudio())
+            return new DialogEntry
+            {
+                headerKey = npcNameKey,
+                messageData = "siliconalley:client_status_none".GetLocalization(),
+                Template = DialogEntry.TemplateType.Text,
+                OnCancel = DialogController.current.CancelDialog,
+            };
+
+        // Issue #27: if a studio is free to take a contract, offer one. Three native buttons (the Dialog
+        // ceiling): Accept contract · View studios · Hang up. Issue #59: the per-studio status now lives in
+        // the card dashboard (SiliconAlleyDashboardScreen), so the offer message carries only the terms.
         if (TryGenerateOffer())
         {
             var days = Mathf.Max(0, _offerDeadlineDay - TimeHelper.CurrentDay);
@@ -144,7 +155,6 @@ public class SiliconAlleyClientDialog : Dialog
                 headerKey = npcNameKey,
                 messageData = "siliconalley:client_contract_offer".Localize(new Dictionary<string, string>
                 {
-                    ["status"] = status,
                     ["studio"] = _offerStudioName,
                     ["days"] = days.ToString(CultureInfo.InvariantCulture),
                     ["payout"] = "$" + Mathf.RoundToInt(_offerPayout).ToString("N0", CultureInfo.InvariantCulture),
@@ -152,18 +162,32 @@ public class SiliconAlleyClientDialog : Dialog
                 Template = DialogEntry.TemplateType.Text,
                 ConfirmTextOverride = "siliconalley:client_contract_accept".Localize(),
                 OnConfirm = AcceptOffer,
+                SecondOptionTextOverride = "siliconalley:client_view_studios".GetLocalization(),
+                OnSecondOption = OpenDashboard,
                 OnCancel = DialogController.current.CancelDialog,
             };
         }
 
+        // Issue #59: no contract on offer — a short greeting + "View studios" opens the card dashboard.
         return new DialogEntry
         {
             headerKey = npcNameKey,
-            messageData = "siliconalley:client_status".Localize(
-                new Dictionary<string, string> { ["status"] = status }),
+            messageData = "siliconalley:client_greeting".GetLocalization(),
             Template = DialogEntry.TemplateType.Text,
+            ConfirmTextOverride = "siliconalley:client_view_studios".Localize(),
+            OnConfirm = OpenDashboard,
             OnCancel = DialogController.current.CancelDialog,
         };
+    }
+
+    // Issue #59: open the card dashboard and end the call. ConfirmCurrentEntry/SecondOptionCurrentEntry only
+    // show a follow-up when the handler returns non-null, so returning null after FinishDialog cleanly closes
+    // the call (verified against the decompiled DialogController).
+    private DialogEntry OpenDashboard()
+    {
+        SiliconAlleyDashboardScreen.Open();
+        DialogController.current.FinishDialog();
+        return null;
     }
 
     // Pick the first player-owned studio without an active contract and roll a fresh offer for it. Returns
@@ -208,116 +232,4 @@ public class SiliconAlleyClientDialog : Dialog
         };
     }
 
-    // Step 1 (visibility): an on-demand status readout of the player's Silicon Alley studios, built
-    // from the same live SiliconAlleyState the simulator maintains and persists. This lets the player
-    // verify progress / reputation / installed base — including across a save/reload. A business is
-    // the player's when its type is ours and it has no rival owner (businessOwnerRivalId empty).
-    private static string BuildStatus()
-    {
-        var current = SaveGameManager.Current;
-        if (current == null || current.BuildingRegistrations == null)
-            return "siliconalley:client_status_none".GetLocalization();
-
-        var builder = new StringBuilder();
-        var any = false;
-        foreach (var registration in current.BuildingRegistrations)
-        {
-            if (!SiliconAlleyClient.IsPlayerOwned(registration))
-                continue;
-
-            any = true;
-            var key = SiliconAlleyState.KeyFor(registration);
-            var rawProgress = SiliconAlleyState.GetProgress(key);
-            var kind = SiliconAlleyState.GetProjectType(key);
-            var size = SiliconAlleyState.EffectiveProjectSize(key);
-            var phase = SiliconAlleyState.PhaseOf(rawProgress, size);
-            var perHour = SiliconAlleyOfficeSimulator.CurrentHourlyProgress(registration);
-            var line = "siliconalley:client_status_line".Localize(new Dictionary<string, string>
-            {
-                ["business"] = registration.GetDisplayName(),
-                ["type"] = SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization(),
-                ["phase"] = SiliconAlleyState.PhaseNameKey(phase).GetLocalization(),
-                ["progress"] = Mathf.RoundToInt(SiliconAlleyState.PhaseProgressFraction(rawProgress, size) * 100f).ToString(CultureInfo.InvariantCulture),
-                ["phaseeta"] = FormatEta(SiliconAlleyState.PhaseEndProgress(phase, size) - rawProgress, perHour),
-                ["shipeta"] = FormatEta(size - rawProgress, perHour),
-                ["quality"] = FormatQuality(SiliconAlleyState.GetAverageQuality(key)),
-                ["reputation"] = SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture),
-                ["installedbase"] = SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture),
-                ["support"] = SupportPerDay(registration, key),
-                ["patcheta"] = PatchEta(registration, key),
-                ["rivals"] = SiliconAlleyOfficeSimulator.CompetitorCount(registration).ToString(CultureInfo.InvariantCulture),
-                ["market"] = SiliconAlleyOfficeSimulator.MarketFactor(registration, kind).ToString("F2", CultureInfo.InvariantCulture),
-                // Issue #28: the category's current market demand (a per-type cycle) + a rising/falling hint so
-                // the player can time releases. Derived from the day — the same value the simulator pays out at.
-                ["demand"] = SiliconAlleyMarket.DemandFactor(registration.businessTypeName, TimeHelper.CurrentDay).ToString("F2", CultureInfo.InvariantCulture),
-                ["trend"] = SiliconAlleyMarket.IsRising(registration.businessTypeName, TimeHelper.CurrentDay) ? "▲" : "▼",
-            }).ToString();
-            builder.Append("\n\n").Append(line);
-        }
-
-        if (!any)
-            return "siliconalley:client_status_none".GetLocalization();
-        return "siliconalley:client_status_intro".GetLocalization() + builder;
-    }
-
-    // Estimated recurring support income per day = installed base x product market price x support rate
-    // — the same factors the simulator accrues hourly (SupportRatePerDay), shown so the player can see
-    // the support-income channel exists and grows with the installed base.
-    private static string SupportPerDay(BuildingRegistration registration, string key)
-    {
-        var installedBase = SiliconAlleyState.GetInstalledBase(key);
-        var perDay = 0f;
-        if (installedBase > 0)
-        {
-            var businessType = BusinessTypeHelper.GetData(registration);
-            if (businessType?.businessProducts != null && businessType.businessProducts.Length > 0)
-            {
-                var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
-                if (item != null)
-                    // Issue #28: include the current market demand so this estimate matches the demand-scaled
-                    // support the simulator actually credits.
-                    perDay = installedBase * item.DefaultMarketPrice * SiliconAlleyState.SupportRatePerDay
-                        * SiliconAlleyMarket.DemandFactor(registration.businessTypeName, TimeHelper.CurrentDay);
-            }
-        }
-        return "$" + Mathf.RoundToInt(perDay).ToString("N0", CultureInfo.InvariantCulture) + "/day";
-    }
-
-    // Per-phase ETA: remaining progress / current hourly throughput, rendered as a short "~Nd Nh".
-    // perHour is this hour's live staffing (SiliconAlleyOfficeSimulator.CurrentHourlyProgress), so an
-    // unstaffed studio reports "needs staff" rather than an infinite ETA.
-    private static string FormatEta(float remainingProgress, float perHour)
-    {
-        if (perHour <= 0f)
-            return "siliconalley:client_eta_idle".GetLocalization();
-        var hours = Mathf.CeilToInt(Mathf.Max(0f, remainingProgress) / perHour);
-        if (hours <= 0)
-            return "siliconalley:client_eta_due".GetLocalization();
-        var days = hours / 24;
-        var rest = hours % 24;
-        if (days > 0)
-            return "~" + days.ToString(CultureInfo.InvariantCulture) + "d " + rest.ToString(CultureInfo.InvariantCulture) + "h";
-        return "~" + rest.ToString(CultureInfo.InvariantCulture) + "h";
-    }
-
-    // Estimated shipped quality of the in-flight project (the phase-weighted average the simulator
-    // accrues), or "—" before any quality has accrued. Steers the player toward staffing Testing well.
-    private static string FormatQuality(float quality)
-    {
-        if (quality < 0f)
-            return "—";
-        return Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%";
-    }
-
-    // Days until this studio next patches its live catalog (only meaningful once it has shipped, i.e.
-    // installed base > 0); "due now" when the interval has elapsed, "—" with nothing released yet.
-    private static string PatchEta(BuildingRegistration registration, string key)
-    {
-        if (SiliconAlleyState.GetInstalledBase(key) <= 0)
-            return "—";
-        var daysUntil = SiliconAlleyOfficeSimulator.PatchIntervalDays - (TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key));
-        if (daysUntil <= 0)
-            return "siliconalley:client_eta_due".GetLocalization();
-        return "~" + daysUntil.ToString(CultureInfo.InvariantCulture) + "d";
-    }
 }
