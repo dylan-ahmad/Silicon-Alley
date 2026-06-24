@@ -879,6 +879,21 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         row.Value.color = valueColor;
     }
 
+    // Issue #61: like SetStat but the numeric value counts up/down to its new target (icon/label/colour set once).
+    private void SetStatNum(SiliconAlleyUI.StatRow row, string iconStem, string labelKey, float target, Func<float, string> format, Color valueColor)
+    {
+        SetIconSprite(row.Icon, SiliconAlleyTheme.IconFor(iconStem));
+        row.Label.text = labelKey.GetLocalization();
+        row.Value.color = valueColor;
+        AnimateNumber(row.Value, target, format);
+    }
+
+    // Issue #61: allocation-free formatters for the animated stat values (the counting label).
+    private static readonly Func<float, string> FmtInt = v => Mathf.RoundToInt(v).ToString(CultureInfo.InvariantCulture);
+    private static readonly Func<float, string> FmtPct = v => Mathf.RoundToInt(v).ToString(CultureInfo.InvariantCulture) + "%";
+    private static readonly Func<float, string> FmtMoney = v => "$" + Mathf.RoundToInt(v).ToString("N0", CultureInfo.InvariantCulture);
+    private static readonly Func<float, string> FmtReview = v => v.ToString("F1", CultureInfo.InvariantCulture) + " / 10";
+
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
     private void RefreshRecap(string key)
     {
@@ -916,8 +931,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         // Issue #19: the real tracked bug count + the derived 0..100% polish — polish drives the bar.
         SetProgress(_testPolishBar, SiliconAlleyState.GetPolish(key));
-        SetStat(_testBugs, "stat_coverage", "siliconalley:screen_test_lbl_bugs",
-            Mathf.RoundToInt(SiliconAlleyState.GetBugCount(key)).ToString(CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+        SetStatNum(_testBugs, "stat_coverage", "siliconalley:screen_test_lbl_bugs",
+            SiliconAlleyState.GetBugCount(key), FmtInt, SiliconAlleyTheme.Text);
         SetStat(_testStaff, "stat_market", "siliconalley:screen_test_lbl_staff",
             ThroughputValue(reg, perHour), SiliconAlleyTheme.Text);
 
@@ -936,12 +951,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void RefreshRelease(BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
         // Issue #20/#60: lead with the critical-reception score + a 0..10 review bar (color-graded).
-        SetStat(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review",
-            report.Review.ToString("F1", CultureInfo.InvariantCulture) + " / 10", SiliconAlleyTheme.Header);
+        SetStatNum(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review", report.Review, FmtReview, SiliconAlleyTheme.Header);
         var review01 = Mathf.Clamp01(report.Review / 10f);
         SetProgress(_relReviewBar, review01,
             report.Review >= 7f ? SiliconAlleyTheme.Ok : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
-        SetStat(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Pct(report.Quality) + "%", SiliconAlleyTheme.Text);
+        SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Mathf.Clamp01(report.Quality) * 100f, FmtPct, SiliconAlleyTheme.Text);
         SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue",
             Compose("siliconalley:screen_rel_val_revenue",
                 ("payout", Money(report.Payout)),
@@ -970,11 +984,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var daysLeft = Mathf.Max(0, SiliconAlleyState.GetContractDeadlineDay(key) - TimeHelper.CurrentDay);
         // Amber bar — the contract pauses the studio's own product while it runs.
         SetProgress(_contractBar, frac, SiliconAlleyTheme.Warn);
-        SetStat(_contractProgress, "stat_coverage", "siliconalley:screen_contract_lbl_progress", Pct(frac) + "%", SiliconAlleyTheme.Text);
+        SetStatNum(_contractProgress, "stat_coverage", "siliconalley:screen_contract_lbl_progress", frac * 100f, FmtPct, SiliconAlleyTheme.Text);
         SetStat(_contractDue, "stat_eta", "siliconalley:screen_contract_lbl_due",
             daysLeft.ToString(CultureInfo.InvariantCulture) + "d", SiliconAlleyTheme.Text);
-        SetStat(_contractPayout, "stat_cost", "siliconalley:screen_contract_lbl_payout",
-            Money(SiliconAlleyState.GetContractPayout(key)), SiliconAlleyTheme.Ok);
+        SetStatNum(_contractPayout, "stat_cost", "siliconalley:screen_contract_lbl_payout",
+            SiliconAlleyState.GetContractPayout(key), FmtMoney, SiliconAlleyTheme.Ok);
     }
 
     // Issue #21 (Marketing): refresh the campaign block — current awareness/hype, channel costs, and the
@@ -982,10 +996,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // that it lands hardest in late Development (the simulator applies the timing bonus on purchase).
     private void RefreshMarketing(BuildingRegistration reg, string key, float rawProgress, float size)
     {
-        SetStat(_mktAwareness, "stat_market", "siliconalley:screen_mkt_lbl_awareness",
-            Mathf.RoundToInt(SiliconAlleyState.GetAwareness(key)).ToString(CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
-        SetStat(_mktHype, "stat_market", "siliconalley:screen_mkt_lbl_hype",
-            Mathf.RoundToInt(SiliconAlleyState.GetHype(key)).ToString(CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+        SetStatNum(_mktAwareness, "stat_market", "siliconalley:screen_mkt_lbl_awareness",
+            SiliconAlleyState.GetAwareness(key), FmtInt, SiliconAlleyTheme.Text);
+        SetStatNum(_mktHype, "stat_market", "siliconalley:screen_mkt_lbl_hype",
+            SiliconAlleyState.GetHype(key), FmtInt, SiliconAlleyTheme.Text);
 
         // Issue #29: surface the free awareness from a player-operated marketing agency (row hidden when none owned).
         var agencies = SiliconAlleyOfficeSimulator.OwnedMarketingAgencies();
@@ -1039,7 +1053,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetStat(_pubDealDeadline, "stat_eta", "siliconalley:screen_pub_lbl_deadline", deadline,
                 urgent ? SiliconAlleyTheme.Warn : SiliconAlleyTheme.Text);
             SetStat(_pubDealShipEta, "stat_eta", "siliconalley:screen_pub_lbl_shipeta", EtaText(size - rawProgress, perHour), SiliconAlleyTheme.Text);
-            SetStat(_pubDealBonus, "stat_cost", "siliconalley:screen_pub_lbl_bonus", Money(SiliconAlleyState.GetDealPayout(key)), SiliconAlleyTheme.Ok);
+            SetStatNum(_pubDealBonus, "stat_cost", "siliconalley:screen_pub_lbl_bonus", SiliconAlleyState.GetDealPayout(key), FmtMoney, SiliconAlleyTheme.Ok);
             return;
         }
 
