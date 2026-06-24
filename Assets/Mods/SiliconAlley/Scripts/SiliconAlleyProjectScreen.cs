@@ -152,29 +152,38 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _wizardNavRow;
     private Button _wizardBackButton, _wizardNextButton;
     private TMP_Text _wizardNextLabel;
-    // Development section
-    private TMP_Text _devThroughputText, _devBuildText, _devEtaText, _overtimeLabel;
+    // Development section (issue #60: card + build-progress bar + stat rows)
+    private SiliconAlleyUI.ProgressBar _devBuildBar;
+    private SiliconAlleyUI.StatRow _devThroughput, _devBuild, _devEta;
+    private TMP_Text _overtimeLabel;
     private Image _overtimeImage;
-    // Testing section
-    private TMP_Text _testBugsText, _testStaffText, _holdLabel;
+    // Testing section (issue #60: card + polish bar + stat rows)
+    private SiliconAlleyUI.ProgressBar _testPolishBar;
+    private SiliconAlleyUI.StatRow _testBugs, _testStaff;
+    private TMP_Text _holdLabel;
     private Image _holdImage;
     // Marketing section (issue #21): shown pre-release (Design→Testing); cash-funded awareness campaign.
     private GameObject _marketingSection;
-    private TMP_Text _mktAwarenessText, _adSpendLabel;
-    private TMP_Text _mktSynergyText; // issue #29: free awareness from a player-operated marketing agency
+    private SiliconAlleyUI.StatRow _mktAwareness, _mktHype, _mktSynergy; // #29 synergy row hidden when no agency
+    private TMP_Text _adSpendLabel;
     private Image _adSpendImage;
     private Button _pressReleaseButton, _pressBuildButton, _hypeButton;
     private TMP_Text _pressReleaseLabel, _pressBuildLabel, _hypeLabel;
     // Publisher section (issue #17/#22/#23): shown pre-release; sign a publishing deal or watch its countdown.
+    // Issue #60: eligible publishers are offer cards; an active deal is a stat-row card with a ship bar.
     private GameObject _publisherSection;
-    private TMP_Text _publisherStatusText;
-    private Button[] _publisherButtons;
-    private TMP_Text[] _publisherLabels;
-    // Release section (transient ship report)
-    private TMP_Text _relReviewText, _relQualityText, _relRevenueText, _relRepText, _relSupportText, _relPatchText;
+    private TMP_Text _pubNoDealText;
+    private SiliconAlleyUI.CardItem[] _publisherCards;
+    private GameObject _pubDealCard;
+    private SiliconAlleyUI.StatRow _pubDealPublisher, _pubDealDeadline, _pubDealShipEta, _pubDealBonus;
+    private SiliconAlleyUI.ProgressBar _pubShipBar;
+    // Release section (transient ship report; issue #60: review + freshness bars + stat rows)
+    private SiliconAlleyUI.ProgressBar _relReviewBar, _relFreshBar;
+    private SiliconAlleyUI.StatRow _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
     // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
     private GameObject _contractSection;
-    private TMP_Text _contractText;
+    private SiliconAlleyUI.ProgressBar _contractBar;
+    private SiliconAlleyUI.StatRow _contractProgress, _contractDue, _contractPayout;
 
     private void Awake()
     {
@@ -886,14 +895,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void RefreshDevelopment(BuildingRegistration reg, string key, float size, float rawProgress, float perHour)
     {
-        _devThroughputText.text = Compose("siliconalley:screen_dev_throughput",
-            ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
-            ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
-        _devBuildText.text = Compose("siliconalley:screen_dev_build",
-            ("progress", Mathf.RoundToInt(rawProgress).ToString(CultureInfo.InvariantCulture)),
-            ("size", Mathf.RoundToInt(size).ToString(CultureInfo.InvariantCulture)));
+        SetProgress(_devBuildBar, size > 0f ? Mathf.Clamp01(rawProgress / size) : 0f);
+        SetStat(_devBuild, "phase_development", "siliconalley:screen_dev_lbl_build",
+            Compose("siliconalley:screen_dev_val_build",
+                ("progress", Mathf.RoundToInt(rawProgress).ToString(CultureInfo.InvariantCulture)),
+                ("size", Mathf.RoundToInt(size).ToString(CultureInfo.InvariantCulture))),
+            SiliconAlleyTheme.Text);
+        SetStat(_devThroughput, "stat_market", "siliconalley:screen_dev_lbl_throughput",
+            ThroughputValue(reg, perHour), SiliconAlleyTheme.Text);
         var remaining = SiliconAlleyState.PhaseEndProgress(SiliconAlleyState.ProjectPhase.Development, size) - rawProgress;
-        _devEtaText.text = Compose("siliconalley:screen_dev_eta", ("eta", EtaText(remaining, perHour)));
+        SetStat(_devEta, "stat_eta", "siliconalley:screen_dev_lbl_eta", EtaText(remaining, perHour), SiliconAlleyTheme.Text);
 
         var on = SiliconAlleyState.IsOvertime(key);
         _overtimeLabel.text = Compose("siliconalley:screen_overtime",
@@ -903,13 +914,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void RefreshTesting(BuildingRegistration reg, string key, float perHour)
     {
-        // Issue #19: show the real tracked bug count and the derived 0..100% polish, not a quality proxy.
-        var bugs = Mathf.RoundToInt(SiliconAlleyState.GetBugCount(key)).ToString(CultureInfo.InvariantCulture);
-        _testBugsText.text = Compose("siliconalley:screen_test_bugs",
-            ("bugs", bugs), ("polish", Pct(SiliconAlleyState.GetPolish(key))));
-        _testStaffText.text = Compose("siliconalley:screen_test_staff",
-            ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
-            ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
+        // Issue #19: the real tracked bug count + the derived 0..100% polish — polish drives the bar.
+        SetProgress(_testPolishBar, SiliconAlleyState.GetPolish(key));
+        SetStat(_testBugs, "stat_coverage", "siliconalley:screen_test_lbl_bugs",
+            Mathf.RoundToInt(SiliconAlleyState.GetBugCount(key)).ToString(CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+        SetStat(_testStaff, "stat_market", "siliconalley:screen_test_lbl_staff",
+            ThroughputValue(reg, perHour), SiliconAlleyTheme.Text);
 
         var held = SiliconAlleyState.IsHold(key);
         _holdLabel.text = Compose("siliconalley:screen_hold",
@@ -917,27 +927,39 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _holdImage.color = held ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
     }
 
+    // Shared "{staff} staff · {perhour}/h" value for the development throughput + testing QA stat rows.
+    private static string ThroughputValue(BuildingRegistration reg, float perHour) =>
+        Compose("siliconalley:screen_val_throughput",
+            ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
+            ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
+
     private void RefreshRelease(BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
-        // Issue #20: lead the ship report with the critical-reception score.
-        _relReviewText.text = Compose("siliconalley:screen_rel_review",
-            ("review", report.Review.ToString("F1", CultureInfo.InvariantCulture)));
-        _relQualityText.text = Compose("siliconalley:screen_rel_quality", ("quality", Pct(report.Quality) + "%"));
-        _relRevenueText.text = Compose("siliconalley:screen_rel_revenue",
-            ("payout", Money(report.Payout)),
-            ("repmult", report.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
-            ("marketmult", report.MarketMult.ToString("F2", CultureInfo.InvariantCulture)));
-        // Issue #24: surface the franchise's version + IP reputation alongside reputation and installed base.
-        _relRepText.text = Compose("siliconalley:screen_rel_rep",
-            ("reputation", SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
-            ("iprep", SiliconAlleyState.GetIpReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
-            ("version", "v" + SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)),
-            ("base", SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture)));
-        // Issue #25: show support income with the current freshness (declines as the catalog ages).
-        _relSupportText.text = Compose("siliconalley:screen_rel_support",
-            ("support", SupportPerDay(businessType, key)),
-            ("fresh", Pct(SiliconAlleyState.SupportFreshness(key, TimeHelper.CurrentDay)) + "%"));
-        _relPatchText.text = Compose("siliconalley:screen_rel_patch", ("patcheta", PatchEta(key)));
+        // Issue #20/#60: lead with the critical-reception score + a 0..10 review bar (color-graded).
+        SetStat(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review",
+            report.Review.ToString("F1", CultureInfo.InvariantCulture) + " / 10", SiliconAlleyTheme.Header);
+        var review01 = Mathf.Clamp01(report.Review / 10f);
+        SetProgress(_relReviewBar, review01,
+            report.Review >= 7f ? SiliconAlleyTheme.Ok : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
+        SetStat(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Pct(report.Quality) + "%", SiliconAlleyTheme.Text);
+        SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue",
+            Compose("siliconalley:screen_rel_val_revenue",
+                ("payout", Money(report.Payout)),
+                ("repmult", report.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("marketmult", report.MarketMult.ToString("F2", CultureInfo.InvariantCulture))),
+            SiliconAlleyTheme.Ok);
+        // Issue #24: the franchise's version + IP reputation alongside reputation and installed base.
+        SetStat(_relRep, "stat_market", "siliconalley:screen_rel_lbl_rep",
+            Compose("siliconalley:screen_rel_val_rep",
+                ("reputation", SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
+                ("iprep", SiliconAlleyState.GetIpReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
+                ("version", "v" + SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)),
+                ("base", SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture))),
+            SiliconAlleyTheme.Text);
+        // Issue #25/#60: support income + the current freshness as a thin bar (declines as the catalog ages).
+        SetStat(_relSupport, "stat_royalty", "siliconalley:screen_rel_lbl_support", SupportPerDay(businessType, key), SiliconAlleyTheme.Text);
+        SetProgress(_relFreshBar, SiliconAlleyState.SupportFreshness(key, TimeHelper.CurrentDay));
+        SetStat(_relPatch, "stat_eta", "siliconalley:screen_rel_lbl_patch", PatchEta(key), SiliconAlleyTheme.Text);
     }
 
     // Issue #27: read-only progress of the studio's accepted contract — % done, days until the deadline, payout.
@@ -946,10 +968,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var scope = SiliconAlleyState.GetContractScope(key);
         var frac = scope > 0f ? Mathf.Clamp01(SiliconAlleyState.GetContractProgress(key) / scope) : 0f;
         var daysLeft = Mathf.Max(0, SiliconAlleyState.GetContractDeadlineDay(key) - TimeHelper.CurrentDay);
-        _contractText.text = Compose("siliconalley:screen_contract",
-            ("progress", Pct(frac) + "%"),
-            ("days", daysLeft.ToString(CultureInfo.InvariantCulture)),
-            ("payout", Money(SiliconAlleyState.GetContractPayout(key))));
+        // Amber bar — the contract pauses the studio's own product while it runs.
+        SetProgress(_contractBar, frac, SiliconAlleyTheme.Warn);
+        SetStat(_contractProgress, "stat_coverage", "siliconalley:screen_contract_lbl_progress", Pct(frac) + "%", SiliconAlleyTheme.Text);
+        SetStat(_contractDue, "stat_eta", "siliconalley:screen_contract_lbl_due",
+            daysLeft.ToString(CultureInfo.InvariantCulture) + "d", SiliconAlleyTheme.Text);
+        SetStat(_contractPayout, "stat_cost", "siliconalley:screen_contract_lbl_payout",
+            Money(SiliconAlleyState.GetContractPayout(key)), SiliconAlleyTheme.Ok);
     }
 
     // Issue #21 (Marketing): refresh the campaign block — current awareness/hype, channel costs, and the
@@ -957,17 +982,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // that it lands hardest in late Development (the simulator applies the timing bonus on purchase).
     private void RefreshMarketing(BuildingRegistration reg, string key, float rawProgress, float size)
     {
-        _mktAwarenessText.text = Compose("siliconalley:screen_mkt_awareness",
-            ("awareness", Mathf.RoundToInt(SiliconAlleyState.GetAwareness(key)).ToString(CultureInfo.InvariantCulture)),
-            ("hype", Mathf.RoundToInt(SiliconAlleyState.GetHype(key)).ToString(CultureInfo.InvariantCulture)));
+        SetStat(_mktAwareness, "stat_market", "siliconalley:screen_mkt_lbl_awareness",
+            Mathf.RoundToInt(SiliconAlleyState.GetAwareness(key)).ToString(CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+        SetStat(_mktHype, "stat_market", "siliconalley:screen_mkt_lbl_hype",
+            Mathf.RoundToInt(SiliconAlleyState.GetHype(key)).ToString(CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
 
-        // Issue #29: surface the free awareness from a player-operated marketing agency (hidden when none owned).
+        // Issue #29: surface the free awareness from a player-operated marketing agency (row hidden when none owned).
         var agencies = SiliconAlleyOfficeSimulator.OwnedMarketingAgencies();
-        _mktSynergyText.gameObject.SetActive(agencies > 0);
+        _mktSynergy.Root.SetActive(agencies > 0);
         if (agencies > 0)
-            _mktSynergyText.text = Compose("siliconalley:screen_mkt_synergy",
-                ("rate", (agencies * SiliconAlleyOfficeSimulator.MarketingSynergyAwarenessPerHour).ToString("0.0", CultureInfo.InvariantCulture)),
-                ("count", agencies.ToString(CultureInfo.InvariantCulture)));
+            SetStat(_mktSynergy, "stat_royalty", "siliconalley:screen_mkt_lbl_synergy",
+                Compose("siliconalley:screen_mkt_val_synergy",
+                    ("rate", (agencies * SiliconAlleyOfficeSimulator.MarketingSynergyAwarenessPerHour).ToString("0.0", CultureInfo.InvariantCulture)),
+                    ("count", agencies.ToString(CultureInfo.InvariantCulture))),
+                SiliconAlleyTheme.Ok);
 
         _pressReleaseLabel.text = Compose("siliconalley:screen_mkt_press_release", ("cost", Money(SiliconAlleyState.PressReleaseCost)));
         _pressBuildLabel.text = Compose("siliconalley:screen_mkt_press_build", ("cost", Money(SiliconAlleyState.PressBuildCost)));
@@ -992,41 +1020,54 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (SiliconAlleyState.HasDeal(key))
         {
-            for (int i = 0; i < _publisherButtons.Length; i++)
-                _publisherButtons[i].gameObject.SetActive(false);
+            // Active deal: hide the offer cards + prompt, show the deal card with a ship-progress bar.
+            _pubNoDealText.gameObject.SetActive(false);
+            for (int i = 0; i < _publisherCards.Length; i++)
+                _publisherCards[i].Root.SetActive(false);
+            _pubDealCard.SetActive(true);
+
             var pub = SiliconAlleyState.GetDealPublisher(key);
             var name = SiliconAlleyPublishers.TryGetById(pub, out var publisher) ? publisher.NameKey.GetLocalization() : "";
             var daysLeft = SiliconAlleyState.GetDealDeadlineDay(key) - TimeHelper.CurrentDay;
+            var urgent = daysLeft <= 3;
             var deadline = daysLeft < 0
                 ? "siliconalley:client_eta_due".GetLocalization()
                 : "~" + daysLeft.ToString(CultureInfo.InvariantCulture) + "d";
-            _publisherStatusText.text = Compose("siliconalley:screen_pub_active",
-                ("publisher", name),
-                ("deadline", deadline),
-                ("shipeta", EtaText(size - rawProgress, perHour)),
-                ("payout", Money(SiliconAlleyState.GetDealPayout(key))));
+            SetProgress(_pubShipBar, size > 0f ? Mathf.Clamp01(rawProgress / size) : 0f,
+                urgent ? SiliconAlleyTheme.Warn : SiliconAlleyTheme.Accent);
+            SetStat(_pubDealPublisher, "stat_royalty", "siliconalley:screen_pub_lbl_publisher", name, SiliconAlleyTheme.Text);
+            SetStat(_pubDealDeadline, "stat_eta", "siliconalley:screen_pub_lbl_deadline", deadline,
+                urgent ? SiliconAlleyTheme.Warn : SiliconAlleyTheme.Text);
+            SetStat(_pubDealShipEta, "stat_eta", "siliconalley:screen_pub_lbl_shipeta", EtaText(size - rawProgress, perHour), SiliconAlleyTheme.Text);
+            SetStat(_pubDealBonus, "stat_cost", "siliconalley:screen_pub_lbl_bonus", Money(SiliconAlleyState.GetDealPayout(key)), SiliconAlleyTheme.Ok);
             return;
         }
 
-        _publisherStatusText.text = "siliconalley:screen_pub_none".GetLocalization();
+        // No deal: the prompt + one offer card per eligible publisher (icon + name + payout/deadline/rep chips).
+        _pubDealCard.SetActive(false);
+        _pubNoDealText.gameObject.SetActive(true);
+        _pubNoDealText.text = "siliconalley:screen_pub_none".GetLocalization();
         var marketPrice = MarketPrice(businessType);
         var businessTypeName = reg.businessTypeName;
         var roster = SiliconAlleyPublishers.Roster;
         for (int i = 0; i < roster.Length; i++)
         {
+            var c = _publisherCards[i];
             var pub = roster[i];
             var eligible = SiliconAlleyPublishers.IsEligible(pub, businessTypeName);
-            _publisherButtons[i].gameObject.SetActive(eligible);
+            c.Root.SetActive(eligible);
             if (!eligible)
                 continue;
             var rep = SiliconAlleyState.GetPublisherRep(pub.Index);
             SiliconAlleyPublishers.OfferFor(pub, businessTypeName, marketPrice, rep,
                 out var days, out var payout, out _, out _);
-            _publisherLabels[i].text = Compose("siliconalley:screen_pub_sign",
-                ("publisher", pub.NameKey.GetLocalization()),
-                ("payout", Money(payout)),
-                ("deadline", days.ToString(CultureInfo.InvariantCulture)),
-                ("rep", rep.ToString("F1", CultureInfo.InvariantCulture)));
+            SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(pub.NameKey));
+            c.Title.text = pub.NameKey.GetLocalization();
+            SetCardChips(c,
+                "+" + Money(payout),
+                days.ToString(CultureInfo.InvariantCulture) + "d",
+                Compose("siliconalley:screen_pub_chip_rep", ("rep", rep.ToString("F1", CultureInfo.InvariantCulture))));
+            SetCardBadge(c, "siliconalley:screen_pub_badge_sign".GetLocalization(), SiliconAlleyTheme.Accent);
         }
     }
 
@@ -1569,75 +1610,90 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _recapText = MakeText(_wizardRecap.transform, "Recap", 15, TextAnchor.MiddleLeft);
         _recapStatusText = MakeText(_wizardRecap.transform, "RecapStatus", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
-        // ---- Development section (shown in the Development phase) ----
+        // ---- Development section (issue #60: card + build-progress bar + stat rows) ----
         _developmentSection = MakeSection(root);
-        MakeDivider(_developmentSection.transform);
-        _devThroughputText = MakeText(_developmentSection.transform, "DevThroughput", 15, TextAnchor.MiddleLeft);
-        _devBuildText = MakeText(_developmentSection.transform, "DevBuild", 16, TextAnchor.MiddleLeft);
-        _devEtaText = MakeText(_developmentSection.transform, "DevEta", 15, TextAnchor.MiddleLeft);
-        var overtimeButton = MakeButton(_developmentSection.transform, "", OnToggleOvertime);
+        MakeHeader(_developmentSection.transform, "siliconalley:screen_dev_header");
+        var devCard = MakeCardPanel(_developmentSection.transform, "DevCard");
+        _devBuildBar = MakeProgressBar(devCard.transform);
+        _devBuild = MakeStatRow(devCard.transform);
+        _devThroughput = MakeStatRow(devCard.transform);
+        _devEta = MakeStatRow(devCard.transform);
+        var overtimeButton = MakeButton(devCard.transform, "", OnToggleOvertime);
         _overtimeImage = overtimeButton.GetComponent<Image>();
         _overtimeLabel = overtimeButton.GetComponentInChildren<TMP_Text>();
 
-        // ---- Testing section (shown in the Testing phase) ----
+        // ---- Testing section (issue #60: card + polish bar + stat rows) ----
         _testingSection = MakeSection(root);
-        MakeDivider(_testingSection.transform);
-        _testBugsText = MakeText(_testingSection.transform, "TestBugs", 16, TextAnchor.MiddleLeft);
-        _testStaffText = MakeText(_testingSection.transform, "TestStaff", 15, TextAnchor.MiddleLeft);
-        var testRow = MakeRow(_testingSection.transform, 10f, 40);
+        MakeHeader(_testingSection.transform, "siliconalley:screen_test_header");
+        var testCard = MakeCardPanel(_testingSection.transform, "TestCard");
+        _testPolishBar = MakeProgressBar(testCard.transform);
+        _testBugs = MakeStatRow(testCard.transform);
+        _testStaff = MakeStatRow(testCard.transform);
+        var testRow = MakeRow(testCard.transform, 10f, 40);
         var holdButton = MakeButton(testRow.transform, "", OnToggleHold);
         _holdImage = holdButton.GetComponent<Image>();
         _holdLabel = holdButton.GetComponentInChildren<TMP_Text>();
         MakeButton(testRow.transform, "siliconalley:screen_ship".GetLocalization(), OnShipNow, primary: true);
 
-        // ---- Marketing section (issue #21; shown in any pre-release phase) ----
+        // ---- Marketing section (issue #21; issue #60 card restyle) ----
         _marketingSection = MakeSection(root);
-        MakeDivider(_marketingSection.transform);
         MakeHeader(_marketingSection.transform, "siliconalley:screen_mkt_header");
-        _mktAwarenessText = MakeText(_marketingSection.transform, "MktAwareness", 16, TextAnchor.MiddleLeft);
-        _mktSynergyText = MakeText(_marketingSection.transform, "MktSynergy", 14, TextAnchor.MiddleLeft, FontStyle.Italic); // #29
-        _pressReleaseButton = MakeButton(_marketingSection.transform, "", OnPressRelease);
+        var mktCard = MakeCardPanel(_marketingSection.transform, "MktCard");
+        _mktAwareness = MakeStatRow(mktCard.transform);
+        _mktHype = MakeStatRow(mktCard.transform);
+        _mktSynergy = MakeStatRow(mktCard.transform); // #29: hidden when no marketing agency operated
+        _pressReleaseButton = MakeButton(mktCard.transform, "", OnPressRelease);
         _pressReleaseLabel = _pressReleaseButton.GetComponentInChildren<TMP_Text>();
-        _pressBuildButton = MakeButton(_marketingSection.transform, "", OnPressBuild);
+        _pressBuildButton = MakeButton(mktCard.transform, "", OnPressBuild);
         _pressBuildLabel = _pressBuildButton.GetComponentInChildren<TMP_Text>();
-        _hypeButton = MakeButton(_marketingSection.transform, "", OnHype);
+        _hypeButton = MakeButton(mktCard.transform, "", OnHype);
         _hypeLabel = _hypeButton.GetComponentInChildren<TMP_Text>();
-        var adSpendButton = MakeButton(_marketingSection.transform, "", OnToggleAdSpend);
+        var adSpendButton = MakeButton(mktCard.transform, "", OnToggleAdSpend);
         _adSpendImage = adSpendButton.GetComponent<Image>();
         _adSpendLabel = adSpendButton.GetComponentInChildren<TMP_Text>();
 
-        // ---- Publisher section (issue #17/#22/#23; shown in any pre-release phase) ----
+        // ---- Publisher section (issue #17/#22/#23; issue #60: offer cards + active-deal card) ----
         _publisherSection = MakeSection(root);
-        MakeDivider(_publisherSection.transform);
         MakeHeader(_publisherSection.transform, "siliconalley:screen_pub_header");
-        _publisherStatusText = MakeText(_publisherSection.transform, "PubStatus", 15, TextAnchor.MiddleLeft);
+        _pubNoDealText = MakeText(_publisherSection.transform, "PubNoDeal", 14, TextAnchor.MiddleLeft);
+        _pubNoDealText.color = SiliconAlleyTheme.TextMuted;
         var roster = SiliconAlleyPublishers.Roster;
-        _publisherButtons = new Button[roster.Length];
-        _publisherLabels = new TMP_Text[roster.Length];
+        _publisherCards = new SiliconAlleyUI.CardItem[roster.Length];
         for (int i = 0; i < roster.Length; i++)
         {
             var index = i; // capture a stable copy for the click closure
-            _publisherButtons[i] = MakeButton(_publisherSection.transform, "", () => OnSignDeal(index));
-            _publisherLabels[i] = _publisherButtons[i].GetComponentInChildren<TMP_Text>();
+            _publisherCards[i] = MakeCardItem(_publisherSection.transform, () => OnSignDeal(index));
         }
+        // Active-deal card (shown instead of the offers once a deal is signed): ship-progress bar + terms.
+        _pubDealCard = MakeCardPanel(_publisherSection.transform, "PubDealCard");
+        _pubShipBar = MakeProgressBar(_pubDealCard.transform);
+        _pubDealPublisher = MakeStatRow(_pubDealCard.transform);
+        _pubDealDeadline = MakeStatRow(_pubDealCard.transform);
+        _pubDealShipEta = MakeStatRow(_pubDealCard.transform);
+        _pubDealBonus = MakeStatRow(_pubDealCard.transform);
 
-        // ---- Release section (transient ship report; shown independently of phase) ----
+        // ---- Release section (transient ship report; issue #60: review + freshness bars + stat rows) ----
         _releaseSection = MakeSection(root);
-        MakeDivider(_releaseSection.transform);
         MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
-        _relReviewText = MakeText(_releaseSection.transform, "RelReview", 17, TextAnchor.MiddleLeft, FontStyle.Bold);
-        _relQualityText = MakeText(_releaseSection.transform, "RelQuality", 16, TextAnchor.MiddleLeft);
-        _relRevenueText = MakeText(_releaseSection.transform, "RelRevenue", 15, TextAnchor.MiddleLeft);
-        _relRepText = MakeText(_releaseSection.transform, "RelRep", 15, TextAnchor.MiddleLeft);
-        _relSupportText = MakeText(_releaseSection.transform, "RelSupport", 15, TextAnchor.MiddleLeft);
-        _relPatchText = MakeText(_releaseSection.transform, "RelPatch", 15, TextAnchor.MiddleLeft);
+        var relCard = MakeCardPanel(_releaseSection.transform, "RelCard");
+        _relReview = MakeStatRow(relCard.transform);
+        _relReviewBar = MakeProgressBar(relCard.transform);
+        _relQuality = MakeStatRow(relCard.transform);
+        _relRevenue = MakeStatRow(relCard.transform);
+        _relRep = MakeStatRow(relCard.transform);
+        _relSupport = MakeStatRow(relCard.transform);
+        _relFreshBar = MakeProgressBar(relCard.transform, 6f);
+        _relPatch = MakeStatRow(relCard.transform);
         MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);
 
-        // ---- Contract section (issue #27): read-only progress of an accepted contract ----
+        // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
         _contractSection = MakeSection(root);
-        MakeDivider(_contractSection.transform);
         MakeHeader(_contractSection.transform, "siliconalley:screen_contract_header");
-        _contractText = MakeText(_contractSection.transform, "Contract", 15, TextAnchor.MiddleLeft);
+        var contractCard = MakeCardPanel(_contractSection.transform, "ContractCard");
+        _contractBar = MakeProgressBar(contractCard.transform);
+        _contractProgress = MakeStatRow(contractCard.transform);
+        _contractDue = MakeStatRow(contractCard.transform);
+        _contractPayout = MakeStatRow(contractCard.transform);
 
         // ---- Footer (common) ----
         MakeDivider(root);
