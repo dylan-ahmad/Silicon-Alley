@@ -189,15 +189,15 @@ public static class SiliconAlleyUI
 
     public sealed class CardItem
     {
-        public GameObject Root;
-        public Button Button;       // null for a read-only card
-        public Image Card;          // background — set its colour for the state tint
-        public Image Icon;
-        public TMP_Text Title;
-        public Image[] Chips;
-        public TMP_Text[] ChipLabels;
-        public Image Badge;
-        public TMP_Text BadgeLabel;
+        public GameObject Root = null!;
+        public Button? Button;      // null for a read-only card
+        public Image Card = null!;  // background — set its colour for the state tint
+        public Image Icon = null!;
+        public TMP_Text Title = null!;
+        public Image[] Chips = null!;
+        public TMP_Text[] ChipLabels = null!;
+        public Image Badge = null!;
+        public TMP_Text BadgeLabel = null!;
     }
 
     public static CardItem MakeCardItem(Transform parent, UnityAction onClick, int chipCapacity = 3)
@@ -314,7 +314,7 @@ public static class SiliconAlleyUI
             var on = texts != null && i < texts.Length && !string.IsNullOrEmpty(texts[i]);
             c.Chips[i].gameObject.SetActive(on);
             if (on)
-                c.ChipLabels[i].text = texts[i];
+                c.ChipLabels[i].text = texts![i]; // `on` already guarantees texts != null
         }
     }
 
@@ -349,10 +349,10 @@ public static class SiliconAlleyUI
 
     public sealed class StatRow
     {
-        public GameObject Root;
-        public Image Icon;
-        public TMP_Text Label;
-        public TMP_Text Value;
+        public GameObject Root = null!;
+        public Image Icon = null!;
+        public TMP_Text Label = null!;
+        public TMP_Text Value = null!;
     }
 
     // "[icon 22px] label (muted, hugs left) …… value (bold, right-aligned, fills + wraps)".
@@ -394,10 +394,10 @@ public static class SiliconAlleyUI
 
     public sealed class ProgressBar
     {
-        public GameObject Root;
-        public Image Track; // background
-        public Image Fill;  // accent fill (fillAmount = fraction)
-        public SiliconAlleyAnimatedFill Anim; // issue #61: tweens Fill.fillAmount toward the target
+        public GameObject Root = null!;
+        public Image Track = null!; // background
+        public Image Fill = null!;  // accent fill (fillAmount = fraction)
+        public SiliconAlleyAnimatedFill Anim = null!; // issue #61: tweens Fill.fillAmount toward the target
     }
 
     // A full-width progress bar of fixed height. Track tinted Elevated, fill tinted Accent; both reuse the
