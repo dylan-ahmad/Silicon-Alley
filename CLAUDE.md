@@ -198,6 +198,16 @@ line that has shipped.
   #27): a phone-accepted fixed-scope gig the studio works **instead of** its product (Progress pauses) until it
   delivers or its deadline lapses. All default `0` ⇒ **no active contract** (`contractScope > 0` = active);
   absent in old saves ⇒ unchanged; cleared on delivery/miss. Still a pure trailing append ⇒ **no schema bump**.
+  Then — the next trailing append — `|stage` — the player-driven lifecycle (issue #88): the studio's persisted
+  **`ProjectStage` ordinal** (`{Idle=0, Design=1, Development=2, Testing=3}`, APPEND-ONLY — never renumber/remove;
+  Release is the transient ship action, not a stored stage). The studio is Idle until the player starts a
+  project, then staff work each stage but **park** at its ceiling until the player pushes forward (Start
+  development = confirm the wizard; Send to testing; Release — which may fire any moment in Development/Testing).
+  A ship returns the studio to Idle (Progress reset to 0). New studios default `Idle (0)`. SAVE-COMPAT: absent in
+  an old save ⇒ **inferred from Progress** (`> 0` ⇒ `Testing` so a legacy in-flight project runs to completion
+  then awaits manual release; `<= 0` ⇒ `Idle`), so an old save never stalls. Pure trailing append ⇒ **no schema
+  bump**. (The derived `ProjectPhase` is unchanged and still computed from Progress; `Stage` is the new source of
+  truth for what the studio is doing and what the screen shows.)
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /

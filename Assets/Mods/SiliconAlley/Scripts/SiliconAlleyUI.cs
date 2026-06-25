@@ -508,6 +508,23 @@ public static class SiliconAlleyUI
         return go;
     }
 
+    // Issue #81: a row of equal-width, TOP-aligned columns for a wide multi-column layout (the design wizard's
+    // Software-Inc-scale phases; reusable by the dependencies/market screens). Unlike MakeRow, columns are not
+    // vertically centred and there's no forced min-height — each column sizes to its own content and the row's
+    // height is the tallest column. Put a MakeSection in each column to stack that column's controls.
+    public static GameObject MakeColumns(Transform parent, float spacing = 14f)
+    {
+        var go = new GameObject("Columns", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = spacing;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = true;   // equal-width columns share the wide window
+        h.childForceExpandHeight = false; // each column hugs its content height
+        h.childAlignment = TextAnchor.UpperCenter;
+        return go;
+    }
+
     public static void Stretch(RectTransform rt)
     {
         rt.anchorMin = Vector2.zero;

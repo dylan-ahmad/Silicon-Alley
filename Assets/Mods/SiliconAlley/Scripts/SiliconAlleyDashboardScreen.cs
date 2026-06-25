@@ -343,7 +343,6 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
             SiliconAlleyState.NoteBusinessType(key, businessType?.businessTypeName);
             var size = SiliconAlleyState.EffectiveProjectSize(key);
             var rawProgress = SiliconAlleyState.GetProgress(key);
-            var phase = SiliconAlleyState.PhaseOf(rawProgress, size);
             var perHour = SiliconAlleyOfficeSimulator.CurrentHourlyProgress(reg);
 
             // Header: type icon + studio name.
@@ -357,10 +356,13 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
             _trendChip.color = rising ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn;
             _trendLabel.text = (rising ? "▲ " : "▼ ") + demand.ToString("F2", CultureInfo.InvariantCulture);
 
-            // Phase + phase-progress bar.
-            var phaseFrac = SiliconAlleyState.PhaseProgressFraction(rawProgress, size);
+            // Stage + stage-progress bar (issue #88: an idle studio reads "Idle · 0%", not the derived phase).
+            var stage = SiliconAlleyState.GetStage(key);
+            var phaseFrac = stage == SiliconAlleyState.ProjectStage.Idle
+                ? 0f
+                : SiliconAlleyState.PhaseProgressFraction(rawProgress, size);
             _phaseText.text = Compose("siliconalley:dash_phase",
-                ("phase", SiliconAlleyState.PhaseNameKey(phase).GetLocalization()),
+                ("phase", SiliconAlleyState.StageNameKey(stage).GetLocalization()),
                 ("progress", Pct(phaseFrac)));
             SetProgress(_progress, phaseFrac);
 

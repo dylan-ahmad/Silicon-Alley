@@ -102,6 +102,14 @@ public static class SiliconAlleyState
         public float ContractProgress;    // accrued work toward the contract
         public int ContractDeadlineDay;   // absolute game-day the contract is due
         public float ContractPayout;      // guaranteed sum paid on an on-time delivery
+        // Issue #88 (player-driven lifecycle): the studio's CURRENT stage. A studio is Idle by default and
+        // only works when the player starts a project; staff then work each stage but PARK at its ceiling
+        // until the player pushes forward (Start development = confirm wizard; Send to testing; Release).
+        // Persisted (trailing append, index 38). New studios default Idle (0). SAVE-COMPAT: absent in an old
+        // save ⇒ inferred from Progress in LoadFrom (a legacy in-flight project keeps running, doesn't stall).
+        // Append-only ordinals: ProjectStage { Idle=0, Design=1, Development=2, Testing=3 } (Release is the
+        // transient ship action, not a stored stage).
+        public int Stage;                 // ProjectStage ordinal; 0 = Idle (default)
         // Issue #26: the business type (game/office/security) that owns this building's current project, noted
         // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
         // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
@@ -113,6 +121,13 @@ public static class SiliconAlleyState
         // Issue #20 (Reviews): LastShipReview is the 0..10 critical-reception score derived at that ship.
         public bool HasLastShip;
         public float LastShipQuality, LastShipPayout, LastShipRepMult, LastShipMarketMult, LastShipReview;
+        // Manual release (Software-Inc-style): the player decides when a finished product (and each post-
+        // launch update) goes live. Both are transient (NOT persisted): a product that is "ready to release"
+        // is derived from Progress >= size; an update from the patch timer (see the simulator). The flag is a
+        // one-shot request the UI sets and the next staffed/unstaffed hourly tick consumes — lost on reload,
+        // which is harmless (the product simply stays parked, ready to release again).
+        public bool ReleaseRequested;
+        public bool UpdateRequested;
     }
 
     private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
@@ -230,6 +245,11 @@ public static class SiliconAlleyState
     private const float DesignFraction = 0.15f;      // Design occupies 0%..15% of ProjectSize
     private const float DevelopmentFraction = 0.70f; // Development 15%..70%, Testing 70%..100%
 
+    // Issue #88 (player-driven lifecycle): the studio's PERSISTED stage — distinct from the derived phase.
+    // The studio is Idle until the player starts a project; staff then work each stage but the simulator
+    // parks Progress at the stage ceiling until the player pushes forward. APPEND-ONLY ordinals (persisted).
+    public enum ProjectStage { Idle = 0, Design = 1, Development = 2, Testing = 3 }
+
     // Phase math takes the project's effective size (issue #3: it varies per project type), rather than
     // the global ProjectSize, so a Quick/Standard/Ambitious project reports its own phases and ETAs.
     public static ProjectPhase PhaseOf(float progress, float size)
@@ -272,6 +292,19 @@ public static class SiliconAlleyState
             case ProjectPhase.Development: return "siliconalley:phase_development";
             case ProjectPhase.Testing: return "siliconalley:phase_testing";
             default: return "siliconalley:phase_release";
+        }
+    }
+
+    // Issue #88: the player-facing label for the studio's current STAGE (the persisted lifecycle position),
+    // used by the screen's header. Idle has its own key; the active stages reuse the phase names.
+    public static string StageNameKey(ProjectStage stage)
+    {
+        switch (stage)
+        {
+            case ProjectStage.Design: return "siliconalley:phase_design";
+            case ProjectStage.Development: return "siliconalley:phase_development";
+            case ProjectStage.Testing: return "siliconalley:phase_testing";
+            default: return "siliconalley:stage_idle";
         }
     }
 
@@ -451,6 +484,11 @@ public static class SiliconAlleyState
         state.UsedToolsMask = 0; // issue #36: licensed/used tools are per-project — reset (OwnedToolsMask persists)
         state.SegmentId = 0;     // issue #38: the audience segment is a per-product choice — reset to Broad
         state.DesignPrompted = false; // nudge again for the next project
+        // Issue #88 (player-driven lifecycle): a ship returns the studio to Idle. Reset Progress explicitly
+        // (an early release ships below 100%, so the simulator no longer subtracts the project size), and the
+        // next project does NOT auto-start — the player chooses to start it (Stage stays Idle until then).
+        state.Progress = 0f;
+        state.Stage = (int)ProjectStage.Idle;
     }
 
     // Step 3 (quality): sample this hour's staff quality (0..1), weighted by phase so Testing-phase
@@ -640,28 +678,74 @@ public static class SiliconAlleyState
     public static bool IsOvertime(string key) => Get(key).Overtime != 0;
     public static void SetOvertime(string key, bool on) => Get(key).Overtime = on ? 1 : 0;
 
-    // Issue #11 (Testing): the studio's "Hold" QA policy.
+    // Issue #11 (Testing): the studio's legacy "Hold" QA policy. SUPERSEDED by manual release (every product
+    // now parks at 100% and waits for the player), but the Hold field stays SERIALIZED at its index for
+    // save-compat — these accessors remain so old saves load cleanly; the simulator no longer reads Hold.
     public static bool IsHold(string key) => Get(key).Hold != 0;
     public static void SetHold(string key, bool on) => Get(key).Hold = on ? 1 : 0;
 
-    // While held, pin progress just inside the Testing band so the project doesn't auto-ship and keeps
-    // accruing the 2x Testing quality. No-op until progress is near completion.
-    public static void HoldBelowCompletion(string key, float size)
+    // ---- issue #88 (player-driven lifecycle) -------------------------------------------------------
+    public static ProjectStage GetStage(string key) => (ProjectStage)Get(key).Stage;
+
+    // The progress ceiling for a stage: staff work up to it, then the project PARKS there until the player
+    // pushes forward. Design/Development park just UNDER their band end so the derived phase stays put (and
+    // the wizard stays editable in Design); Testing parks at completion (100% = the "ready to release" state).
+    public static float StageCeiling(ProjectStage stage, float size)
     {
-        var state = Get(key);
-        var cap = size - 1f;
-        if (state.Progress > cap)
-            state.Progress = cap;
+        switch (stage)
+        {
+            case ProjectStage.Design: return DesignFraction * size - 1f;
+            case ProjectStage.Development: return DevelopmentFraction * size - 1f;
+            case ProjectStage.Testing: return size;
+            default: return 0f; // Idle: no product work
+        }
     }
 
-    // "Ship now": release the hold and complete the project at its current accrued quality via the normal
-    // completion path (the simulator's next staffed tick ships it). Only on explicit player action.
-    public static void ShipNow(string key)
+    // Park Progress at a ceiling (no-op until it reaches the ceiling). Generalises the old ParkAtCompletion.
+    public static void ParkBelowCeiling(string key, float ceiling)
     {
         var state = Get(key);
-        state.Hold = 0;
-        state.Progress = EffectiveProjectSize(key);
+        if (state.Progress > ceiling)
+            state.Progress = ceiling;
     }
+
+    // Idle → Design: the player starts a fresh project (the next version). Resets progress + reopens the
+    // wizard. The simulator then works the Design stage (parked at its ceiling) until the wizard is confirmed.
+    public static void StartProject(string key)
+    {
+        var state = Get(key);
+        state.Stage = (int)ProjectStage.Design;
+        state.Progress = 0f;
+        state.ConceptLocked = 0;
+        state.ProjectType = GlobalProjectType; // adopt the current scope pre-selection for the new project
+        state.DesignPrompted = false;
+    }
+
+    // Design → Development: confirm the wizard (the 6 steps) — locks the concept AND advances the stage, so
+    // staff start building past the Design ceiling. Called by the wizard's final "Start development" button.
+    public static void BeginDevelopment(string key)
+    {
+        LockConcept(key);
+        Get(key).Stage = (int)ProjectStage.Development;
+    }
+
+    // Development → Testing: the player sends the finished build to QA (available once Development is parked).
+    public static void SendToTesting(string key) => Get(key).Stage = (int)ProjectStage.Testing;
+
+    public static bool IsReleaseRequested(string key) => Get(key).ReleaseRequested;
+    public static void RequestRelease(string key) => Get(key).ReleaseRequested = true;
+    public static void ClearReleaseRequest(string key) => Get(key).ReleaseRequested = false;
+
+    // Manual updates: an update is requested by the player; the simulator credits the patch on its next tick
+    // (when an update is actually due — see PatchIntervalDays) and clears the request.
+    public static bool IsUpdateRequested(string key) => Get(key).UpdateRequested;
+    public static void RequestUpdate(string key) => Get(key).UpdateRequested = true;
+    public static void ClearUpdateRequest(string key) => Get(key).UpdateRequested = false;
+
+    // "Release": request that the simulator ship the current product on its next tick (the tick has the
+    // correctly-bound building registration). Available any moment in Development/Testing — it ships at the
+    // CURRENT accrued quality (an early ship reviews worse). Kept under the ShipNow name for existing callers.
+    public static void ShipNow(string key) => RequestRelease(key);
 
     // ---- issue #19 (Bugs) -------------------------------------------------------------------------
     // Open defects in the current build. Accrued during Development, burned down during Testing/Hold.
@@ -927,7 +1011,9 @@ public static class SiliconAlleyState
                 .Append(state.ContractScope.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.ContractProgress.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.ContractDeadlineDay.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.ContractPayout.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.ContractPayout.ToString(CultureInfo.InvariantCulture)).Append('|')
+                // Issue #88: player-driven lifecycle stage (index 38, trailing append). Absent ⇒ inferred.
+                .Append(state.Stage.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -1060,6 +1146,13 @@ public static class SiliconAlleyState
                     int.TryParse(parts[36], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ContractDeadlineDay);
                 if (parts.Length > 37)
                     float.TryParse(parts[37], NumberStyles.Float, CultureInfo.InvariantCulture, out state.ContractPayout);
+                // Issue #88: lifecycle stage (index 38). Absent in an old save ⇒ infer so a legacy in-flight
+                // project keeps running to completion (Testing ceiling = 100%, then manual release) and a
+                // just-shipped / fresh studio is Idle. New-format saves carry the real stage.
+                if (parts.Length > 38)
+                    int.TryParse(parts[38], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.Stage);
+                else
+                    state.Stage = state.Progress > 0f ? (int)ProjectStage.Testing : (int)ProjectStage.Idle;
                 States[parts[0]] = state;
             }
             catch
