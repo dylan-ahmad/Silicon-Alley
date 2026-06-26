@@ -243,12 +243,22 @@ line that has shipped.
   and `dependencyVendorOrdinals` are current-project choices and reset on ship/start. `dependencyVendorOrdinals` is a
   CSV by dependency bit; `-1` means none/self-built. All absent/`0`/`-1` => no dependencies, so old saves are unchanged.
   Pure trailing append => **no schema bump**.
+  Then - the next trailing append - `|featureWeights` - per-feature % allocation weights (issue #85): a CSV of
+  per-feature weights indexed by `FeatureId` bit (#26) — the player's "how much" allocation across the selected
+  features (the boolean `featureMask` still says WHICH). Per-project (reset to neutral on ship/start). Empty/absent
+  => `null` => neutral (even) allocation; the derived aspect-fit (below) measures fit RELATIVE to that neutral, so
+  old saves and untouched projects are unchanged (quality bonus `0`, market factor `×1.0`). No new enum family —
+  the weights key off the already-shipped `FeatureId` bits. Pure trailing append => **no schema bump**.
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /
   support / patch revenue alongside `MarketFactor`); and the **marketing synergy** (#29,
   `SiliconAlleyOfficeSimulator.OwnedMarketingAgencies`, free `Awareness`/hour to the IT studios while the player
-  operates a base-game `ba:businesstype_marketingagency`, detected via `RentedByPlayer`). All compute from
+  operates a base-game `ba:businesstype_marketingagency`, detected via `RentedByPlayer`); and the **aspect-demand
+  + allocation fit** (#85, `SiliconAlleyAspects` — a per-type aspect catalog + feature→aspect map + a clock-derived
+  per-aspect demand profile; the player's persisted `featureWeights` allocation is scored against demand RELATIVE
+  to the neutral even allocation, folded into the quality ceiling + the launch-market factor — `0` / `×1.0` at
+  neutral, so legacy is unchanged). All compute from
   existing state / building ownership + the game day, so old saves gain them with no field added.
 - **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
   `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →

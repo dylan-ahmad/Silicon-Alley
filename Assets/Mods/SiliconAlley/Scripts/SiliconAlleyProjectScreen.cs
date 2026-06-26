@@ -679,7 +679,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var dq = Mathf.Max(0f, SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design));
         var bonus = SiliconAlleyFeatures.QualityBonus(SiliconAlleyState.GetFeatureMask(key), type)
             + SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type)
-            + SiliconAlleyState.DependencyQualityBonus(key, type); // issue #84: product-dependency quality (matches DesignQualityCeiling)
+            + SiliconAlleyState.DependencyQualityBonus(key, type) // issue #84: product-dependency quality (matches DesignQualityCeiling)
+            + SiliconAlleyAspects.QualityFitBonus(SiliconAlleyState.GetFeatureMask(key), SiliconAlleyState.GetFeatureWeights(key), type, TimeHelper.CurrentDay); // issue #85: market-fit (0 at neutral)
         var ceiling = Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
         // Issue #39: uncovered feature→tool dependencies cap the ceiling (full coverage ⇒ no change).
         return Mathf.Min(ceiling, SiliconAlleyDependencies.CoverageCeiling(
