@@ -122,6 +122,11 @@ public static class SiliconAlleyState
         public int OwnedDependencyMask;
         public int UsedDependencyMask;
         public int[] DependencyVendorOrdinals;
+        // Issue #85 (Market targeting): per-feature % allocation weights, indexed by SiliconAlleyFeatures Bit
+        // (FeatureId). The boolean FeatureMask (#26) says WHICH features are in; these weights say HOW MUCH the
+        // player allocates to each. Per-project (reset on completion). null / all-even ⇒ neutral allocation ⇒
+        // the derived aspect-fit is 0 / ×1 (SiliconAlleyAspects), so old saves and untouched projects are unchanged.
+        public float[] FeatureWeights;
         // Issue #26: the business type (game/office/security) that owns this building's current project, noted
         // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
         // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
@@ -568,6 +573,7 @@ public static class SiliconAlleyState
         state.ConceptLocked = 0; // issue #9: the next project's concept reopens (DesignFocus stays sticky)
         state.Hold = 0;          // issue #11: the next project isn't held
         state.FeatureMask = 0;   // issue #26: features are chosen per product — the next project starts feature-free
+        state.FeatureWeights = null; // issue #85: per-feature allocation weights reset to neutral for the next product
         state.PlatformMask = 0;  // issue #37: target platforms are chosen per product too — reset for the next
         state.UsedToolsMask = 0; // issue #36: licensed/used tools are per-project — reset (OwnedToolsMask persists)
         state.SegmentId = 0;     // issue #38: the audience segment is a per-product choice — reset to Broad
@@ -673,12 +679,40 @@ public static class SiliconAlleyState
             Get(key).FeatureMask ^= 1 << bit;
     }
 
+    // ---- issue #85 (Market targeting): per-feature % allocation weights ------------------------------
+    // The weight the player allocates to a feature (indexed by FeatureId bit). Absent/non-positive ⇒ the
+    // neutral 1.0, so an untouched/legacy project reads as an even allocation. Editable in Design only.
+    public static float GetFeatureWeight(string key, int bit)
+    {
+        var weights = Get(key).FeatureWeights;
+        return weights != null && bit >= 0 && bit < weights.Length && weights[bit] > 0f ? weights[bit] : 1f;
+    }
+
+    // The raw weights array (null when untouched ⇒ neutral). Read-only callers: the aspect fit math.
+    public static float[] GetFeatureWeights(string key) => Get(key).FeatureWeights;
+
+    public static void SetFeatureWeight(string key, int bit, float value)
+    {
+        if (!CanEditConcept(key) || bit < 0 || bit >= SiliconAlleyFeatures.MaxCount)
+            return;
+        var state = Get(key);
+        if (state.FeatureWeights == null)
+        {
+            // Materialise the array at neutral (all 1.0) on first edit, so setting one slot reallocates relative
+            // to the rest while every untouched project stays null ⇒ serialises empty ⇒ legacy-clean.
+            state.FeatureWeights = new float[SiliconAlleyFeatures.MaxCount];
+            for (var i = 0; i < state.FeatureWeights.Length; i++)
+                state.FeatureWeights[i] = 1f;
+        }
+        state.FeatureWeights[bit] = Mathf.Max(0f, value);
+    }
+
     // The design-phase quality ceiling, raised by the project's selected features (issue #26) and the tools it
     // uses (issue #36), and lowered by uncovered feature→tool dependencies (issue #39). A weak Design phase still
     // caps the shipped quality (issue #9). SAVE-COMPAT: designQuality < 0 (no Design work yet / legacy save) ⇒ no
     // cap (1.0), exactly as before; FeatureMask / UsedToolsMask 0 ⇒ bonus 0 + full coverage ⇒ the cap is the
     // unchanged 0.5 + 0.5*designQuality.
-    public static float DesignQualityCeiling(string key, string businessTypeName, float designQuality)
+    public static float DesignQualityCeiling(string key, string businessTypeName, float designQuality, int day)
     {
         if (designQuality < 0f)
             return 1f;
@@ -686,7 +720,8 @@ public static class SiliconAlleyState
         var bonus = SiliconAlleyFeatures.QualityBonus(state.FeatureMask, businessTypeName)
             + SiliconAlleyTools.QualityBonus(state.UsedToolsMask, businessTypeName) // issue #36
             + SiliconAlleyProductDependencies.QualityBonus(state.UsedDependencyMask, state.OwnedDependencyMask,
-                EnsureDependencyVendors(state), businessTypeName); // issue #83
+                EnsureDependencyVendors(state), businessTypeName) // issue #83
+            + SiliconAlleyAspects.QualityFitBonus(state.FeatureMask, state.FeatureWeights, businessTypeName, day); // issue #85: market-fit (0 at neutral)
         var ceiling = Mathf.Min(1f, 0.5f + 0.5f * designQuality + bonus);
         // Issue #39: uncovered features (no owned/licensed provider tool) cap the achievable quality. Full
         // coverage / no features ⇒ CoverageCeiling 1.0 ⇒ the cap above is unchanged.
@@ -1236,7 +1271,9 @@ public static class SiliconAlleyState
                 // Issue #83: build-or-buy dependencies (indices 41..43). All absent/0/-1 => no dependencies.
                 .Append(state.OwnedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.UsedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(SerializeDependencyVendorOrdinals(EnsureDependencyVendors(state))).Append(';');
+                .Append(SerializeDependencyVendorOrdinals(EnsureDependencyVendors(state))).Append('|')
+                // Issue #85: per-feature allocation weights (index 44). Empty/absent => neutral (even) weights.
+                .Append(SerializeFeatureWeights(state.FeatureWeights)).Append(';');
         }
         return builder.ToString();
     }
@@ -1386,6 +1423,8 @@ public static class SiliconAlleyState
                     int.TryParse(parts[42], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.UsedDependencyMask);
                 if (parts.Length > 43)
                     state.DependencyVendorOrdinals = ParseDependencyVendorOrdinals(parts[43]);
+                if (parts.Length > 44) // issue #85: per-feature weights (absent ⇒ null ⇒ neutral allocation)
+                    state.FeatureWeights = ParseFeatureWeights(parts[44]);
                 States[parts[0]] = state;
             }
             catch
@@ -1448,6 +1487,37 @@ public static class SiliconAlleyState
             if (int.TryParse(tokens[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var vendor))
                 vendors[i] = SiliconAlleyVendors.TryGetById(vendor, out _) ? vendor : -1;
         return vendors;
+    }
+
+    // Issue #85: per-feature allocation weights as a comma-separated float list (by FeatureId bit). A null/empty
+    // array (untouched/legacy project) serialises to "" ⇒ absent ⇒ neutral on load. InvariantCulture (nl-NL dev).
+    private static string SerializeFeatureWeights(float[] weights)
+    {
+        if (weights == null || weights.Length == 0)
+            return string.Empty;
+        var builder = new StringBuilder();
+        for (var i = 0; i < weights.Length; i++)
+        {
+            if (i > 0) builder.Append(',');
+            builder.Append(weights[i].ToString(CultureInfo.InvariantCulture));
+        }
+        return builder.ToString();
+    }
+
+    // Parse the per-feature weights; absent/empty ⇒ null ⇒ neutral (even) allocation (legacy unchanged). A
+    // present-but-short list defaults the missing slots to the neutral 1.0; negatives clamp to neutral.
+    private static float[] ParseFeatureWeights(string encoded)
+    {
+        if (string.IsNullOrEmpty(encoded))
+            return null;
+        var weights = new float[SiliconAlleyFeatures.MaxCount];
+        for (var i = 0; i < weights.Length; i++)
+            weights[i] = 1f;
+        var tokens = encoded.Split(',');
+        for (var i = 0; i < tokens.Length && i < weights.Length; i++)
+            if (float.TryParse(tokens[i], NumberStyles.Float, CultureInfo.InvariantCulture, out var w) && w >= 0f)
+                weights[i] = w;
+        return weights;
     }
 
     private static string SerializeReleaseHistory(List<ReleaseRecord> releases)

@@ -281,7 +281,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Design quality accrued (legacy saves), so old in-flight projects are unaffected, and adds 0 when
             // no features are selected — identical to the previous 0.5 + 0.5*designQuality cap.
             accruedQuality = Mathf.Min(accruedQuality,
-                SiliconAlleyState.DesignQualityCeiling(key, businessType.businessTypeName, designQuality));
+                SiliconAlleyState.DesignQualityCeiling(key, businessType.businessTypeName, designQuality, TimeHelper.CurrentDay));
             // Issue #19: residual bugs cut the shipped quality (so the existing payout/reputation path
             // reflects them). Clean/legacy builds (no tracked bugs) keep BugQualityFactor == 1 → unchanged.
             var quality = accruedQuality * Mathf.Max(0.25f, cleanliness) * SiliconAlleyState.BugQualityFactor(key);
@@ -313,6 +313,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // dashboard. Bounded ±Amplitude, so the same product earns more in a hot market and less in a cold one.
             var demand = SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
             payout *= demand;
+            // Issue #85 (Market targeting): how well the player's per-feature allocation fits the current aspect
+            // demand scales the launch revenue + installed-base jump. ×1.0 at neutral/legacy weights (the fit is
+            // measured relative to the even allocation), so old saves are unchanged. See SiliconAlleyAspects.
+            var marketFit = SiliconAlleyAspects.MarketFitFactor(SiliconAlleyState.GetFeatureMask(key),
+                SiliconAlleyState.GetFeatureWeights(key), businessType.businessTypeName, TimeHelper.CurrentDay);
+            payout *= marketFit;
             CreditRevenue(product, payout, quality);
             var releasePublisher = SiliconAlleyState.HasDeal(key) ? SiliconAlleyState.GetDealPublisher(key) : -1;
             // Issue #23 (Publisher deals): if this product was under a deal, fulfil it on this ship. On-time
@@ -342,7 +348,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #38: the audience segment's volume factor scales the installed-base jump too (Broad ⇒ ×1.0).
             // A mass segment grows the base (more recurring support); a niche segment shrinks it — the volume
             // side of the price↔volume tradeoff. SupportRatePerDay is untouched.
-            var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach * SiliconAlleyState.SegmentVolumeFactor(key));
+            var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach * SiliconAlleyState.SegmentVolumeFactor(key) * marketFit); // issue #85: market-fit scales the installed-base jump too (×1.0 at neutral)
             SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review, TimeHelper.CurrentDay, payout,
                 releasePublisher, releaseProductName);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
