@@ -293,6 +293,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // extra launch units, on top of the marketing-driven bonus (#21). Both are 0 for a debut/legacy
             // ship, so the launch is unchanged. Read the version being shipped BEFORE OnProjectCompleted bumps it.
             var version = SiliconAlleyState.GetVersion(key);
+            var releaseProductName = SiliconAlleyState.GetProductName(key);
+            var releaseDisplayName = SiliconAlleyState.GetProductNameOrDefault(key, ProductDisplayName(businessType));
             var launchBonus = SiliconAlleyState.LaunchBonusUnits(key, review) + SiliconAlleyState.SequelLaunchUnits(key, review);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
@@ -311,6 +313,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var demand = SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
             payout *= demand;
             CreditRevenue(product, payout, quality);
+            var releasePublisher = SiliconAlleyState.HasDeal(key) ? SiliconAlleyState.GetDealPublisher(key) : -1;
             // Issue #23 (Publisher deals): if this product was under a deal, fulfil it on this ship. On-time
             // (shipped on/before the deadline day) pays the locked bonus ON TOP of the normal payout, scaled by
             // the release's review (a buggy/late delivery is worth less to a publisher), and builds reputation
@@ -339,12 +342,13 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // A mass segment grows the base (more recurring support); a niche segment shrinks it — the volume
             // side of the price↔volume tradeoff. SupportRatePerDay is untouched.
             var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach * SiliconAlleyState.SegmentVolumeFactor(key));
-            SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review);
+            SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review, TimeHelper.CurrentDay, payout,
+                releasePublisher, releaseProductName);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
             Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, market demand x{demand:F2}, +{launchUnits} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
-            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review, version);
+            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review, version, releaseDisplayName);
             // Issue #12: remember this ship so the screen can show a "ship report" (transient).
-            SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor, review);
+            SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor, review, releaseDisplayName);
             // Manual release: consume the request so exactly one product ships per Release click. The studio
             // is now Idle (OnProjectCompleted), so a stale flag couldn't ship anything anyway, but clear it.
             SiliconAlleyState.ClearReleaseRequest(key);
@@ -421,12 +425,13 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // above; numbers use InvariantCulture (dev machine is nl-NL). duplicateIdentifier = key coalesces
     // a burst of same-business completions (e.g. during time-machine catch-up) into a single toast,
     // while completions in normal play still each show.
-    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout, float reputationFactor, float marketFactor, float review, int version)
+    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout,
+        float reputationFactor, float marketFactor, float review, int version, string productName)
     {
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = string.IsNullOrWhiteSpace(productName) ? ProductDisplayName(businessType) : productName,
             // Issue #24: the version that just shipped (v1 = debut, v2+ = sequel).
             ["version"] = "v" + version.ToString(CultureInfo.InvariantCulture),
             ["quality"] = Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%",
@@ -453,7 +458,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
             ["phase"] = SiliconAlleyState.PhaseNameKey(newPhase).GetLocalization(),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_phase", data, 5f, key + ":" + newPhase,
@@ -468,7 +473,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_design", data, 6f, key + ":design",
             () => SiliconAlleyProjectScreen.Open(key));
@@ -481,7 +486,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_ready", data, 6f, key + ":ready",
             () => SiliconAlleyProjectScreen.Open(key));
@@ -493,7 +498,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_devdone", data, 6f, key + ":devdone",
             () => SiliconAlleyProjectScreen.Open(key));
@@ -505,7 +510,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_startproject", data, 6f, key + ":start",
             () => SiliconAlleyProjectScreen.Open(key));
@@ -517,7 +522,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
             ["catalog"] = catalog.ToString(CultureInfo.InvariantCulture),
             ["revenue"] = "$" + Mathf.RoundToInt(revenue).ToString("N0", CultureInfo.InvariantCulture),
         };
@@ -629,9 +634,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         return product != null ? product.GetLocalization() : "project";
     }
 
+    private static string ProductDisplayName(string key, BusinessType businessType) =>
+        SiliconAlleyState.GetProductNameOrDefault(key, ProductDisplayName(businessType));
+
     private static string PrimaryProduct(BusinessType businessType)
     {
-        if (businessType.businessProducts == null || businessType.businessProducts.Length == 0)
+        if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
             return null;
         return businessType.businessProducts[0].itemName;
     }

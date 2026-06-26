@@ -591,6 +591,38 @@ public static class SiliconAlleyUI
         slider.value = 0.5f;
         return slider;
     }
+
+    public static TMP_InputField MakeInputField(Transform parent, string name, string placeholderText, int characterLimit = 64)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var image = go.AddComponent<Image>();
+        image.color = SiliconAlleyTheme.Elevated;
+        ApplySlice(image, SiliconAlleyTheme.ButtonSprite);
+        var input = go.AddComponent<TMP_InputField>();
+        input.targetGraphic = image;
+        input.characterLimit = characterLimit;
+        input.lineType = TMP_InputField.LineType.SingleLine;
+        input.textViewport = (RectTransform)go.transform;
+
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = 38f;
+        le.flexibleWidth = 1f;
+
+        var text = MakeText(go.transform, "Text", SiliconAlleyTheme.Sizes.Button, TextAnchor.MiddleLeft);
+        text.margin = new Vector4(12f, 7f, 12f, 0f);
+        Stretch(text.rectTransform);
+        input.textComponent = text;
+
+        var placeholder = MakeText(go.transform, "Placeholder", SiliconAlleyTheme.Sizes.Button, TextAnchor.MiddleLeft, FontStyle.Italic);
+        placeholder.text = placeholderText;
+        placeholder.color = SiliconAlleyTheme.TextMuted;
+        placeholder.margin = new Vector4(12f, 7f, 12f, 0f);
+        Stretch(placeholder.rectTransform);
+        input.placeholder = placeholder;
+
+        return input;
+    }
 }
 
 // ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame

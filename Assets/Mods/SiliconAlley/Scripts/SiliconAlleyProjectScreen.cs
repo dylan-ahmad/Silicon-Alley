@@ -119,6 +119,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private TMP_Text _designQualityText, _leadText, _etaText, _conceptNameText;
     private readonly Image[] _scopeImages = new Image[3];
     private readonly Button[] _scopeButtons = new Button[3];
+    private TMP_InputField _productNameInput;
     private Slider _focusSlider;
     // Summary page (placeholder rows today; sub-issues fill them in)
     private GameObject _summaryPage;
@@ -194,7 +195,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private SiliconAlleyUI.ProgressBar _pubShipBar;
     // Release section (transient ship report; issue #60: review + freshness bars + stat rows)
     private SiliconAlleyUI.ProgressBar _relReviewBar, _relFreshBar;
-    private SiliconAlleyUI.StatRow _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
+    private SiliconAlleyUI.StatRow _relProduct, _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
     // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
@@ -350,7 +351,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         _titleText.text = Compose("siliconalley:screen_title", ("phase", stageName));
         _studioText.text = Compose("siliconalley:screen_studio",
-            ("business", reg.GetDisplayName()), ("product", ProductName(businessType)));
+            ("business", reg.GetDisplayName()), ("product", DisplayProductName(key, businessType)));
         // Issue #55: reflect the current business type + phase as icons next to their labels (none when idle).
         SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(businessType?.businessTypeName));
         SetIconSprite(_phaseIcon, idle ? null : SiliconAlleyTheme.IconFor(SiliconAlleyState.PhaseNameKey(phase)));
@@ -601,7 +602,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void RefreshConceptPage()
     {
         var key = _currentKey;
-        _conceptNameText.text = Compose("siliconalley:wiz_product", ("product", ProductName(_ctxBusinessType)));
+        var productName = DisplayProductName(key, _ctxBusinessType);
+        _conceptNameText.text = Compose("siliconalley:wiz_product", ("product", productName));
+        if (_productNameInput.text != productName)
+        {
+            _suppress = true;
+            _productNameInput.SetTextWithoutNotify(productName);
+            _suppress = false;
+        }
 
         var designQ = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
         _designQualityText.text = Compose("siliconalley:screen_designquality",
@@ -906,7 +914,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var type = _ctxBusinessType?.businessTypeName;
 
         // Hero: product name + "scope · size · ship eta", with the per-scope icon.
-        _sumHeroTitle.text = ProductName(_ctxBusinessType);
+        _sumHeroTitle.text = DisplayProductName(key, _ctxBusinessType);
         SetIconSprite(_sumScopeIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.ProjectTypeNameKey(kind)));
         _sumHeroSub.text = Compose("siliconalley:wiz_sum_scope",
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
@@ -980,6 +988,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (q < 0f)
             q = SiliconAlleyState.GetAverageQuality(key);
         _recapText.text = Compose("siliconalley:wiz_recap",
+            ("product", DisplayProductName(key, _ctxBusinessType)),
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
             ("focus", Pct(SiliconAlleyState.GetDesignFocus(key)) + "%"),
             ("quality", q < 0f ? "—" : Pct(q) + "%"));
@@ -1095,6 +1104,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void RefreshRelease(BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
+        SetStat(_relProduct, "stat_market", "siliconalley:screen_rel_lbl_product",
+            string.IsNullOrWhiteSpace(report.ProductName) ? DisplayProductName(key, businessType) : report.ProductName,
+            SiliconAlleyTheme.Header);
         // Issue #20/#60: lead with the critical-reception score + a 0..10 review bar (color-graded).
         SetStatNum(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review", report.Review, FmtReview, SiliconAlleyTheme.Header);
         var review01 = Mathf.Clamp01(report.Review / 10f);
@@ -1250,6 +1262,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (_suppress)
             return;
         SiliconAlleyState.SetDesignFocus(_currentKey, value);
+    }
+
+    private void OnProductNameChanged(string value)
+    {
+        if (_suppress)
+            return;
+        SiliconAlleyState.SetProductName(_currentKey, value);
     }
 
     // Issue #35: wizard navigation. Back steps to the previous page; Next advances, and on the last (Summary)
@@ -1453,6 +1472,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         return businessType.businessProducts[0].itemName.GetLocalization();
     }
 
+    private static string DisplayProductName(string key, BusinessType businessType) =>
+        SiliconAlleyState.GetProductNameOrDefault(key, ProductName(businessType));
+
     private static string Money(float amount) =>
         "$" + Mathf.RoundToInt(amount).ToString("N0", CultureInfo.InvariantCulture);
 
@@ -1648,6 +1670,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetButtonIcon(btn, SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
         }
         _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", 15, TextAnchor.MiddleLeft);
+        MakeHeader(_conceptPage.transform, "siliconalley:screen_product_name");
+        _productNameInput = MakeInputField(_conceptPage.transform, "ProductNameInput",
+            "siliconalley:screen_product_name_placeholder".GetLocalization(), 64);
+        _productNameInput.onValueChanged.AddListener(OnProductNameChanged);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_focus");
         var focusRow = MakeRow(_conceptPage.transform, 10f, 28);
         FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_polish".GetLocalization()), 70f);
@@ -1868,6 +1894,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _releaseSection = MakeSection(root);
         MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
         var relCard = MakeCardPanel(_releaseSection.transform, "RelCard");
+        _relProduct = MakeStatRow(relCard.transform);
         _relReview = MakeStatRow(relCard.transform);
         _relReviewBar = MakeProgressBar(relCard.transform);
         _relQuality = MakeStatRow(relCard.transform);

@@ -110,6 +110,12 @@ public static class SiliconAlleyState
         // Append-only ordinals: ProjectStage { Idle=0, Design=1, Development=2, Testing=3 } (Release is the
         // transient ship action, not a stored stage).
         public int Stage;                 // ProjectStage ordinal; 0 = Idle (default)
+        // Issue #78 (release history): persisted per-studio records, appended once per shipped product.
+        // Stored as one trailing variable-length field after Stage. Empty for old saves.
+        public readonly List<ReleaseRecord> Releases = new List<ReleaseRecord>();
+        // Issue #82 (product naming): player-typed name for the CURRENT project. Empty means callers derive
+        // the product display name from the business type, preserving old saves and untouched projects.
+        public string ProductName = string.Empty;
         // Issue #26: the business type (game/office/security) that owns this building's current project, noted
         // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
         // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
@@ -121,6 +127,7 @@ public static class SiliconAlleyState
         // Issue #20 (Reviews): LastShipReview is the 0..10 critical-reception score derived at that ship.
         public bool HasLastShip;
         public float LastShipQuality, LastShipPayout, LastShipRepMult, LastShipMarketMult, LastShipReview;
+        public string LastShipProductName = string.Empty;
         // Manual release (Software-Inc-style): the player decides when a finished product (and each post-
         // launch update) goes live. Both are transient (NOT persisted): a product that is "ready to release"
         // is derived from Progress >= size; an update from the patch timer (see the simulator). The flag is a
@@ -250,6 +257,34 @@ public static class SiliconAlleyState
     // parks Progress at the stage ceiling until the player pushes forward. APPEND-ONLY ordinals (persisted).
     public enum ProjectStage { Idle = 0, Design = 1, Development = 2, Testing = 3 }
 
+    // Issue #78: persisted per-release row. ProductName is optional/escaped and currently empty until #82
+    // supplies player-typed names; empty means callers derive the name from business type + version.
+    public readonly struct ReleaseRecord
+    {
+        public readonly int Day, Version, Kind, LaunchUnits, Publisher, FeatureMask, PlatformMask, UsedToolsMask, SegmentId;
+        public readonly float Review, Quality, LaunchPayout;
+        public readonly string ProductName;
+
+        public ReleaseRecord(int day, int version, int kind, float review, float quality, float launchPayout,
+            int launchUnits, int publisher, int featureMask, int platformMask, int usedToolsMask, int segmentId,
+            string productName)
+        {
+            Day = day;
+            Version = version;
+            Kind = kind;
+            Review = review;
+            Quality = quality;
+            LaunchPayout = launchPayout;
+            LaunchUnits = launchUnits;
+            Publisher = publisher;
+            FeatureMask = featureMask;
+            PlatformMask = platformMask;
+            UsedToolsMask = usedToolsMask;
+            SegmentId = segmentId;
+            ProductName = productName ?? string.Empty;
+        }
+    }
+
     // Phase math takes the project's effective size (issue #3: it varies per project type), rather than
     // the global ProjectSize, so a Quick/Standard/Ambitious project reports its own phases and ETAs.
     public static ProjectPhase PhaseOf(float progress, float size)
@@ -333,6 +368,23 @@ public static class SiliconAlleyState
     public static float GetReputation(string key) => Get(key).Reputation;
     public static int GetInstalledBase(string key) => Get(key).InstalledBase;
     public static int GetLastPatchDay(string key) => Get(key).LastPatchDay;
+    public static string GetProductName(string key) => Get(key).ProductName ?? string.Empty;
+    public static string GetProductNameOrDefault(string key, string defaultName)
+    {
+        var name = GetProductName(key);
+        return string.IsNullOrWhiteSpace(name) ? defaultName : name;
+    }
+
+    public static void SetProductName(string key, string value)
+    {
+        if (!CanEditConcept(key))
+            return;
+        var name = (value ?? string.Empty).Trim();
+        if (name.Length > 64)
+            name = name.Substring(0, 64);
+        Get(key).ProductName = name;
+    }
+
     // A ship or patch resets the live catalog's freshness too (issue #25): both always move together, so the
     // patch clock doubles as the aging anchor. Callers (ship completion + periodic patch) pass the current day.
     public static void SetLastPatchDay(string key, int day)
@@ -452,9 +504,16 @@ public static class SiliconAlleyState
     // awareness adds a small reputation bonus on top and (via launchUnits, computed by the caller from
     // awareness + review) grows the installed base by more than the flat +1. SAVE-COMPAT: a legacy launch
     // has BugCount = Awareness = 0, so the bonus is 0 and launchUnits floors at 1 — identical to before.
-    public static void OnProjectCompleted(string key, float quality, int launchUnits, float review)
+    public static void OnProjectCompleted(string key, float quality, int launchUnits, float review,
+        int day, float launchPayout, int publisher, string productName = "")
     {
         var state = Get(key);
+        var shippedVersion = state.Version;
+        var shippedKind = state.ProjectType < 0 ? (int)ProjectKind.Standard : state.ProjectType;
+        var shippedProductName = string.IsNullOrWhiteSpace(productName) ? state.ProductName : productName.Trim();
+        state.Releases.Add(new ReleaseRecord(day, shippedVersion, shippedKind, review, quality, launchPayout,
+            Mathf.Max(1, launchUnits), publisher, state.FeatureMask, state.PlatformMask, state.UsedToolsMask,
+            state.SegmentId, shippedProductName));
         var awarenessRepBonus = Mathf.Min(0.2f, state.Awareness * 0.004f); // 0 when unmarketed (legacy)
         state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f + awarenessRepBonus);
         state.InstalledBase += Mathf.Max(1, launchUnits); // base +1 (legacy) + marketing/review/sequel extra
@@ -483,6 +542,7 @@ public static class SiliconAlleyState
         state.PlatformMask = 0;  // issue #37: target platforms are chosen per product too — reset for the next
         state.UsedToolsMask = 0; // issue #36: licensed/used tools are per-project — reset (OwnedToolsMask persists)
         state.SegmentId = 0;     // issue #38: the audience segment is a per-product choice — reset to Broad
+        state.ProductName = string.Empty; // issue #82: the next project starts with the derived/default name
         state.DesignPrompted = false; // nudge again for the next project
         // Issue #88 (player-driven lifecycle): a ship returns the studio to Idle. Reset Progress explicitly
         // (an early release ships below 100%, so the simulator no longer subtracts the project size), and the
@@ -718,6 +778,7 @@ public static class SiliconAlleyState
         state.Progress = 0f;
         state.ConceptLocked = 0;
         state.ProjectType = GlobalProjectType; // adopt the current scope pre-selection for the new project
+        state.ProductName = string.Empty;
         state.DesignPrompted = false;
     }
 
@@ -810,15 +871,17 @@ public static class SiliconAlleyState
     {
         public readonly bool Has;
         public readonly float Quality, Payout, RepMult, MarketMult, Review;
-        public ShipReport(bool has, float quality, float payout, float repMult, float marketMult, float review)
+        public readonly string ProductName;
+        public ShipReport(bool has, float quality, float payout, float repMult, float marketMult, float review, string productName)
         {
             Has = has; Quality = quality; Payout = payout; RepMult = repMult; MarketMult = marketMult; Review = review;
+            ProductName = productName ?? string.Empty;
         }
     }
 
     // Record the just-shipped project's headline numbers (the same values the success toast encodes),
     // including the 0..10 review score (#20).
-    public static void SetLastShip(string key, float quality, float payout, float repMult, float marketMult, float review)
+    public static void SetLastShip(string key, float quality, float payout, float repMult, float marketMult, float review, string productName = "")
     {
         var state = Get(key);
         state.HasLastShip = true;
@@ -827,15 +890,24 @@ public static class SiliconAlleyState
         state.LastShipRepMult = repMult;
         state.LastShipMarketMult = marketMult;
         state.LastShipReview = review;
+        state.LastShipProductName = productName ?? string.Empty;
     }
 
     public static ShipReport GetLastShip(string key)
     {
         var s = Get(key);
-        return new ShipReport(s.HasLastShip, s.LastShipQuality, s.LastShipPayout, s.LastShipRepMult, s.LastShipMarketMult, s.LastShipReview);
+        return new ShipReport(s.HasLastShip, s.LastShipQuality, s.LastShipPayout, s.LastShipRepMult,
+            s.LastShipMarketMult, s.LastShipReview, s.LastShipProductName);
     }
 
-    public static void ClearLastShip(string key) => Get(key).HasLastShip = false;
+    public static void ClearLastShip(string key)
+    {
+        var state = Get(key);
+        state.HasLastShip = false;
+        state.LastShipProductName = string.Empty;
+    }
+
+    public static List<ReleaseRecord> GetReleaseHistory(string key) => new List<ReleaseRecord>(Get(key).Releases);
 
     // Returns true exactly once per project (per session) so the simulator nudges the player to set the
     // concept just once. Transient (not persisted): a reload may re-nudge once, which is harmless.
@@ -917,7 +989,8 @@ public static class SiliconAlleyState
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
     //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
     //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation
-    //    |dealPublisher|dealDeadlineDay|dealPayout,
+    //    |dealPublisher|dealDeadlineDay|dealPayout|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId
+    //    |contractScope|contractProgress|contractDeadlineDay|contractPayout|stage|releaseHistory|productName,
     // joined by ';'. The publisher-deal fields (issue #23: dealPublisher default -1 = no deal, dealDeadlineDay/
     // dealPayout 0) append after the lifecycle fields; absent in old saves ⇒ no active deal. A third reserved
     // header "~publishers|r0,r1,…" carries the player's per-publisher reputation (issue #22, append-only by
@@ -930,7 +1003,9 @@ public static class SiliconAlleyState
     // appended at schema v1; a save from before a given field omits it and it defaults (per-phase quality
     // reads "not accrued" via GetPhaseQuality; designFocus stays 0.5; conceptLocked 0; overtime 0; bugCount,
     // awareness, hype, adSpend 0; supportFreshDay 0 ⇒ full freshness; version 1; ipReputation 0) while the
-    // aggregate qualitySum/qualityWeight still yields the real shipped quality. Two reserved
+    // aggregate qualitySum/qualityWeight still yields the real shipped quality. ReleaseHistory is a count-prefixed
+    // variable block; absent or count 0 means no recorded releases. ProductName is percent-escaped; absent or
+    // empty means derive the name from the business type. Two reserved
     // "~"-prefixed header entries lead the blob:
     //   "~schema|<version>" — the save schema version (added in v1; absent ⇒ the v1 baseline);
     //   "~global|<index>"   — the player's project-type pre-selection, so it survives a session before
@@ -1013,7 +1088,11 @@ public static class SiliconAlleyState
                 .Append(state.ContractDeadlineDay.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.ContractPayout.ToString(CultureInfo.InvariantCulture)).Append('|')
                 // Issue #88: player-driven lifecycle stage (index 38, trailing append). Absent ⇒ inferred.
-                .Append(state.Stage.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.Stage.ToString(CultureInfo.InvariantCulture)).Append('|')
+                // Issue #78: release history block (index 39). Empty/absent => no history.
+                .Append(SerializeReleaseHistory(state.Releases)).Append('|')
+                // Issue #82: player-typed product name (index 40). Empty/absent => derived display name.
+                .Append(EscapeReleaseString(state.ProductName)).Append(';');
         }
         return builder.ToString();
     }
@@ -1153,6 +1232,10 @@ public static class SiliconAlleyState
                     int.TryParse(parts[38], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.Stage);
                 else
                     state.Stage = state.Progress > 0f ? (int)ProjectStage.Testing : (int)ProjectStage.Idle;
+                if (parts.Length > 39)
+                    LoadReleaseHistory(parts[39], state.Releases);
+                if (parts.Length > 40)
+                    state.ProductName = UnescapeReleaseString(parts[40]);
                 States[parts[0]] = state;
             }
             catch
@@ -1181,5 +1264,110 @@ public static class SiliconAlleyState
                     break;
             }
         }
+    }
+
+    private static string SerializeReleaseHistory(List<ReleaseRecord> releases)
+    {
+        if (releases == null || releases.Count == 0)
+            return "0:";
+        var builder = new StringBuilder();
+        builder.Append(releases.Count.ToString(CultureInfo.InvariantCulture)).Append(':');
+        for (int i = 0; i < releases.Count; i++)
+        {
+            if (i > 0) builder.Append(',');
+            var r = releases[i];
+            builder
+                .Append(r.Day.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Version.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Kind.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Review.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Quality.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.LaunchPayout.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.LaunchUnits.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Publisher.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.FeatureMask.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.PlatformMask.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.UsedToolsMask.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.SegmentId.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(EscapeReleaseString(r.ProductName));
+        }
+        return builder.ToString();
+    }
+
+    private static void LoadReleaseHistory(string encoded, List<ReleaseRecord> releases)
+    {
+        releases.Clear();
+        if (string.IsNullOrEmpty(encoded))
+            return;
+
+        var colon = encoded.IndexOf(':');
+        if (colon < 0)
+            return;
+        if (!int.TryParse(encoded.Substring(0, colon), NumberStyles.Integer, CultureInfo.InvariantCulture, out var count)
+            || count <= 0)
+            return;
+
+        var payload = encoded.Substring(colon + 1);
+        if (payload.Length == 0)
+            return;
+        var records = payload.Split(',');
+        for (int i = 0; i < records.Length && i < count; i++)
+        {
+            var fields = records[i].Split('~');
+            if (fields.Length < 12)
+                continue;
+
+            int.TryParse(fields[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var day);
+            int.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var version);
+            int.TryParse(fields[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var kind);
+            float.TryParse(fields[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var review);
+            float.TryParse(fields[4], NumberStyles.Float, CultureInfo.InvariantCulture, out var quality);
+            float.TryParse(fields[5], NumberStyles.Float, CultureInfo.InvariantCulture, out var launchPayout);
+            int.TryParse(fields[6], NumberStyles.Integer, CultureInfo.InvariantCulture, out var launchUnits);
+            int.TryParse(fields[7], NumberStyles.Integer, CultureInfo.InvariantCulture, out var publisher);
+            int.TryParse(fields[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out var featureMask);
+            int.TryParse(fields[9], NumberStyles.Integer, CultureInfo.InvariantCulture, out var platformMask);
+            int.TryParse(fields[10], NumberStyles.Integer, CultureInfo.InvariantCulture, out var usedToolsMask);
+            int.TryParse(fields[11], NumberStyles.Integer, CultureInfo.InvariantCulture, out var segmentId);
+            var productName = fields.Length > 12 ? UnescapeReleaseString(fields[12]) : string.Empty;
+            releases.Add(new ReleaseRecord(day, version, kind, review, quality, launchPayout, launchUnits,
+                publisher, featureMask, platformMask, usedToolsMask, segmentId, productName));
+        }
+    }
+
+    private static string EscapeReleaseString(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+        var builder = new StringBuilder(value.Length);
+        foreach (var c in value)
+        {
+            if (c == '%' || c == '|' || c == ';' || c == ',' || c == ':' || c == '~')
+                builder.Append('%').Append(((int)c).ToString("X2", CultureInfo.InvariantCulture));
+            else
+                builder.Append(c);
+        }
+        return builder.ToString();
+    }
+
+    private static string UnescapeReleaseString(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+        var builder = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '%' && i + 2 < value.Length
+                && int.TryParse(value.Substring(i + 1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code))
+            {
+                builder.Append((char)code);
+                i += 2;
+            }
+            else
+            {
+                builder.Append(value[i]);
+            }
+        }
+        return builder.ToString();
     }
 }

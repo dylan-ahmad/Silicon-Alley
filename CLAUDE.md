@@ -168,7 +168,7 @@ line that has shipped.
   defaults **1** (a debut, so no sequel bonus); `ipReputation 0`. Deal defaults: `dealPublisher` **-1**
   (NOT 0 — 0 is a valid publisher ordinal) ⇒ no active deal ⇒ old saves ship freely with no deadline;
   `dealDeadlineDay`/`dealPayout` 0. The review score #20, the launch jump and the support age-factor are
-  derived at ship/tick; review is stored only in the transient ship-report snapshot, not persisted. Then the
+  derived at ship/tick; release-history rows later persist the shipped review + launch jump per release. Then the
   **design-wizard block** (epic #34, **frozen order reserved up front by #40** before any sibling ships):
   `|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId` — all `int`, all default `0`
   (absent ⇒ default ⇒ legacy unchanged). `featureMask 0` ⇒ no extra features (scope ×1.0, quality ceiling
@@ -208,6 +208,21 @@ line that has shipped.
   then awaits manual release; `<= 0` ⇒ `Idle`), so an old save never stalls. Pure trailing append ⇒ **no schema
   bump**. (The derived `ProjectPhase` is unchanged and still computed from Progress; `Stage` is the new source of
   truth for what the studio is doing and what the screen shows.)
+  Then - the next trailing append - `|releaseHistory` - a variable-length per-studio release-history block
+  (issue #78), formatted as
+  `count:day~version~kind~review~quality~launchPayout~launchUnits~publisher~featureMask~platformMask~usedToolsMask~segmentId~productName,...`.
+  `count 0` / absent => empty history. A record is appended in `OnProjectCompleted` before per-project fields
+  reset, so `version`, `ProjectKind`, design masks, publisher ordinal (`-1` = none), net launch payout and
+  launch installed-base jump describe the product that just shipped. `productName` is optional for #82; empty
+  means derive the display name from business type + version. Product names percent-escape `%`, `|`, `;`, `,`,
+  `:` and `~` as `%XX`. Extra fields inside a release record are ignored by older readers. Pure trailing append
+  => **no schema bump**.
+  Then - the next trailing append - `|productName` - the current in-flight product's player-typed display name
+  (issue #82). Empty / absent => derive the display name from the business type, so old saves and untouched
+  projects behave unchanged. The string uses the same percent-escape scheme as release-history product names:
+  `%`, `|`, `;`, `,`, `:` and `~` are encoded as `%XX`. On ship, the current `productName` is copied into the
+  release-history row and transient ship report, then reset for the next project. Pure trailing append => **no
+  schema bump**.
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /
