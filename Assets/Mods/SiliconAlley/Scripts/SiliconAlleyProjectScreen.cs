@@ -61,6 +61,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         { KeyCode.F9, KeyCode.F10, KeyCode.F11, KeyCode.F12, KeyCode.Tab, KeyCode.BackQuote };
 
     private const float WindowWidth = 620f;
+    private const float WizardWidth = 1060f; // issue #81: the Design-stage wizard goes Software-Inc-scale wide
     private const float MaxHeight = 940f; // window caps here (at the 1080 reference) and scrolls beyond
 
     private static readonly int[] ScopeKinds =
@@ -94,6 +95,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private readonly List<WizardPage> _wizardPages = new List<WizardPage>();
     private readonly List<WizardPage> _visiblePages = new List<WizardPage>(); // present pages, rebuilt per refresh
     private int _wizardPage; // index into _visiblePages
+    // Issue #81: the two multi-column phase containers that wrap the folded sub-pages (Features+Tools+Deps;
+    // Platforms+Segment). The other two phases (Concept, Summary) are the sub-page roots directly.
+    private GameObject _phaseDependencies, _phaseMarket;
 
     // Issue #56: wizard shell — step indicator (dots + "Step N of M · Title") + fade/scale-pop page transitions.
     private const int WizardStepCapacity = 8;       // dot pool size (>= the max number of wizard pages)
@@ -115,6 +119,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private TMP_Text _designQualityText, _leadText, _etaText, _conceptNameText;
     private readonly Image[] _scopeImages = new Image[3];
     private readonly Button[] _scopeButtons = new Button[3];
+    private TMP_InputField _productNameInput;
     private Slider _focusSlider;
     // Summary page (placeholder rows today; sub-issues fill them in)
     private GameObject _summaryPage;
@@ -152,16 +157,27 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _wizardNavRow;
     private Button _wizardBackButton, _wizardNextButton;
     private TMP_Text _wizardNextLabel;
+    // Idle section (issue #88: no active project — the player starts the next version here)
+    private GameObject _idleSection;
+    private TMP_Text _idleStatusText, _startLabel;
+    private Button _startButton;
     // Development section (issue #60: card + build-progress bar + stat rows)
     private SiliconAlleyUI.ProgressBar _devBuildBar;
     private SiliconAlleyUI.StatRow _devThroughput, _devBuild, _devEta;
     private TMP_Text _overtimeLabel;
     private Image _overtimeImage;
-    // Testing section (issue #60: card + polish bar + stat rows)
+    // Issue #88: the Development push controls — Send to testing (when the build is done) + Release now (anytime)
+    private TMP_Text _devStatusText, _toTestLabel, _devReleaseLabel;
+    private Button _toTestButton, _devReleaseButton;
+    // Testing / Release-gate section (issue #60 card; issue #88 manual release: status line + Release button)
     private SiliconAlleyUI.ProgressBar _testPolishBar;
     private SiliconAlleyUI.StatRow _testBugs, _testStaff;
-    private TMP_Text _holdLabel;
-    private Image _holdImage;
+    private TMP_Text _shipStatusText, _shipLabel;
+    private Button _shipButton;
+    // Updates section (issue #88: manual post-launch updates for the live catalog — independent of phase)
+    private GameObject _updateSection;
+    private TMP_Text _updateStatusText, _updateLabel;
+    private Button _updateButton;
     // Marketing section (issue #21): shown pre-release (Design→Testing); cash-funded awareness campaign.
     private GameObject _marketingSection;
     private SiliconAlleyUI.StatRow _mktAwareness, _mktHype, _mktSynergy; // #29 synergy row hidden when no agency
@@ -179,7 +195,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private SiliconAlleyUI.ProgressBar _pubShipBar;
     // Release section (transient ship report; issue #60: review + freshness bars + stat rows)
     private SiliconAlleyUI.ProgressBar _relReviewBar, _relFreshBar;
-    private SiliconAlleyUI.StatRow _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
+    private SiliconAlleyUI.StatRow _relProduct, _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
     // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
@@ -311,6 +327,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _marketingSection.SetActive(false);
             _publisherSection.SetActive(false);
             _releaseSection.SetActive(false);
+            _updateSection.SetActive(false);
+            _idleSection.SetActive(false);
             _contractSection.SetActive(false);
             ClampHeight();
             return;
@@ -324,40 +342,61 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var rawProgress = SiliconAlleyState.GetProgress(key);
         var phase = SiliconAlleyState.PhaseOf(rawProgress, size);
         var perHour = SiliconAlleyOfficeSimulator.CurrentHourlyProgress(reg);
-        var phaseName = SiliconAlleyState.PhaseNameKey(phase).GetLocalization();
 
-        _titleText.text = Compose("siliconalley:screen_title", ("phase", phaseName));
+        // Issue #88: the header names the persisted STAGE (Idle / Design / Development / Testing), not the
+        // derived phase — an idle studio shows "Idle", not "Design 0%".
+        var stage = SiliconAlleyState.GetStage(key);
+        var idle = stage == SiliconAlleyState.ProjectStage.Idle;
+        var stageName = SiliconAlleyState.StageNameKey(stage).GetLocalization();
+
+        _titleText.text = Compose("siliconalley:screen_title", ("phase", stageName));
         _studioText.text = Compose("siliconalley:screen_studio",
-            ("business", reg.GetDisplayName()), ("product", ProductName(businessType)));
-        _phaseText.text = Compose("siliconalley:screen_phase",
-            ("phase", phaseName), ("progress", Pct(SiliconAlleyState.PhaseProgressFraction(rawProgress, size))));
-        // Issue #55: reflect the current business type + phase as icons next to their labels.
+            ("business", reg.GetDisplayName()), ("product", DisplayProductName(key, businessType)));
+        // Issue #55: reflect the current business type + phase as icons next to their labels (none when idle).
         SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(businessType?.businessTypeName));
-        SetIconSprite(_phaseIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.PhaseNameKey(phase)));
+        SetIconSprite(_phaseIcon, idle ? null : SiliconAlleyTheme.IconFor(SiliconAlleyState.PhaseNameKey(phase)));
 
-        var avgQ = SiliconAlleyState.GetAverageQuality(key);
-        _summaryText.text = Compose("siliconalley:screen_summary",
-            ("quality", avgQ < 0f ? "—" : Pct(avgQ) + "%"),
-            ("shipeta", EtaText(size - rawProgress, perHour)));
+        if (idle)
+        {
+            _phaseText.text = stageName; // "Idle"
+            _summaryText.text = "siliconalley:screen_idle_summary".GetLocalization();
+        }
+        else
+        {
+            _phaseText.text = Compose("siliconalley:screen_phase",
+                ("phase", stageName), ("progress", Pct(SiliconAlleyState.PhaseProgressFraction(rawProgress, size))));
+            var avgQ = SiliconAlleyState.GetAverageQuality(key);
+            // A product parked at its stage ceiling is done for this stage — show that instead of an ETA.
+            var shipEta = rawProgress >= size
+                ? "siliconalley:screen_ready_short".GetLocalization()
+                : EtaText(size - rawProgress, perHour);
+            _summaryText.text = Compose("siliconalley:screen_summary",
+                ("quality", avgQ < 0f ? "—" : Pct(avgQ) + "%"),
+                ("shipeta", shipEta));
+        }
 
-        var inDesign = phase == SiliconAlleyState.ProjectPhase.Design;
-        var inDevelopment = phase == SiliconAlleyState.ProjectPhase.Development;
-        var inTesting = phase == SiliconAlleyState.ProjectPhase.Testing;
+        // Issue #88: section visibility follows the persisted STAGE — the studio sits Idle until the player
+        // starts a project, then parks at each stage until they push it forward.
+        var inDesign = stage == SiliconAlleyState.ProjectStage.Design;
+        var inDevelopment = stage == SiliconAlleyState.ProjectStage.Development;
+        var inTesting = stage == SiliconAlleyState.ProjectStage.Testing;
+        _idleSection.SetActive(idle);
         _wizardSection.SetActive(inDesign);
         _developmentSection.SetActive(inDevelopment);
         _testingSection.SetActive(inTesting);
-        if (inDesign)
+        if (idle)
+            RefreshIdle(key);
+        else if (inDesign)
             RefreshWizard(reg, businessType, key, size, rawProgress, perHour);
         else if (inDevelopment)
-            RefreshDevelopment(reg, key, size, rawProgress, perHour);
+            RefreshDevelopment(reg, businessType, key, size, rawProgress, perHour);
         else if (inTesting)
-            RefreshTesting(reg, key, perHour);
+            RefreshTesting(reg, businessType, key, perHour, rawProgress >= size);
 
-        // Marketing (issue #21) + Publisher deal (issue #17/#22/#23): pre-release campaign blocks — visible
-        // through Design/Development/Testing, hidden once the project ships (Release). Issue #35: while the
-        // concept wizard is still editable they stay hidden so the wizard is a focused flow; they appear once
-        // the concept is locked. CanEditConcept is true only in the Design phase, so Development/Testing are
-        // unaffected (it is already false there).
+        // Marketing (issue #21) + Publisher deal (issue #17/#22/#23): pre-release campaign blocks — visible on
+        // an ACTIVE project (Design/Development/Testing); hidden when idle (nothing to market). Issue #35:
+        // while the concept wizard is still editable they stay hidden so the wizard is a focused flow; they
+        // appear once the concept is locked. CanEditConcept is true only in the Design phase.
         var preRelease = inDesign || inDevelopment || inTesting;
         var showCampaign = preRelease && !SiliconAlleyState.CanEditConcept(key);
         _marketingSection.SetActive(showCampaign);
@@ -374,6 +413,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (report.Has)
             RefreshRelease(businessType, key, report);
 
+        // Issue #88 (manual updates): the live catalog's post-launch update gate — independent of the current
+        // project's phase. Shown whenever an update is due (installed base + the patch timer); the button is
+        // gated on staffing inside RefreshUpdate (an update is dev work).
+        var updateDue = SiliconAlleyOfficeSimulator.IsUpdateDue(key);
+        _updateSection.SetActive(updateDue);
+        if (updateDue)
+            RefreshUpdate(reg, businessType, key, CountStaff(reg) > 0);
+
         // Contract (issue #27): shown whenever the studio holds a contract (it diverts staff from the product).
         var onContract = SiliconAlleyState.HasContract(key);
         _contractSection.SetActive(onContract);
@@ -384,12 +431,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     }
 
     // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
+    // Issue #81: the window goes wide in the Design stage (the Software-Inc-scale wizard) and stays compact
+    // for every other stage. Set the width FIRST and force a layout pass so the Content (anchored to stretch
+    // with the viewport) reflows at the new width before we measure its height.
     private void ClampHeight()
     {
         if (_contentRt == null || _windowRt == null)
             return;
+        var wide = _currentKey != null && SiliconAlleyState.GetStage(_currentKey) == SiliconAlleyState.ProjectStage.Design;
+        var width = wide ? WizardWidth : WindowWidth;
+        _windowRt.sizeDelta = new Vector2(width, _windowRt.sizeDelta.y);
+        Canvas.ForceUpdateCanvases(); // propagate the new window width down to the viewport + content rects
         LayoutRebuilder.ForceRebuildLayoutImmediate(_contentRt);
-        _windowRt.sizeDelta = new Vector2(WindowWidth, Mathf.Min(_contentRt.rect.height, MaxHeight));
+        _windowRt.sizeDelta = new Vector2(width, Mathf.Min(_contentRt.rect.height, MaxHeight));
     }
 
     // Issue #35: drive the Design-phase wizard. While the concept is editable, show one page at a time with
@@ -435,7 +489,32 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         var isLast = _wizardPage >= _visiblePages.Count - 1;
         _wizardBackButton.interactable = _wizardPage > 0;
-        _wizardNextLabel.text = (isLast ? "siliconalley:wiz_confirm" : "siliconalley:wiz_next").GetLocalization();
+        _wizardNextLabel.text = (isLast ? "siliconalley:wiz_startdev" : "siliconalley:wiz_next").GetLocalization();
+    }
+
+    // Issue #81: the Dependencies phase folds Features + Tools + Coverage into columns. Each column self-hides
+    // when its content is absent (a type with no tools, or no features selected yet) so there's no empty
+    // column, then defers to the existing sub-page refreshers.
+    private void RefreshDependenciesPhase()
+    {
+        var hasFeatures = SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName).Length > 0;
+        var hasTools = SiliconAlleyTools.ToolsFor(_ctxBusinessType?.businessTypeName).Length > 0;
+        var hasDeps = SiliconAlleyState.GetFeatureMask(_currentKey) != 0;
+        _featuresPage.SetActive(hasFeatures);
+        _toolsPage.SetActive(hasTools);
+        _dependenciesPage.SetActive(hasDeps);
+        if (hasFeatures) RefreshFeaturesPage();
+        if (hasTools) RefreshToolsPage();
+        if (hasDeps) RefreshDependenciesPage();
+    }
+
+    // Issue #81: the Market phase folds Platforms + Segment into columns (segments are universal).
+    private void RefreshMarketPhase()
+    {
+        var hasPlatforms = SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName).Length > 0;
+        _platformsPage.SetActive(hasPlatforms);
+        if (hasPlatforms) RefreshPlatformsPage();
+        RefreshMarketPage();
     }
 
     // Filter _wizardPages down to the pages whose feature is present (Concept + Summary today). Sub-issues'
@@ -523,7 +602,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void RefreshConceptPage()
     {
         var key = _currentKey;
-        _conceptNameText.text = Compose("siliconalley:wiz_product", ("product", ProductName(_ctxBusinessType)));
+        var productName = DisplayProductName(key, _ctxBusinessType);
+        _conceptNameText.text = Compose("siliconalley:wiz_product", ("product", productName));
+        if (_productNameInput.text != productName)
+        {
+            _suppress = true;
+            _productNameInput.SetTextWithoutNotify(productName);
+            _suppress = false;
+        }
 
         var designQ = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
         _designQualityText.text = Compose("siliconalley:screen_designquality",
@@ -828,7 +914,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var type = _ctxBusinessType?.businessTypeName;
 
         // Hero: product name + "scope · size · ship eta", with the per-scope icon.
-        _sumHeroTitle.text = ProductName(_ctxBusinessType);
+        _sumHeroTitle.text = DisplayProductName(key, _ctxBusinessType);
         SetIconSprite(_sumScopeIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.ProjectTypeNameKey(kind)));
         _sumHeroSub.text = Compose("siliconalley:wiz_sum_scope",
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
@@ -902,13 +988,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (q < 0f)
             q = SiliconAlleyState.GetAverageQuality(key);
         _recapText.text = Compose("siliconalley:wiz_recap",
+            ("product", DisplayProductName(key, _ctxBusinessType)),
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
             ("focus", Pct(SiliconAlleyState.GetDesignFocus(key)) + "%"),
             ("quality", q < 0f ? "—" : Pct(q) + "%"));
         _recapStatusText.text = "siliconalley:screen_locked".GetLocalization();
     }
 
-    private void RefreshDevelopment(BuildingRegistration reg, string key, float size, float rawProgress, float perHour)
+    private void RefreshDevelopment(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
     {
         SetProgress(_devBuildBar, size > 0f ? Mathf.Clamp01(rawProgress / size) : 0f);
         SetStat(_devBuild, "phase_development", "siliconalley:screen_dev_lbl_build",
@@ -925,9 +1012,28 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _overtimeLabel.text = Compose("siliconalley:screen_overtime",
             ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()));
         _overtimeImage.color = on ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+
+        // Issue #88: the player pushes the build forward. "Send to testing" appears once Development has filled
+        // (parked at its ceiling); "Release now" is available any moment (an early ship reviews worse).
+        var requested = SiliconAlleyState.IsReleaseRequested(key);
+        var devDone = rawProgress >= SiliconAlleyState.StageCeiling(SiliconAlleyState.ProjectStage.Development, size);
+        if (requested)
+            _devStatusText.text = "siliconalley:screen_release_pending".GetLocalization();
+        else if (devDone)
+            _devStatusText.text = Compose("siliconalley:screen_dev_done", ("demand", DemandText(businessType)));
+        else
+            _devStatusText.text = "siliconalley:screen_dev_inprogress".GetLocalization();
+        _toTestLabel.text = "siliconalley:screen_to_testing".GetLocalization();
+        _toTestButton.interactable = devDone && !requested;
+        _devReleaseLabel.text = (requested
+            ? "siliconalley:screen_release_pending_btn"
+            : "siliconalley:screen_release_btn").GetLocalization();
+        _devReleaseButton.interactable = !requested;
     }
 
-    private void RefreshTesting(BuildingRegistration reg, string key, float perHour)
+    // Issue #88: the Testing/QA stage. Shows the live polish/bug readouts; the Release button ships any moment
+    // (parked at 100% = fully tested, but you can release earlier — it reviews worse). Pending ⇒ "Releasing…".
+    private void RefreshTesting(BuildingRegistration reg, BusinessType businessType, string key, float perHour, bool parked)
     {
         // Issue #19: the real tracked bug count + the derived 0..100% polish — polish drives the bar.
         SetProgress(_testPolishBar, SiliconAlleyState.GetPolish(key));
@@ -936,10 +1042,58 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SetStat(_testStaff, "stat_market", "siliconalley:screen_test_lbl_staff",
             ThroughputValue(reg, perHour), SiliconAlleyTheme.Text);
 
-        var held = SiliconAlleyState.IsHold(key);
-        _holdLabel.text = Compose("siliconalley:screen_hold",
-            ("state", (held ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()));
-        _holdImage.color = held ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+        var requested = SiliconAlleyState.IsReleaseRequested(key);
+        if (requested)
+            _shipStatusText.text = "siliconalley:screen_release_pending".GetLocalization();
+        else if (parked)
+            // Fully tested: lead with the market-demand timing hint — releasing in a demand peak earns more.
+            _shipStatusText.text = Compose("siliconalley:screen_release_ready", ("demand", DemandText(businessType)));
+        else
+            _shipStatusText.text = Compose("siliconalley:screen_release_testing", ("demand", DemandText(businessType)));
+        _shipLabel.text = (requested
+            ? "siliconalley:screen_release_pending_btn"
+            : "siliconalley:screen_release_btn").GetLocalization();
+        // Release any moment in Testing (an early ship reviews worse — the player's call).
+        _shipButton.interactable = !requested;
+    }
+
+    // Issue #88: the Idle stage — no active project. Staff do no product work; the player starts the next
+    // version here. The button label carries the next version number (the previous ship already bumped it).
+    private void RefreshIdle(string key)
+    {
+        _idleStatusText.text = "siliconalley:screen_idle_status".GetLocalization();
+        _startLabel.text = Compose("siliconalley:screen_start_project",
+            ("version", "v" + SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)));
+        _startButton.interactable = true;
+    }
+
+    // Issue #88: the manual post-launch update gate for the live catalog. Shown whenever an update is due;
+    // the button credits the support patch (same revenue the old auto-patch did) on the player's command,
+    // gated on staffing (an update is dev work). A pending request shows "Update queued…".
+    private void RefreshUpdate(BuildingRegistration reg, BusinessType businessType, string key, bool staffed)
+    {
+        var requested = SiliconAlleyState.IsUpdateRequested(key);
+        if (requested)
+            _updateStatusText.text = "siliconalley:screen_update_pending".GetLocalization();
+        else if (!staffed)
+            _updateStatusText.text = "siliconalley:screen_update_needstaff".GetLocalization();
+        else
+            _updateStatusText.text = Compose("siliconalley:screen_update_ready", ("demand", DemandText(businessType)));
+        var revenue = SiliconAlleyOfficeSimulator.EstimateUpdateRevenue(reg, businessType, key);
+        _updateLabel.text = requested
+            ? "siliconalley:screen_update_pending_btn".GetLocalization()
+            : Compose("siliconalley:screen_update_btn", ("revenue", Money(revenue)));
+        _updateButton.interactable = staffed && !requested;
+    }
+
+    // Issue #88: the current market-demand multiplier as a timing hint ("x1.12"). Releasing while it is high
+    // earns more (it scales launch + update revenue, #28). Neutral "x1.00" without a resolvable type.
+    private static string DemandText(BusinessType businessType)
+    {
+        var demand = businessType == null
+            ? 1f
+            : SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
+        return "x" + demand.ToString("F2", CultureInfo.InvariantCulture);
     }
 
     // Shared "{staff} staff · {perhour}/h" value for the development throughput + testing QA stat rows.
@@ -950,6 +1104,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void RefreshRelease(BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
+        SetStat(_relProduct, "stat_market", "siliconalley:screen_rel_lbl_product",
+            string.IsNullOrWhiteSpace(report.ProductName) ? DisplayProductName(key, businessType) : report.ProductName,
+            SiliconAlleyTheme.Header);
         // Issue #20/#60: lead with the critical-reception score + a 0..10 review bar (color-graded).
         SetStatNum(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review", report.Review, FmtReview, SiliconAlleyTheme.Header);
         var review01 = Mathf.Clamp01(report.Review / 10f);
@@ -1107,6 +1264,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SiliconAlleyState.SetDesignFocus(_currentKey, value);
     }
 
+    private void OnProductNameChanged(string value)
+    {
+        if (_suppress)
+            return;
+        SiliconAlleyState.SetProductName(_currentKey, value);
+    }
+
     // Issue #35: wizard navigation. Back steps to the previous page; Next advances, and on the last (Summary)
     // page it doubles as Confirm — committing the concept via LockConcept (mirrors the old Lock button).
     private void OnWizardBack()
@@ -1125,7 +1289,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             return;
         }
         if (_wizardPage >= _visiblePages.Count - 1)
-            SiliconAlleyState.LockConcept(_currentKey); // Confirm on the Summary page
+            SiliconAlleyState.BeginDevelopment(_currentKey); // issue #88: Summary confirm = Start development
         else
             _wizardPage++;
         Refresh();
@@ -1179,23 +1343,41 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         Refresh();
     }
 
-    private void OnToggleHold()
+    // Issue #88: queue the current product's release (shared by the Development + Testing buttons). The
+    // simulator ships it on its next tick at the CURRENT accrued quality — an early release reviews worse.
+    private void OnReleaseNow()
     {
-        SiliconAlleyState.SetHold(_currentKey, !SiliconAlleyState.IsHold(_currentKey));
+        SiliconAlleyState.RequestRelease(_currentKey);
         Refresh();
     }
 
-    private void OnShipNow()
+    // Issue #88: start the next project (the next version). Opens the Design wizard; also clears any lingering
+    // ship report. Shared by the Idle section's "Start new project" and the ship report's "Start next project".
+    private void OnStartProject()
     {
-        SiliconAlleyState.ShipNow(_currentKey);
-        Refresh();
-    }
-
-    private void OnStartNext()
-    {
+        SiliconAlleyState.StartProject(_currentKey);
         SiliconAlleyState.ClearLastShip(_currentKey);
         Refresh();
     }
+
+    // Issue #88: push the finished build from Development into Testing/QA (available once Development is done).
+    private void OnSendToTesting()
+    {
+        SiliconAlleyState.SendToTesting(_currentKey);
+        Refresh();
+    }
+
+    // Issue #88: queue a post-launch update for the live catalog. The simulator credits the support patch on
+    // its next staffed tick (when an update is actually due) and clears the request.
+    private void OnReleaseUpdate()
+    {
+        SiliconAlleyState.RequestUpdate(_currentKey);
+        Refresh();
+    }
+
+    // Issue #88: the ship report's button now genuinely starts the next project (it used to just dismiss the
+    // report, while the next project auto-started). Delegates to the shared start handler.
+    private void OnStartNext() => OnStartProject();
 
     // ---- issue #21 (Marketing) callbacks -----------------------------------------------------------
 
@@ -1289,6 +1471,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             return "project";
         return businessType.businessProducts[0].itemName.GetLocalization();
     }
+
+    private static string DisplayProductName(string key, BusinessType businessType) =>
+        SiliconAlleyState.GetProductNameOrDefault(key, ProductName(businessType));
 
     private static string Money(float amount) =>
         "$" + Mathf.RoundToInt(amount).ToString("N0", CultureInfo.InvariantCulture);
@@ -1457,6 +1642,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _phaseText = MakeText(phaseRow.transform, "Phase", 16, TextAnchor.MiddleLeft);
         _summaryText = MakeText(root, "Summary", 15, TextAnchor.MiddleLeft);
 
+        // ---- Idle section (issue #88: no active project — start the next version) ----
+        _idleSection = MakeSection(root);
+        MakeHeader(_idleSection.transform, "siliconalley:screen_idle_header");
+        var idleCard = MakeCardPanel(_idleSection.transform, "IdleCard");
+        _idleStatusText = MakeText(idleCard.transform, "IdleStatus", 13, TextAnchor.MiddleLeft);
+        _idleStatusText.color = SiliconAlleyTheme.TextMuted;
+        _startButton = MakeButton(idleCard.transform, "", OnStartProject, primary: true);
+        _startLabel = _startButton.GetComponentInChildren<TMP_Text>();
+
         // ---- Design wizard (issue #35): paged Concept → … → Summary, shown in the Design phase ----
         _wizardSection = MakeSection(root);
         MakeDivider(_wizardSection.transform);
@@ -1476,6 +1670,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetButtonIcon(btn, SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
         }
         _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", 15, TextAnchor.MiddleLeft);
+        MakeHeader(_conceptPage.transform, "siliconalley:screen_product_name");
+        _productNameInput = MakeInputField(_conceptPage.transform, "ProductNameInput",
+            "siliconalley:screen_product_name_placeholder".GetLocalization(), 64);
+        _productNameInput.onValueChanged.AddListener(OnProductNameChanged);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_focus");
         var focusRow = MakeRow(_conceptPage.transform, 10f, 28);
         FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_polish".GetLocalization()), 70f);
@@ -1564,48 +1762,36 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _depCards[i] = MakeCardItem(_dependenciesPage.transform, null, 1); // read-only coverage card (1 "needs …" chip)
         _depReadout = MakeText(_dependenciesPage.transform, "DepReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
-        // Register the wizard pages. RebuildVisiblePages sorts by Order (canonical step), so the order of these
-        // calls doesn't matter — each sibling just registers with its step number and gates with IsPresent.
+        // ---- Issue #81: fold the 7 sub-pages into 4 wide, multi-column phases ----
+        // Concept and Summary stay single-column. Dependencies groups Features + Tools + Coverage as columns;
+        // Market groups Platforms + Segment as columns. The sub-page roots (built above) are re-parented into
+        // MakeColumns rows — their build + Refresh code is untouched; each column self-hides when empty.
+        _phaseDependencies = MakeSection(_wizardSection.transform);
+        var depsColumns = MakeColumns(_phaseDependencies.transform);
+        _featuresPage.transform.SetParent(depsColumns.transform, false);
+        _toolsPage.transform.SetParent(depsColumns.transform, false);
+        _dependenciesPage.transform.SetParent(depsColumns.transform, false);
+
+        _phaseMarket = MakeSection(_wizardSection.transform);
+        var marketColumns = MakeColumns(_phaseMarket.transform);
+        _platformsPage.transform.SetParent(marketColumns.transform, false);
+        _marketPage.transform.SetParent(marketColumns.transform, false);
+
+        // Register the 4 phases. RebuildVisiblePages sorts by Order (canonical step), so call order is free.
         _wizardPages.Add(new WizardPage { Order = 0, Root = _conceptPage, IsPresent = () => true, Refresh = RefreshConceptPage, TitleKey = "siliconalley:wiz_step_concept" });
-        _wizardPages.Add(new WizardPage { Order = 100, Root = _summaryPage, IsPresent = () => true, Refresh = RefreshSummaryPage, TitleKey = "siliconalley:wiz_step_summary" });
-        // Issue #26: Features (step 2), present for any business type that has a feature list.
+        // Dependencies phase: present if the type has any features OR tools (each column self-hides below).
         _wizardPages.Add(new WizardPage
         {
             Order = 10,
-            Root = _featuresPage,
-            IsPresent = () => SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName).Length > 0,
-            Refresh = RefreshFeaturesPage,
-            TitleKey = "siliconalley:wiz_step_features",
-        });
-        // Issue #36: Editors & tools (step 3).
-        _wizardPages.Add(new WizardPage
-        {
-            Order = 20,
-            Root = _toolsPage,
-            IsPresent = () => SiliconAlleyTools.ToolsFor(_ctxBusinessType?.businessTypeName).Length > 0,
-            Refresh = RefreshToolsPage,
-            TitleKey = "siliconalley:wiz_step_tools",
-        });
-        // Issue #39: Dependencies (step 3b) — only once features are selected (else there's nothing to cover).
-        _wizardPages.Add(new WizardPage
-        {
-            Order = 25,
-            Root = _dependenciesPage,
-            IsPresent = () => SiliconAlleyState.GetFeatureMask(_currentKey) != 0,
-            Refresh = RefreshDependenciesPage,
+            Root = _phaseDependencies,
+            IsPresent = () => SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName).Length > 0
+                || SiliconAlleyTools.ToolsFor(_ctxBusinessType?.businessTypeName).Length > 0,
+            Refresh = RefreshDependenciesPhase,
             TitleKey = "siliconalley:wiz_step_deps",
         });
-        // Issue #37: Operating systems (step 4).
-        _wizardPages.Add(new WizardPage
-        {
-            Order = 30,
-            Root = _platformsPage,
-            IsPresent = () => SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName).Length > 0,
-            Refresh = RefreshPlatformsPage,
-            TitleKey = "siliconalley:wiz_step_platforms",
-        });
-        // Issue #38: Market / audience segment (step 5). Segments are universal, so the page is always present.
-        _wizardPages.Add(new WizardPage { Order = 40, Root = _marketPage, IsPresent = () => true, Refresh = RefreshMarketPage, TitleKey = "siliconalley:wiz_step_market" });
+        // Market phase: Platforms (self-hides if none) + Segment (universal), always present.
+        _wizardPages.Add(new WizardPage { Order = 20, Root = _phaseMarket, IsPresent = () => true, Refresh = RefreshMarketPhase, TitleKey = "siliconalley:wiz_step_market" });
+        _wizardPages.Add(new WizardPage { Order = 100, Root = _summaryPage, IsPresent = () => true, Refresh = RefreshSummaryPage, TitleKey = "siliconalley:wiz_step_summary" });
 
         // Issue #56: each page fades/scales in on entry — give every page a CanvasGroup to drive the alpha.
         foreach (var page in _wizardPages)
@@ -1635,19 +1821,37 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var overtimeButton = MakeButton(devCard.transform, "", OnToggleOvertime);
         _overtimeImage = overtimeButton.GetComponent<Image>();
         _overtimeLabel = overtimeButton.GetComponentInChildren<TMP_Text>();
+        // Issue #88: the Development push controls — a status line + Send to testing / Release now buttons.
+        _devStatusText = MakeText(devCard.transform, "DevStatus", 13, TextAnchor.MiddleLeft);
+        _devStatusText.color = SiliconAlleyTheme.TextMuted;
+        var devButtonRow = MakeRow(devCard.transform, 10f, 40);
+        _toTestButton = MakeButton(devButtonRow.transform, "", OnSendToTesting);
+        _toTestLabel = _toTestButton.GetComponentInChildren<TMP_Text>();
+        _devReleaseButton = MakeButton(devButtonRow.transform, "", OnReleaseNow, primary: true);
+        _devReleaseLabel = _devReleaseButton.GetComponentInChildren<TMP_Text>();
 
-        // ---- Testing section (issue #60: card + polish bar + stat rows) ----
+        // ---- Testing / Release-gate section (issue #60 card; issue #88 manual release) ----
         _testingSection = MakeSection(root);
         MakeHeader(_testingSection.transform, "siliconalley:screen_test_header");
         var testCard = MakeCardPanel(_testingSection.transform, "TestCard");
         _testPolishBar = MakeProgressBar(testCard.transform);
         _testBugs = MakeStatRow(testCard.transform);
         _testStaff = MakeStatRow(testCard.transform);
-        var testRow = MakeRow(testCard.transform, 10f, 40);
-        var holdButton = MakeButton(testRow.transform, "", OnToggleHold);
-        _holdImage = holdButton.GetComponent<Image>();
-        _holdLabel = holdButton.GetComponentInChildren<TMP_Text>();
-        MakeButton(testRow.transform, "siliconalley:screen_ship".GetLocalization(), OnShipNow, primary: true);
+        // Manual release: a status line (ready / market-demand timing hint) + the Release button. Replaces the
+        // old Hold toggle + Ship-now — a product no longer auto-ships (see SiliconAlleyOfficeSimulator).
+        _shipStatusText = MakeText(testCard.transform, "ShipStatus", 13, TextAnchor.MiddleLeft);
+        _shipStatusText.color = SiliconAlleyTheme.TextMuted;
+        _shipButton = MakeButton(testCard.transform, "", OnReleaseNow, primary: true);
+        _shipLabel = _shipButton.GetComponentInChildren<TMP_Text>();
+
+        // ---- Updates section (issue #88: manual post-launch updates for the live catalog) ----
+        _updateSection = MakeSection(root);
+        MakeHeader(_updateSection.transform, "siliconalley:screen_update_header");
+        var updateCard = MakeCardPanel(_updateSection.transform, "UpdateCard");
+        _updateStatusText = MakeText(updateCard.transform, "UpdateStatus", 13, TextAnchor.MiddleLeft);
+        _updateStatusText.color = SiliconAlleyTheme.TextMuted;
+        _updateButton = MakeButton(updateCard.transform, "", OnReleaseUpdate, primary: true);
+        _updateLabel = _updateButton.GetComponentInChildren<TMP_Text>();
 
         // ---- Marketing section (issue #21; issue #60 card restyle) ----
         _marketingSection = MakeSection(root);
@@ -1690,6 +1894,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _releaseSection = MakeSection(root);
         MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
         var relCard = MakeCardPanel(_releaseSection.transform, "RelCard");
+        _relProduct = MakeStatRow(relCard.transform);
         _relReview = MakeStatRow(relCard.transform);
         _relReviewBar = MakeProgressBar(relCard.transform);
         _relQuality = MakeStatRow(relCard.transform);

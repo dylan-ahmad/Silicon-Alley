@@ -139,7 +139,7 @@ public class SiliconAlleyClientDialog : Dialog
             return new DialogEntry
             {
                 headerKey = npcNameKey,
-                messageData = "siliconalley:client_status_none".GetLocalization(),
+                messageData = "siliconalley:client_status_none".Localize(),
                 Template = DialogEntry.TemplateType.Text,
                 OnCancel = DialogController.current.CancelDialog,
             };
@@ -172,7 +172,7 @@ public class SiliconAlleyClientDialog : Dialog
         return new DialogEntry
         {
             headerKey = npcNameKey,
-            messageData = "siliconalley:client_greeting".GetLocalization(),
+            messageData = "siliconalley:client_greeting".Localize(),
             Template = DialogEntry.TemplateType.Text,
             ConfirmTextOverride = "siliconalley:client_view_studios".Localize(),
             OnConfirm = OpenDashboard,

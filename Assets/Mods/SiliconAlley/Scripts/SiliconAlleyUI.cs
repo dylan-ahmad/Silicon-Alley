@@ -189,15 +189,15 @@ public static class SiliconAlleyUI
 
     public sealed class CardItem
     {
-        public GameObject Root;
-        public Button Button;       // null for a read-only card
-        public Image Card;          // background — set its colour for the state tint
-        public Image Icon;
-        public TMP_Text Title;
-        public Image[] Chips;
-        public TMP_Text[] ChipLabels;
-        public Image Badge;
-        public TMP_Text BadgeLabel;
+        public GameObject Root = null!;
+        public Button? Button;      // null for a read-only card
+        public Image Card = null!;  // background — set its colour for the state tint
+        public Image Icon = null!;
+        public TMP_Text Title = null!;
+        public Image[] Chips = null!;
+        public TMP_Text[] ChipLabels = null!;
+        public Image Badge = null!;
+        public TMP_Text BadgeLabel = null!;
     }
 
     public static CardItem MakeCardItem(Transform parent, UnityAction onClick, int chipCapacity = 3)
@@ -314,7 +314,7 @@ public static class SiliconAlleyUI
             var on = texts != null && i < texts.Length && !string.IsNullOrEmpty(texts[i]);
             c.Chips[i].gameObject.SetActive(on);
             if (on)
-                c.ChipLabels[i].text = texts[i];
+                c.ChipLabels[i].text = texts![i]; // `on` already guarantees texts != null
         }
     }
 
@@ -349,10 +349,10 @@ public static class SiliconAlleyUI
 
     public sealed class StatRow
     {
-        public GameObject Root;
-        public Image Icon;
-        public TMP_Text Label;
-        public TMP_Text Value;
+        public GameObject Root = null!;
+        public Image Icon = null!;
+        public TMP_Text Label = null!;
+        public TMP_Text Value = null!;
     }
 
     // "[icon 22px] label (muted, hugs left) …… value (bold, right-aligned, fills + wraps)".
@@ -394,10 +394,10 @@ public static class SiliconAlleyUI
 
     public sealed class ProgressBar
     {
-        public GameObject Root;
-        public Image Track; // background
-        public Image Fill;  // accent fill (fillAmount = fraction)
-        public SiliconAlleyAnimatedFill Anim; // issue #61: tweens Fill.fillAmount toward the target
+        public GameObject Root = null!;
+        public Image Track = null!; // background
+        public Image Fill = null!;  // accent fill (fillAmount = fraction)
+        public SiliconAlleyAnimatedFill Anim = null!; // issue #61: tweens Fill.fillAmount toward the target
     }
 
     // A full-width progress bar of fixed height. Track tinted Elevated, fill tinted Accent; both reuse the
@@ -508,6 +508,23 @@ public static class SiliconAlleyUI
         return go;
     }
 
+    // Issue #81: a row of equal-width, TOP-aligned columns for a wide multi-column layout (the design wizard's
+    // Software-Inc-scale phases; reusable by the dependencies/market screens). Unlike MakeRow, columns are not
+    // vertically centred and there's no forced min-height — each column sizes to its own content and the row's
+    // height is the tallest column. Put a MakeSection in each column to stack that column's controls.
+    public static GameObject MakeColumns(Transform parent, float spacing = 14f)
+    {
+        var go = new GameObject("Columns", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = spacing;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = true;   // equal-width columns share the wide window
+        h.childForceExpandHeight = false; // each column hugs its content height
+        h.childAlignment = TextAnchor.UpperCenter;
+        return go;
+    }
+
     public static void Stretch(RectTransform rt)
     {
         rt.anchorMin = Vector2.zero;
@@ -573,6 +590,38 @@ public static class SiliconAlleyUI
         slider.wholeNumbers = false;
         slider.value = 0.5f;
         return slider;
+    }
+
+    public static TMP_InputField MakeInputField(Transform parent, string name, string placeholderText, int characterLimit = 64)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var image = go.AddComponent<Image>();
+        image.color = SiliconAlleyTheme.Elevated;
+        ApplySlice(image, SiliconAlleyTheme.ButtonSprite);
+        var input = go.AddComponent<TMP_InputField>();
+        input.targetGraphic = image;
+        input.characterLimit = characterLimit;
+        input.lineType = TMP_InputField.LineType.SingleLine;
+        input.textViewport = (RectTransform)go.transform;
+
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = 38f;
+        le.flexibleWidth = 1f;
+
+        var text = MakeText(go.transform, "Text", SiliconAlleyTheme.Sizes.Button, TextAnchor.MiddleLeft);
+        text.margin = new Vector4(12f, 7f, 12f, 0f);
+        Stretch(text.rectTransform);
+        input.textComponent = text;
+
+        var placeholder = MakeText(go.transform, "Placeholder", SiliconAlleyTheme.Sizes.Button, TextAnchor.MiddleLeft, FontStyle.Italic);
+        placeholder.text = placeholderText;
+        placeholder.color = SiliconAlleyTheme.TextMuted;
+        placeholder.margin = new Vector4(12f, 7f, 12f, 0f);
+        Stretch(placeholder.rectTransform);
+        input.placeholder = placeholder;
+
+        return input;
     }
 }
 

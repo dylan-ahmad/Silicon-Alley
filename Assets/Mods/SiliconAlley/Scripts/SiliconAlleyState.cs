@@ -102,6 +102,26 @@ public static class SiliconAlleyState
         public float ContractProgress;    // accrued work toward the contract
         public int ContractDeadlineDay;   // absolute game-day the contract is due
         public float ContractPayout;      // guaranteed sum paid on an on-time delivery
+        // Issue #88 (player-driven lifecycle): the studio's CURRENT stage. A studio is Idle by default and
+        // only works when the player starts a project; staff then work each stage but PARK at its ceiling
+        // until the player pushes forward (Start development = confirm wizard; Send to testing; Release).
+        // Persisted (trailing append, index 38). New studios default Idle (0). SAVE-COMPAT: absent in an old
+        // save ⇒ inferred from Progress in LoadFrom (a legacy in-flight project keeps running, doesn't stall).
+        // Append-only ordinals: ProjectStage { Idle=0, Design=1, Development=2, Testing=3 } (Release is the
+        // transient ship action, not a stored stage).
+        public int Stage;                 // ProjectStage ordinal; 0 = Idle (default)
+        // Issue #78 (release history): persisted per-studio records, appended once per shipped product.
+        // Stored as one trailing variable-length field after Stage. Empty for old saves.
+        public readonly List<ReleaseRecord> Releases = new List<ReleaseRecord>();
+        // Issue #82 (product naming): player-typed name for the CURRENT project. Empty means callers derive
+        // the product display name from the business type, preserving old saves and untouched projects.
+        public string ProductName = string.Empty;
+        // Issue #83 (build-or-buy dependencies): explicit OS/runtime/framework dependency slots. Owned is a
+        // studio-level self-built asset that survives completion; used/vendor are current-project choices.
+        // Persisted as pure trailing appends after productName. Vendor ordinals use -1 = none/self-built.
+        public int OwnedDependencyMask;
+        public int UsedDependencyMask;
+        public int[] DependencyVendorOrdinals;
         // Issue #26: the business type (game/office/security) that owns this building's current project, noted
         // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
         // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
@@ -113,6 +133,14 @@ public static class SiliconAlleyState
         // Issue #20 (Reviews): LastShipReview is the 0..10 critical-reception score derived at that ship.
         public bool HasLastShip;
         public float LastShipQuality, LastShipPayout, LastShipRepMult, LastShipMarketMult, LastShipReview;
+        public string LastShipProductName = string.Empty;
+        // Manual release (Software-Inc-style): the player decides when a finished product (and each post-
+        // launch update) goes live. Both are transient (NOT persisted): a product that is "ready to release"
+        // is derived from Progress >= size; an update from the patch timer (see the simulator). The flag is a
+        // one-shot request the UI sets and the next staffed/unstaffed hourly tick consumes — lost on reload,
+        // which is harmless (the product simply stays parked, ready to release again).
+        public bool ReleaseRequested;
+        public bool UpdateRequested;
     }
 
     private static readonly Dictionary<string, BusinessState> States = new Dictionary<string, BusinessState>();
@@ -230,6 +258,43 @@ public static class SiliconAlleyState
     private const float DesignFraction = 0.15f;      // Design occupies 0%..15% of ProjectSize
     private const float DevelopmentFraction = 0.70f; // Development 15%..70%, Testing 70%..100%
 
+    // Issue #88 (player-driven lifecycle): the studio's PERSISTED stage — distinct from the derived phase.
+    // The studio is Idle until the player starts a project; staff then work each stage but the simulator
+    // parks Progress at the stage ceiling until the player pushes forward. APPEND-ONLY ordinals (persisted).
+    public enum ProjectStage { Idle = 0, Design = 1, Development = 2, Testing = 3 }
+
+    // Issue #78: persisted per-release row. ProductName is optional/escaped; empty means callers derive the
+    // name from business type + version. #83 appends a dependency snapshot so recurring support can keep
+    // charging royalties for licensed dependencies after current-project choices reset.
+    public readonly struct ReleaseRecord
+    {
+        public readonly int Day, Version, Kind, LaunchUnits, Publisher, FeatureMask, PlatformMask, UsedToolsMask, SegmentId;
+        public readonly int UsedDependencyMask;
+        public readonly float Review, Quality, LaunchPayout;
+        public readonly string ProductName, DependencyVendorOrdinals;
+
+        public ReleaseRecord(int day, int version, int kind, float review, float quality, float launchPayout,
+            int launchUnits, int publisher, int featureMask, int platformMask, int usedToolsMask, int segmentId,
+            string productName, int usedDependencyMask = 0, string dependencyVendorOrdinals = "")
+        {
+            Day = day;
+            Version = version;
+            Kind = kind;
+            Review = review;
+            Quality = quality;
+            LaunchPayout = launchPayout;
+            LaunchUnits = launchUnits;
+            Publisher = publisher;
+            FeatureMask = featureMask;
+            PlatformMask = platformMask;
+            UsedToolsMask = usedToolsMask;
+            SegmentId = segmentId;
+            ProductName = productName ?? string.Empty;
+            UsedDependencyMask = usedDependencyMask;
+            DependencyVendorOrdinals = dependencyVendorOrdinals ?? string.Empty;
+        }
+    }
+
     // Phase math takes the project's effective size (issue #3: it varies per project type), rather than
     // the global ProjectSize, so a Quick/Standard/Ambitious project reports its own phases and ETAs.
     public static ProjectPhase PhaseOf(float progress, float size)
@@ -275,6 +340,19 @@ public static class SiliconAlleyState
         }
     }
 
+    // Issue #88: the player-facing label for the studio's current STAGE (the persisted lifecycle position),
+    // used by the screen's header. Idle has its own key; the active stages reuse the phase names.
+    public static string StageNameKey(ProjectStage stage)
+    {
+        switch (stage)
+        {
+            case ProjectStage.Design: return "siliconalley:phase_design";
+            case ProjectStage.Development: return "siliconalley:phase_development";
+            case ProjectStage.Testing: return "siliconalley:phase_testing";
+            default: return "siliconalley:stage_idle";
+        }
+    }
+
     private static BusinessState Get(string key)
     {
         if (!States.TryGetValue(key, out var state))
@@ -283,6 +361,24 @@ public static class SiliconAlleyState
             States[key] = state;
         }
         return state;
+    }
+
+    private static int[] EnsureDependencyVendors(BusinessState state)
+    {
+        if (state.DependencyVendorOrdinals == null)
+        {
+            state.DependencyVendorOrdinals = new int[SiliconAlleyProductDependencies.MaxCount];
+            for (var i = 0; i < state.DependencyVendorOrdinals.Length; i++)
+                state.DependencyVendorOrdinals[i] = -1;
+        }
+        else if (state.DependencyVendorOrdinals.Length < SiliconAlleyProductDependencies.MaxCount)
+        {
+            var expanded = new int[SiliconAlleyProductDependencies.MaxCount];
+            for (var i = 0; i < expanded.Length; i++)
+                expanded[i] = i < state.DependencyVendorOrdinals.Length ? state.DependencyVendorOrdinals[i] : -1;
+            state.DependencyVendorOrdinals = expanded;
+        }
+        return state.DependencyVendorOrdinals;
     }
 
     public static string KeyFor(BuildingRegistration registration)
@@ -300,6 +396,23 @@ public static class SiliconAlleyState
     public static float GetReputation(string key) => Get(key).Reputation;
     public static int GetInstalledBase(string key) => Get(key).InstalledBase;
     public static int GetLastPatchDay(string key) => Get(key).LastPatchDay;
+    public static string GetProductName(string key) => Get(key).ProductName ?? string.Empty;
+    public static string GetProductNameOrDefault(string key, string defaultName)
+    {
+        var name = GetProductName(key);
+        return string.IsNullOrWhiteSpace(name) ? defaultName : name;
+    }
+
+    public static void SetProductName(string key, string value)
+    {
+        if (!CanEditConcept(key))
+            return;
+        var name = (value ?? string.Empty).Trim();
+        if (name.Length > 64)
+            name = name.Substring(0, 64);
+        Get(key).ProductName = name;
+    }
+
     // A ship or patch resets the live catalog's freshness too (issue #25): both always move together, so the
     // patch clock doubles as the aging anchor. Callers (ship completion + periodic patch) pass the current day.
     public static void SetLastPatchDay(string key, int day)
@@ -419,9 +532,17 @@ public static class SiliconAlleyState
     // awareness adds a small reputation bonus on top and (via launchUnits, computed by the caller from
     // awareness + review) grows the installed base by more than the flat +1. SAVE-COMPAT: a legacy launch
     // has BugCount = Awareness = 0, so the bonus is 0 and launchUnits floors at 1 — identical to before.
-    public static void OnProjectCompleted(string key, float quality, int launchUnits, float review)
+    public static void OnProjectCompleted(string key, float quality, int launchUnits, float review,
+        int day, float launchPayout, int publisher, string productName = "")
     {
         var state = Get(key);
+        var shippedVersion = state.Version;
+        var shippedKind = state.ProjectType < 0 ? (int)ProjectKind.Standard : state.ProjectType;
+        var shippedProductName = string.IsNullOrWhiteSpace(productName) ? state.ProductName : productName.Trim();
+        var shippedDependencyVendors = SerializeDependencyVendorOrdinals(EnsureDependencyVendors(state));
+        state.Releases.Add(new ReleaseRecord(day, shippedVersion, shippedKind, review, quality, launchPayout,
+            Mathf.Max(1, launchUnits), publisher, state.FeatureMask, state.PlatformMask, state.UsedToolsMask,
+            state.SegmentId, shippedProductName, state.UsedDependencyMask, shippedDependencyVendors));
         var awarenessRepBonus = Mathf.Min(0.2f, state.Awareness * 0.004f); // 0 when unmarketed (legacy)
         state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f + awarenessRepBonus);
         state.InstalledBase += Mathf.Max(1, launchUnits); // base +1 (legacy) + marketing/review/sequel extra
@@ -450,7 +571,15 @@ public static class SiliconAlleyState
         state.PlatformMask = 0;  // issue #37: target platforms are chosen per product too — reset for the next
         state.UsedToolsMask = 0; // issue #36: licensed/used tools are per-project — reset (OwnedToolsMask persists)
         state.SegmentId = 0;     // issue #38: the audience segment is a per-product choice — reset to Broad
+        state.ProductName = string.Empty; // issue #82: the next project starts with the derived/default name
+        state.UsedDependencyMask = 0;
+        ResetDependencyVendors(state);
         state.DesignPrompted = false; // nudge again for the next project
+        // Issue #88 (player-driven lifecycle): a ship returns the studio to Idle. Reset Progress explicitly
+        // (an early release ships below 100%, so the simulator no longer subtracts the project size), and the
+        // next project does NOT auto-start — the player chooses to start it (Stage stays Idle until then).
+        state.Progress = 0f;
+        state.Stage = (int)ProjectStage.Idle;
     }
 
     // Step 3 (quality): sample this hour's staff quality (0..1), weighted by phase so Testing-phase
@@ -555,7 +684,9 @@ public static class SiliconAlleyState
             return 1f;
         var state = Get(key);
         var bonus = SiliconAlleyFeatures.QualityBonus(state.FeatureMask, businessTypeName)
-            + SiliconAlleyTools.QualityBonus(state.UsedToolsMask, businessTypeName); // issue #36: used tools raise the ceiling too
+            + SiliconAlleyTools.QualityBonus(state.UsedToolsMask, businessTypeName) // issue #36
+            + SiliconAlleyProductDependencies.QualityBonus(state.UsedDependencyMask, state.OwnedDependencyMask,
+                EnsureDependencyVendors(state), businessTypeName); // issue #83
         var ceiling = Mathf.Min(1f, 0.5f + 0.5f * designQuality + bonus);
         // Issue #39: uncovered features (no owned/licensed provider tool) cap the achievable quality. Full
         // coverage / no features ⇒ CoverageCeiling 1.0 ⇒ the cap above is unchanged.
@@ -616,6 +747,110 @@ public static class SiliconAlleyState
         return SiliconAlleyTools.Royalty(state.UsedToolsMask, state.OwnedToolsMask, businessTypeName);
     }
 
+    // ---- issue #83 (Build-or-buy dependencies): current-project slots + vendor ordinals ---------------
+    public static int GetOwnedDependencyMask(string key) => Get(key).OwnedDependencyMask;
+    public static int GetUsedDependencyMask(string key) => Get(key).UsedDependencyMask;
+    public static bool IsDependencyOwned(string key, int bit) => (Get(key).OwnedDependencyMask & (1 << bit)) != 0;
+    public static bool IsDependencyUsed(string key, int bit) => (Get(key).UsedDependencyMask & (1 << bit)) != 0;
+
+    public static int GetDependencyVendorOrdinal(string key, int bit)
+    {
+        var vendors = EnsureDependencyVendors(Get(key));
+        return bit >= 0 && bit < vendors.Length ? vendors[bit] : -1;
+    }
+
+    public static int[] GetDependencyVendorOrdinals(string key)
+    {
+        var vendors = EnsureDependencyVendors(Get(key));
+        var copy = new int[vendors.Length];
+        for (var i = 0; i < vendors.Length; i++)
+            copy[i] = vendors[i];
+        return copy;
+    }
+
+    public static bool IsDependencyOfferAvailable(string businessTypeName, int dependencyBit, int vendorOrdinal)
+        => SiliconAlleyProductDependencies.HasOffer(businessTypeName, dependencyBit, vendorOrdinal);
+
+    public static bool LicenseDependency(string key, string businessTypeName, int dependencyBit, int vendorOrdinal)
+    {
+        if (!CanEditConcept(key) || !SiliconAlleyProductDependencies.HasOffer(businessTypeName, dependencyBit, vendorOrdinal))
+            return false;
+        var state = Get(key);
+        if ((state.OwnedDependencyMask & (1 << dependencyBit)) != 0)
+            return UseOwnedDependency(key, businessTypeName, dependencyBit);
+        var vendors = EnsureDependencyVendors(state);
+        state.UsedDependencyMask |= 1 << dependencyBit;
+        vendors[dependencyBit] = vendorOrdinal;
+        return true;
+    }
+
+    public static bool UseOwnedDependency(string key, string businessTypeName, int dependencyBit)
+    {
+        if (!CanEditConcept(key) || !SiliconAlleyProductDependencies.TryGetDependency(businessTypeName, dependencyBit, out _))
+            return false;
+        var state = Get(key);
+        if ((state.OwnedDependencyMask & (1 << dependencyBit)) == 0)
+            return false;
+        state.UsedDependencyMask |= 1 << dependencyBit;
+        EnsureDependencyVendors(state)[dependencyBit] = -1;
+        return true;
+    }
+
+    public static bool SetDependencyOwned(string key, string businessTypeName, int dependencyBit)
+    {
+        if (!CanEditConcept(key) || !SiliconAlleyProductDependencies.TryGetDependency(businessTypeName, dependencyBit, out _))
+            return false;
+        var state = Get(key);
+        state.OwnedDependencyMask |= 1 << dependencyBit;
+        state.UsedDependencyMask |= 1 << dependencyBit;
+        EnsureDependencyVendors(state)[dependencyBit] = -1;
+        return true;
+    }
+
+    public static bool ClearDependency(string key, string businessTypeName, int dependencyBit)
+    {
+        if (!CanEditConcept(key) || !SiliconAlleyProductDependencies.TryGetDependency(businessTypeName, dependencyBit, out _))
+            return false;
+        var state = Get(key);
+        state.UsedDependencyMask &= ~(1 << dependencyBit);
+        EnsureDependencyVendors(state)[dependencyBit] = -1;
+        return true;
+    }
+
+    public static float DependencyQualityBonus(string key, string businessTypeName)
+    {
+        var state = Get(key);
+        return SiliconAlleyProductDependencies.QualityBonus(state.UsedDependencyMask, state.OwnedDependencyMask,
+            EnsureDependencyVendors(state), businessTypeName);
+    }
+
+    public static float DependencyRoyalty(string key, string businessTypeName)
+    {
+        var state = Get(key);
+        return SiliconAlleyProductDependencies.Royalty(state.UsedDependencyMask, state.OwnedDependencyMask,
+            EnsureDependencyVendors(state), businessTypeName);
+    }
+
+    public static float LaunchRoyalty(string key, string businessTypeName)
+        => Mathf.Clamp(ToolRoyalty(key, businessTypeName) + DependencyRoyalty(key, businessTypeName), 0f, SiliconAlleyTools.MaxRoyalty);
+
+    public static float DependencySupportRoyalty(string key, string businessTypeName)
+    {
+        var state = Get(key);
+        if (state.InstalledBase <= 0 || state.Releases.Count == 0)
+            return 0f;
+        var weighted = 0f;
+        foreach (var release in state.Releases)
+        {
+            if (release.LaunchUnits <= 0 || release.UsedDependencyMask == 0)
+                continue;
+            var vendors = ParseDependencyVendorOrdinals(release.DependencyVendorOrdinals);
+            var royalty = SiliconAlleyProductDependencies.RoyaltyFromSnapshot(release.UsedDependencyMask, vendors, businessTypeName);
+            weighted += release.LaunchUnits * royalty;
+        }
+        return Mathf.Clamp(weighted / Mathf.Max(1, state.InstalledBase), 0f, SiliconAlleyTools.MaxRoyalty);
+    }
+
     // ---- issue #38 (Market): per-project audience segment -------------------------------------------
     // The product's target audience (SegmentId ordinal: 0=Broad default, 1=Enterprise, 2=Prosumer, 3=Consumer).
     // Shifts the price↔volume tradeoff: PriceFactor scales the launch payout, VolumeFactor the launch installed-
@@ -640,28 +875,77 @@ public static class SiliconAlleyState
     public static bool IsOvertime(string key) => Get(key).Overtime != 0;
     public static void SetOvertime(string key, bool on) => Get(key).Overtime = on ? 1 : 0;
 
-    // Issue #11 (Testing): the studio's "Hold" QA policy.
+    // Issue #11 (Testing): the studio's legacy "Hold" QA policy. SUPERSEDED by manual release (every product
+    // now parks at 100% and waits for the player), but the Hold field stays SERIALIZED at its index for
+    // save-compat — these accessors remain so old saves load cleanly; the simulator no longer reads Hold.
     public static bool IsHold(string key) => Get(key).Hold != 0;
     public static void SetHold(string key, bool on) => Get(key).Hold = on ? 1 : 0;
 
-    // While held, pin progress just inside the Testing band so the project doesn't auto-ship and keeps
-    // accruing the 2x Testing quality. No-op until progress is near completion.
-    public static void HoldBelowCompletion(string key, float size)
+    // ---- issue #88 (player-driven lifecycle) -------------------------------------------------------
+    public static ProjectStage GetStage(string key) => (ProjectStage)Get(key).Stage;
+
+    // The progress ceiling for a stage: staff work up to it, then the project PARKS there until the player
+    // pushes forward. Design/Development park just UNDER their band end so the derived phase stays put (and
+    // the wizard stays editable in Design); Testing parks at completion (100% = the "ready to release" state).
+    public static float StageCeiling(ProjectStage stage, float size)
     {
-        var state = Get(key);
-        var cap = size - 1f;
-        if (state.Progress > cap)
-            state.Progress = cap;
+        switch (stage)
+        {
+            case ProjectStage.Design: return DesignFraction * size - 1f;
+            case ProjectStage.Development: return DevelopmentFraction * size - 1f;
+            case ProjectStage.Testing: return size;
+            default: return 0f; // Idle: no product work
+        }
     }
 
-    // "Ship now": release the hold and complete the project at its current accrued quality via the normal
-    // completion path (the simulator's next staffed tick ships it). Only on explicit player action.
-    public static void ShipNow(string key)
+    // Park Progress at a ceiling (no-op until it reaches the ceiling). Generalises the old ParkAtCompletion.
+    public static void ParkBelowCeiling(string key, float ceiling)
     {
         var state = Get(key);
-        state.Hold = 0;
-        state.Progress = EffectiveProjectSize(key);
+        if (state.Progress > ceiling)
+            state.Progress = ceiling;
     }
+
+    // Idle → Design: the player starts a fresh project (the next version). Resets progress + reopens the
+    // wizard. The simulator then works the Design stage (parked at its ceiling) until the wizard is confirmed.
+    public static void StartProject(string key)
+    {
+        var state = Get(key);
+        state.Stage = (int)ProjectStage.Design;
+        state.Progress = 0f;
+        state.ConceptLocked = 0;
+        state.ProjectType = GlobalProjectType; // adopt the current scope pre-selection for the new project
+        state.ProductName = string.Empty;
+        state.UsedDependencyMask = 0;
+        ResetDependencyVendors(state);
+        state.DesignPrompted = false;
+    }
+
+    // Design → Development: confirm the wizard (the 6 steps) — locks the concept AND advances the stage, so
+    // staff start building past the Design ceiling. Called by the wizard's final "Start development" button.
+    public static void BeginDevelopment(string key)
+    {
+        LockConcept(key);
+        Get(key).Stage = (int)ProjectStage.Development;
+    }
+
+    // Development → Testing: the player sends the finished build to QA (available once Development is parked).
+    public static void SendToTesting(string key) => Get(key).Stage = (int)ProjectStage.Testing;
+
+    public static bool IsReleaseRequested(string key) => Get(key).ReleaseRequested;
+    public static void RequestRelease(string key) => Get(key).ReleaseRequested = true;
+    public static void ClearReleaseRequest(string key) => Get(key).ReleaseRequested = false;
+
+    // Manual updates: an update is requested by the player; the simulator credits the patch on its next tick
+    // (when an update is actually due — see PatchIntervalDays) and clears the request.
+    public static bool IsUpdateRequested(string key) => Get(key).UpdateRequested;
+    public static void RequestUpdate(string key) => Get(key).UpdateRequested = true;
+    public static void ClearUpdateRequest(string key) => Get(key).UpdateRequested = false;
+
+    // "Release": request that the simulator ship the current product on its next tick (the tick has the
+    // correctly-bound building registration). Available any moment in Development/Testing — it ships at the
+    // CURRENT accrued quality (an early ship reviews worse). Kept under the ShipNow name for existing callers.
+    public static void ShipNow(string key) => RequestRelease(key);
 
     // ---- issue #19 (Bugs) -------------------------------------------------------------------------
     // Open defects in the current build. Accrued during Development, burned down during Testing/Hold.
@@ -726,15 +1010,17 @@ public static class SiliconAlleyState
     {
         public readonly bool Has;
         public readonly float Quality, Payout, RepMult, MarketMult, Review;
-        public ShipReport(bool has, float quality, float payout, float repMult, float marketMult, float review)
+        public readonly string ProductName;
+        public ShipReport(bool has, float quality, float payout, float repMult, float marketMult, float review, string productName)
         {
             Has = has; Quality = quality; Payout = payout; RepMult = repMult; MarketMult = marketMult; Review = review;
+            ProductName = productName ?? string.Empty;
         }
     }
 
     // Record the just-shipped project's headline numbers (the same values the success toast encodes),
     // including the 0..10 review score (#20).
-    public static void SetLastShip(string key, float quality, float payout, float repMult, float marketMult, float review)
+    public static void SetLastShip(string key, float quality, float payout, float repMult, float marketMult, float review, string productName = "")
     {
         var state = Get(key);
         state.HasLastShip = true;
@@ -743,15 +1029,24 @@ public static class SiliconAlleyState
         state.LastShipRepMult = repMult;
         state.LastShipMarketMult = marketMult;
         state.LastShipReview = review;
+        state.LastShipProductName = productName ?? string.Empty;
     }
 
     public static ShipReport GetLastShip(string key)
     {
         var s = Get(key);
-        return new ShipReport(s.HasLastShip, s.LastShipQuality, s.LastShipPayout, s.LastShipRepMult, s.LastShipMarketMult, s.LastShipReview);
+        return new ShipReport(s.HasLastShip, s.LastShipQuality, s.LastShipPayout, s.LastShipRepMult,
+            s.LastShipMarketMult, s.LastShipReview, s.LastShipProductName);
     }
 
-    public static void ClearLastShip(string key) => Get(key).HasLastShip = false;
+    public static void ClearLastShip(string key)
+    {
+        var state = Get(key);
+        state.HasLastShip = false;
+        state.LastShipProductName = string.Empty;
+    }
+
+    public static List<ReleaseRecord> GetReleaseHistory(string key) => new List<ReleaseRecord>(Get(key).Releases);
 
     // Returns true exactly once per project (per session) so the simulator nudges the player to set the
     // concept just once. Transient (not persisted): a reload may re-nudge once, which is harmless.
@@ -833,7 +1128,9 @@ public static class SiliconAlleyState
     // key|progress|reputation|installedBase|supportAccrual|qualitySum|qualityWeight|lastPatchDay|projectType
     //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
     //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation
-    //    |dealPublisher|dealDeadlineDay|dealPayout,
+    //    |dealPublisher|dealDeadlineDay|dealPayout|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId
+    //    |contractScope|contractProgress|contractDeadlineDay|contractPayout|stage|releaseHistory|productName
+    //    |ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals,
     // joined by ';'. The publisher-deal fields (issue #23: dealPublisher default -1 = no deal, dealDeadlineDay/
     // dealPayout 0) append after the lifecycle fields; absent in old saves ⇒ no active deal. A third reserved
     // header "~publishers|r0,r1,…" carries the player's per-publisher reputation (issue #22, append-only by
@@ -846,7 +1143,9 @@ public static class SiliconAlleyState
     // appended at schema v1; a save from before a given field omits it and it defaults (per-phase quality
     // reads "not accrued" via GetPhaseQuality; designFocus stays 0.5; conceptLocked 0; overtime 0; bugCount,
     // awareness, hype, adSpend 0; supportFreshDay 0 ⇒ full freshness; version 1; ipReputation 0) while the
-    // aggregate qualitySum/qualityWeight still yields the real shipped quality. Two reserved
+    // aggregate qualitySum/qualityWeight still yields the real shipped quality. ReleaseHistory is a count-prefixed
+    // variable block; absent or count 0 means no recorded releases. ProductName is percent-escaped; absent or
+    // empty means derive the name from the business type. Two reserved
     // "~"-prefixed header entries lead the blob:
     //   "~schema|<version>" — the save schema version (added in v1; absent ⇒ the v1 baseline);
     //   "~global|<index>"   — the player's project-type pre-selection, so it survives a session before
@@ -927,7 +1226,17 @@ public static class SiliconAlleyState
                 .Append(state.ContractScope.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.ContractProgress.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(state.ContractDeadlineDay.ToString(CultureInfo.InvariantCulture)).Append('|')
-                .Append(state.ContractPayout.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.ContractPayout.ToString(CultureInfo.InvariantCulture)).Append('|')
+                // Issue #88: player-driven lifecycle stage (index 38, trailing append). Absent ⇒ inferred.
+                .Append(state.Stage.ToString(CultureInfo.InvariantCulture)).Append('|')
+                // Issue #78: release history block (index 39). Empty/absent => no history.
+                .Append(SerializeReleaseHistory(state.Releases)).Append('|')
+                // Issue #82: player-typed product name (index 40). Empty/absent => derived display name.
+                .Append(EscapeReleaseString(state.ProductName)).Append('|')
+                // Issue #83: build-or-buy dependencies (indices 41..43). All absent/0/-1 => no dependencies.
+                .Append(state.OwnedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.UsedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(SerializeDependencyVendorOrdinals(EnsureDependencyVendors(state))).Append(';');
         }
         return builder.ToString();
     }
@@ -1060,6 +1369,23 @@ public static class SiliconAlleyState
                     int.TryParse(parts[36], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.ContractDeadlineDay);
                 if (parts.Length > 37)
                     float.TryParse(parts[37], NumberStyles.Float, CultureInfo.InvariantCulture, out state.ContractPayout);
+                // Issue #88: lifecycle stage (index 38). Absent in an old save ⇒ infer so a legacy in-flight
+                // project keeps running to completion (Testing ceiling = 100%, then manual release) and a
+                // just-shipped / fresh studio is Idle. New-format saves carry the real stage.
+                if (parts.Length > 38)
+                    int.TryParse(parts[38], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.Stage);
+                else
+                    state.Stage = state.Progress > 0f ? (int)ProjectStage.Testing : (int)ProjectStage.Idle;
+                if (parts.Length > 39)
+                    LoadReleaseHistory(parts[39], state.Releases);
+                if (parts.Length > 40)
+                    state.ProductName = UnescapeReleaseString(parts[40]);
+                if (parts.Length > 41)
+                    int.TryParse(parts[41], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.OwnedDependencyMask);
+                if (parts.Length > 42)
+                    int.TryParse(parts[42], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.UsedDependencyMask);
+                if (parts.Length > 43)
+                    state.DependencyVendorOrdinals = ParseDependencyVendorOrdinals(parts[43]);
                 States[parts[0]] = state;
             }
             catch
@@ -1088,5 +1414,151 @@ public static class SiliconAlleyState
                     break;
             }
         }
+    }
+
+    private static void ResetDependencyVendors(BusinessState state)
+    {
+        var vendors = EnsureDependencyVendors(state);
+        for (var i = 0; i < vendors.Length; i++)
+            vendors[i] = -1;
+    }
+
+    private static string SerializeDependencyVendorOrdinals(int[] vendors)
+    {
+        if (vendors == null || vendors.Length == 0)
+            return string.Empty;
+        var builder = new StringBuilder();
+        for (var i = 0; i < vendors.Length; i++)
+        {
+            if (i > 0) builder.Append(',');
+            builder.Append(vendors[i].ToString(CultureInfo.InvariantCulture));
+        }
+        return builder.ToString();
+    }
+
+    private static int[] ParseDependencyVendorOrdinals(string encoded)
+    {
+        var vendors = new int[SiliconAlleyProductDependencies.MaxCount];
+        for (var i = 0; i < vendors.Length; i++)
+            vendors[i] = -1;
+        if (string.IsNullOrEmpty(encoded))
+            return vendors;
+        var tokens = encoded.Split(',');
+        for (var i = 0; i < tokens.Length && i < vendors.Length; i++)
+            if (int.TryParse(tokens[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var vendor))
+                vendors[i] = SiliconAlleyVendors.TryGetById(vendor, out _) ? vendor : -1;
+        return vendors;
+    }
+
+    private static string SerializeReleaseHistory(List<ReleaseRecord> releases)
+    {
+        if (releases == null || releases.Count == 0)
+            return "0:";
+        var builder = new StringBuilder();
+        builder.Append(releases.Count.ToString(CultureInfo.InvariantCulture)).Append(':');
+        for (int i = 0; i < releases.Count; i++)
+        {
+            if (i > 0) builder.Append(',');
+            var r = releases[i];
+            builder
+                .Append(r.Day.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Version.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Kind.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Review.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Quality.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.LaunchPayout.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.LaunchUnits.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Publisher.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.FeatureMask.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.PlatformMask.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.UsedToolsMask.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.SegmentId.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(EscapeReleaseString(r.ProductName)).Append('~')
+                .Append(r.UsedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(EscapeReleaseString(r.DependencyVendorOrdinals));
+        }
+        return builder.ToString();
+    }
+
+    private static void LoadReleaseHistory(string encoded, List<ReleaseRecord> releases)
+    {
+        releases.Clear();
+        if (string.IsNullOrEmpty(encoded))
+            return;
+
+        var colon = encoded.IndexOf(':');
+        if (colon < 0)
+            return;
+        if (!int.TryParse(encoded.Substring(0, colon), NumberStyles.Integer, CultureInfo.InvariantCulture, out var count)
+            || count <= 0)
+            return;
+
+        var payload = encoded.Substring(colon + 1);
+        if (payload.Length == 0)
+            return;
+        var records = payload.Split(',');
+        for (int i = 0; i < records.Length && i < count; i++)
+        {
+            var fields = records[i].Split('~');
+            if (fields.Length < 12)
+                continue;
+
+            int.TryParse(fields[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var day);
+            int.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var version);
+            int.TryParse(fields[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var kind);
+            float.TryParse(fields[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var review);
+            float.TryParse(fields[4], NumberStyles.Float, CultureInfo.InvariantCulture, out var quality);
+            float.TryParse(fields[5], NumberStyles.Float, CultureInfo.InvariantCulture, out var launchPayout);
+            int.TryParse(fields[6], NumberStyles.Integer, CultureInfo.InvariantCulture, out var launchUnits);
+            int.TryParse(fields[7], NumberStyles.Integer, CultureInfo.InvariantCulture, out var publisher);
+            int.TryParse(fields[8], NumberStyles.Integer, CultureInfo.InvariantCulture, out var featureMask);
+            int.TryParse(fields[9], NumberStyles.Integer, CultureInfo.InvariantCulture, out var platformMask);
+            int.TryParse(fields[10], NumberStyles.Integer, CultureInfo.InvariantCulture, out var usedToolsMask);
+            int.TryParse(fields[11], NumberStyles.Integer, CultureInfo.InvariantCulture, out var segmentId);
+            var productName = fields.Length > 12 ? UnescapeReleaseString(fields[12]) : string.Empty;
+            var usedDependencyMask = 0;
+            if (fields.Length > 13)
+                int.TryParse(fields[13], NumberStyles.Integer, CultureInfo.InvariantCulture, out usedDependencyMask);
+            var dependencyVendorOrdinals = fields.Length > 14 ? UnescapeReleaseString(fields[14]) : string.Empty;
+            releases.Add(new ReleaseRecord(day, version, kind, review, quality, launchPayout, launchUnits,
+                publisher, featureMask, platformMask, usedToolsMask, segmentId, productName,
+                usedDependencyMask, dependencyVendorOrdinals));
+        }
+    }
+
+    private static string EscapeReleaseString(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+        var builder = new StringBuilder(value.Length);
+        foreach (var c in value)
+        {
+            if (c == '%' || c == '|' || c == ';' || c == ',' || c == ':' || c == '~')
+                builder.Append('%').Append(((int)c).ToString("X2", CultureInfo.InvariantCulture));
+            else
+                builder.Append(c);
+        }
+        return builder.ToString();
+    }
+
+    private static string UnescapeReleaseString(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+        var builder = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '%' && i + 2 < value.Length
+                && int.TryParse(value.Substring(i + 1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code))
+            {
+                builder.Append((char)code);
+                i += 2;
+            }
+            else
+            {
+                builder.Append(value[i]);
+            }
+        }
+        return builder.ToString();
     }
 }

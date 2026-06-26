@@ -91,12 +91,20 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // Issue #3: lock the project type when work begins; the locked type scales size/payout/competition.
         var kind = (staffCount > 0 && !onContract) ? SiliconAlleyState.EnsureProjectTypeLocked(key) : SiliconAlleyState.GetProjectType(key);
         var size = SiliconAlleyState.EffectiveProjectSize(key);
+        // Issue #88 (player-driven lifecycle): the studio's stage gates the work. Idle ⇒ no product work at
+        // all; an active stage works only up to its ceiling, then PARKS until the player pushes forward
+        // (Start development = confirm wizard; Send to testing; Release). The ceiling moves up per stage.
+        var stage = SiliconAlleyState.GetStage(key);
+        var ceiling = SiliconAlleyState.StageCeiling(stage, size);
 
         // 2) Accrue progress, phase-weighted by discipline (issue #2): graphic designers drive the Design
         // phase, programmers drive Development/Testing; the off-discipline cross-skills at a reduced rate.
         float effectiveSkill = 0f;
         float totalSatisfaction = 0f;
-        if (staffCount > 0 && !onContract)
+        // Work only while the studio has an active stage AND this stage isn't parked yet. Idle ⇒ skipped
+        // (no product work); a stage parked at its ceiling ⇒ skipped (frozen, waiting for the player's push).
+        if (staffCount > 0 && !onContract && stage != SiliconAlleyState.ProjectStage.Idle
+            && SiliconAlleyState.GetProgress(key) < ceiling)
         {
             var progressBefore = SiliconAlleyState.GetProgress(key);
             var phase = SiliconAlleyState.PhaseOf(progressBefore, size);
@@ -130,12 +138,21 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
 
             var progressDelta = effectiveSkill * SiliconAlleyState.ProjectSpeed * progressScale;
             SiliconAlleyState.AddProgress(key, progressDelta);
-            // Issue #11: a held project keeps testing — pin it just under completion so it stays in Testing
-            // (accruing the 2x quality) and never auto-ships. Ship now / toggling Hold off releases it.
-            if (SiliconAlleyState.IsHold(key))
-                SiliconAlleyState.HoldBelowCompletion(key, size);
+            // Issue #88: a stage never auto-advances. The hour it fills the current stage counts (final work),
+            // then it PARKS at the stage ceiling (Progress clamped); the guard on this block above freezes
+            // quality/bugs from here until the player pushes the stage forward.
+            SiliconAlleyState.ParkBelowCeiling(key, ceiling);
             var progressAfter = SiliconAlleyState.GetProgress(key);
             AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter, size);
+            // The hour the stage parks (fills to its ceiling), nudge the player how to push it forward (once):
+            // Testing ⇒ "ready to release"; Development ⇒ "build done — send to QA or release".
+            if (progressBefore < ceiling && progressAfter >= ceiling)
+            {
+                if (stage == SiliconAlleyState.ProjectStage.Testing)
+                    AnnounceReadyToRelease(businessType, key);
+                else if (stage == SiliconAlleyState.ProjectStage.Development)
+                    AnnounceDevelopmentDone(businessType, key);
+            }
             // Step 3 (quality): sample this hour's effective staff quality; Testing-phase work counts double.
             var hourQuality = Mathf.Clamp01(effectiveSkill / staffCount / 100f) * Mathf.Clamp01(totalSatisfaction / staffCount / 100f) * qualityScale;
             var phaseWeight = phase == SiliconAlleyState.ProjectPhase.Testing ? 2f : 1f;
@@ -155,9 +172,18 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             }
             Debug.Log($"[SiliconAlley] {key} h{currentHour}: {staffCount} staff, {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
         }
-        else
+        else if (stage != SiliconAlleyState.ProjectStage.Idle && (staffCount == 0 || onContract))
         {
+            // An ACTIVE project left unstaffed or diverted to a contract stagnates — the product line slips.
+            // (Idle by choice, and a stage parked-with-staff awaiting the player's push, are NOT penalised.)
             SiliconAlleyState.DecayReputation(key, 0.001f);
+        }
+        else if (stage == SiliconAlleyState.ProjectStage.Idle && staffCount > 0 && !onContract)
+        {
+            // Idle with staff on hand: the studio does nothing until the player starts a project. Nudge them
+            // once (reuses the per-project DesignPrompted flag, cleared by StartProject / on a ship).
+            if (SiliconAlleyState.TryMarkDesignPrompted(key))
+                AnnounceStartProject(businessType, key);
         }
 
         // Issue #21 (Marketing): run the cash-funded "Ad Spend" channel and decay awareness/hype each hour.
@@ -207,6 +233,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #36: licensed tools take a recurring royalty cut of support income too (0 when no tool is
             // licensed / legacy save, so support is unchanged). Layered on top — SupportRatePerDay is untouched.
             support *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
+            support *= 1f - SiliconAlleyState.DependencySupportRoyalty(key, businessType.businessTypeName);
             // Issue #28: recurring support breathes with the category's market demand too (a new factor; the
             // competition MarketFactor / SupportRatePerDay are untouched). Derived from the day — no state.
             support *= SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
@@ -214,9 +241,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 CreditRevenue(product, support, 1f);
         }
 
-        // 3b) Post-release updates: a staffed studio with shipped products patches its live catalog
-        // every PatchIntervalDays for extra revenue — the "Support/Updates" stage of the lifecycle.
-        if (staffCount > 0 && product != null && marketPrice > 0f)
+        // 3b) Post-release updates: MANUAL (Software-Inc-style). A staffed studio with a live catalog can ship
+        // an update every PatchIntervalDays for extra revenue — but only when the PLAYER releases it (the
+        // screen sets SiliconAlleyState.RequestUpdate). The request is consumed here once an update is due.
+        if (staffCount > 0 && product != null && marketPrice > 0f && SiliconAlleyState.IsUpdateRequested(key))
         {
             var catalog = SiliconAlleyState.GetInstalledBase(key);
             if (catalog > 0 && TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key) >= PatchIntervalDays)
@@ -226,24 +254,19 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 CreditRevenue(product, patchRevenue, 1f);
                 SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay);
                 AnnouncePatch(businessType, key, catalog, patchRevenue);
+                SiliconAlleyState.ClearUpdateRequest(key); // one request ⇒ one shipped update
             }
         }
 
-        // 4) Complete any finished projects. Each project's type was locked at its start (issue #3), so
-        // read it per iteration — OnProjectCompleted re-locks the NEXT project to the current selection.
-        // Issue #11: a held project never auto-ships (the player ships it via "Ship now").
-        // NOTE: this does NOT require staff this hour. Progress only ever reaches completion through staffed
-        // work, so a project that is already at 100% should release even if the studio is momentarily
-        // unstaffed (e.g. outside working hours) — otherwise a finished product sits unshipped until someone
-        // is next at a desk, which also let a publisher deadline (#23) lapse on a build that was actually
-        // ready. The body still bails via `progress < size`, so nothing ships early.
-        while (product != null && marketPrice > 0f && !SiliconAlleyState.IsHold(key))
+        // 4) Release the current product — MANUAL (Software-Inc-style). The player can release ANY moment in
+        // Development or Testing (SiliconAlleyState.RequestRelease, set by the screen's Release button); the
+        // product ships at its CURRENT accrued quality, so an early release reviews worse. Ships once per
+        // request, then the studio returns to Idle (OnProjectCompleted sets Stage=Idle + Progress=0). Does NOT
+        // require staff this hour, so a queued release still completes outside working hours.
+        if (product != null && marketPrice > 0f && SiliconAlleyState.IsReleaseRequested(key)
+            && (stage == SiliconAlleyState.ProjectStage.Development || stage == SiliconAlleyState.ProjectStage.Testing))
         {
             var projectKind = SiliconAlleyState.GetProjectType(key);
-            var projectSize = SiliconAlleyState.EffectiveProjectSize(key);
-            if (SiliconAlleyState.GetProgress(key) < projectSize)
-                break;
-            SiliconAlleyState.AddProgress(key, -projectSize);
             var cleanliness = Mathf.Clamp01(buildingRegistration.GetCleanliness() / 100f);
             // Step 3 (quality): ship at the quality accrued across all phases (Testing weighted heavier),
             // not just the final hour's staffing. Fall back to this hour if nothing has accrued.
@@ -271,6 +294,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // extra launch units, on top of the marketing-driven bonus (#21). Both are 0 for a debut/legacy
             // ship, so the launch is unchanged. Read the version being shipped BEFORE OnProjectCompleted bumps it.
             var version = SiliconAlleyState.GetVersion(key);
+            var releaseProductName = SiliconAlleyState.GetProductName(key);
+            var releaseDisplayName = SiliconAlleyState.GetProductNameOrDefault(key, ProductDisplayName(businessType));
             var launchBonus = SiliconAlleyState.LaunchBonusUnits(key, review) + SiliconAlleyState.SequelLaunchUnits(key, review);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
@@ -278,7 +303,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #36: licensed tools take a royalty cut of the launch revenue (0 when no tool is licensed /
             // legacy, so payout is unchanged). Reduces the NET payout the player sees in the toast + ship report;
             // layered on top — MarketFactor / reputationFactor / the project-kind multiplier are untouched.
-            payout *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
+            payout *= 1f - SiliconAlleyState.LaunchRoyalty(key, businessType.businessTypeName);
             // Issue #38: the target audience segment scales the per-unit launch price (Broad ⇒ ×1.0, so a
             // legacy/default ship is unchanged). A new multiplier layered on top — MarketFactor / reputationFactor
             // / the project-kind multiplier are untouched; the volume side feeds the installed base below.
@@ -289,6 +314,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var demand = SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
             payout *= demand;
             CreditRevenue(product, payout, quality);
+            var releasePublisher = SiliconAlleyState.HasDeal(key) ? SiliconAlleyState.GetDealPublisher(key) : -1;
             // Issue #23 (Publisher deals): if this product was under a deal, fulfil it on this ship. On-time
             // (shipped on/before the deadline day) pays the locked bonus ON TOP of the normal payout, scaled by
             // the release's review (a buggy/late delivery is worth less to a publisher), and builds reputation
@@ -317,13 +343,43 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // A mass segment grows the base (more recurring support); a niche segment shrinks it — the volume
             // side of the price↔volume tradeoff. SupportRatePerDay is untouched.
             var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach * SiliconAlleyState.SegmentVolumeFactor(key));
-            SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review);
+            SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review, TimeHelper.CurrentDay, payout,
+                releasePublisher, releaseProductName);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
             Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, market demand x{demand:F2}, +{launchUnits} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
-            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review, version);
+            ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review, version, releaseDisplayName);
             // Issue #12: remember this ship so the screen can show a "ship report" (transient).
-            SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor, review);
+            SiliconAlleyState.SetLastShip(key, quality, payout, reputationFactor, marketFactor, review, releaseDisplayName);
+            // Manual release: consume the request so exactly one product ships per Release click. The studio
+            // is now Idle (OnProjectCompleted), so a stale flag couldn't ship anything anyway, but clear it.
+            SiliconAlleyState.ClearReleaseRequest(key);
         }
+    }
+
+    // Manual updates (UI): is a post-launch update due for this studio's live catalog? (installed base + the
+    // PatchIntervalDays timer elapsed). The player ships it via SiliconAlleyState.RequestUpdate; the hourly
+    // tick (3b) credits it. Mirrors the gate there so the "Release update" button shows exactly when valid.
+    public static bool IsUpdateDue(string key)
+    {
+        return SiliconAlleyState.GetInstalledBase(key) > 0
+            && TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key) >= PatchIntervalDays;
+    }
+
+    // The revenue a released update would credit right now (same formula the hourly tick uses), so the screen
+    // can label the "Release update ($X)" button. 0 when nothing is live / no product. Self-contained so it
+    // keeps PatchRevenueFraction private and the formula in one place.
+    public static float EstimateUpdateRevenue(BuildingRegistration registration, BusinessType businessType, string key)
+    {
+        if (registration == null || businessType == null)
+            return 0f;
+        var product = PrimaryProduct(businessType);
+        var marketPrice = product != null ? MarketPrice(product) : 0f;
+        var catalog = SiliconAlleyState.GetInstalledBase(key);
+        if (marketPrice <= 0f || catalog <= 0)
+            return 0f;
+        var kind = SiliconAlleyState.GetProjectType(key);
+        return marketPrice * catalog * PatchRevenueFraction * MarketFactor(registration, kind)
+            * SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
     }
 
     public override void OnTimeMachineEnd(BuildingRegistration registration)
@@ -370,12 +426,13 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // above; numbers use InvariantCulture (dev machine is nl-NL). duplicateIdentifier = key coalesces
     // a burst of same-business completions (e.g. during time-machine catch-up) into a single toast,
     // while completions in normal play still each show.
-    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout, float reputationFactor, float marketFactor, float review, int version)
+    private void ShowProjectCompleteNotification(BusinessType businessType, string key, float quality, float payout,
+        float reputationFactor, float marketFactor, float review, int version, string productName)
     {
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = string.IsNullOrWhiteSpace(productName) ? ProductDisplayName(businessType) : productName,
             // Issue #24: the version that just shipped (v1 = debut, v2+ = sequel).
             ["version"] = "v" + version.ToString(CultureInfo.InvariantCulture),
             ["quality"] = Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%",
@@ -402,7 +459,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
             ["phase"] = SiliconAlleyState.PhaseNameKey(newPhase).GetLocalization(),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_phase", data, 5f, key + ":" + newPhase,
@@ -417,9 +474,46 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_design", data, 6f, key + ":design",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    // Issue #88: tell the player a product has reached 100% (Testing parked) and awaits their Release action.
+    // Fired once when Testing parks. Clickable → opens the project screen.
+    private void AnnounceReadyToRelease(BusinessType businessType, string key)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["product"] = ProductDisplayName(key, businessType),
+        };
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_ready", data, 6f, key + ":ready",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    // Issue #88: the build parked at the end of Development — nudge the player to send it to QA or release.
+    private void AnnounceDevelopmentDone(BusinessType businessType, string key)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["product"] = ProductDisplayName(key, businessType),
+        };
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_devdone", data, 6f, key + ":devdone",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    // Issue #88: the studio is idle with staff on hand — nudge the player to start the next project/version.
+    private void AnnounceStartProject(BusinessType businessType, string key)
+    {
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["product"] = ProductDisplayName(key, businessType),
+        };
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_startproject", data, 6f, key + ":start",
             () => SiliconAlleyProjectScreen.Open(key));
     }
 
@@ -429,7 +523,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["product"] = ProductDisplayName(businessType),
+            ["product"] = ProductDisplayName(key, businessType),
             ["catalog"] = catalog.ToString(CultureInfo.InvariantCulture),
             ["revenue"] = "$" + Mathf.RoundToInt(revenue).ToString("N0", CultureInfo.InvariantCulture),
         };
@@ -541,9 +635,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         return product != null ? product.GetLocalization() : "project";
     }
 
+    private static string ProductDisplayName(string key, BusinessType businessType) =>
+        SiliconAlleyState.GetProductNameOrDefault(key, ProductDisplayName(businessType));
+
     private static string PrimaryProduct(BusinessType businessType)
     {
-        if (businessType.businessProducts == null || businessType.businessProducts.Length == 0)
+        if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
             return null;
         return businessType.businessProducts[0].itemName;
     }
