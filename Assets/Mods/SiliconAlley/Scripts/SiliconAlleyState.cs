@@ -116,6 +116,12 @@ public static class SiliconAlleyState
         // Issue #82 (product naming): player-typed name for the CURRENT project. Empty means callers derive
         // the product display name from the business type, preserving old saves and untouched projects.
         public string ProductName = string.Empty;
+        // Issue #83 (build-or-buy dependencies): explicit OS/runtime/framework dependency slots. Owned is a
+        // studio-level self-built asset that survives completion; used/vendor are current-project choices.
+        // Persisted as pure trailing appends after productName. Vendor ordinals use -1 = none/self-built.
+        public int OwnedDependencyMask;
+        public int UsedDependencyMask;
+        public int[] DependencyVendorOrdinals;
         // Issue #26: the business type (game/office/security) that owns this building's current project, noted
         // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
         // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
@@ -257,17 +263,19 @@ public static class SiliconAlleyState
     // parks Progress at the stage ceiling until the player pushes forward. APPEND-ONLY ordinals (persisted).
     public enum ProjectStage { Idle = 0, Design = 1, Development = 2, Testing = 3 }
 
-    // Issue #78: persisted per-release row. ProductName is optional/escaped and currently empty until #82
-    // supplies player-typed names; empty means callers derive the name from business type + version.
+    // Issue #78: persisted per-release row. ProductName is optional/escaped; empty means callers derive the
+    // name from business type + version. #83 appends a dependency snapshot so recurring support can keep
+    // charging royalties for licensed dependencies after current-project choices reset.
     public readonly struct ReleaseRecord
     {
         public readonly int Day, Version, Kind, LaunchUnits, Publisher, FeatureMask, PlatformMask, UsedToolsMask, SegmentId;
+        public readonly int UsedDependencyMask;
         public readonly float Review, Quality, LaunchPayout;
-        public readonly string ProductName;
+        public readonly string ProductName, DependencyVendorOrdinals;
 
         public ReleaseRecord(int day, int version, int kind, float review, float quality, float launchPayout,
             int launchUnits, int publisher, int featureMask, int platformMask, int usedToolsMask, int segmentId,
-            string productName)
+            string productName, int usedDependencyMask = 0, string dependencyVendorOrdinals = "")
         {
             Day = day;
             Version = version;
@@ -282,6 +290,8 @@ public static class SiliconAlleyState
             UsedToolsMask = usedToolsMask;
             SegmentId = segmentId;
             ProductName = productName ?? string.Empty;
+            UsedDependencyMask = usedDependencyMask;
+            DependencyVendorOrdinals = dependencyVendorOrdinals ?? string.Empty;
         }
     }
 
@@ -351,6 +361,24 @@ public static class SiliconAlleyState
             States[key] = state;
         }
         return state;
+    }
+
+    private static int[] EnsureDependencyVendors(BusinessState state)
+    {
+        if (state.DependencyVendorOrdinals == null)
+        {
+            state.DependencyVendorOrdinals = new int[SiliconAlleyProductDependencies.MaxCount];
+            for (var i = 0; i < state.DependencyVendorOrdinals.Length; i++)
+                state.DependencyVendorOrdinals[i] = -1;
+        }
+        else if (state.DependencyVendorOrdinals.Length < SiliconAlleyProductDependencies.MaxCount)
+        {
+            var expanded = new int[SiliconAlleyProductDependencies.MaxCount];
+            for (var i = 0; i < expanded.Length; i++)
+                expanded[i] = i < state.DependencyVendorOrdinals.Length ? state.DependencyVendorOrdinals[i] : -1;
+            state.DependencyVendorOrdinals = expanded;
+        }
+        return state.DependencyVendorOrdinals;
     }
 
     public static string KeyFor(BuildingRegistration registration)
@@ -511,9 +539,10 @@ public static class SiliconAlleyState
         var shippedVersion = state.Version;
         var shippedKind = state.ProjectType < 0 ? (int)ProjectKind.Standard : state.ProjectType;
         var shippedProductName = string.IsNullOrWhiteSpace(productName) ? state.ProductName : productName.Trim();
+        var shippedDependencyVendors = SerializeDependencyVendorOrdinals(EnsureDependencyVendors(state));
         state.Releases.Add(new ReleaseRecord(day, shippedVersion, shippedKind, review, quality, launchPayout,
             Mathf.Max(1, launchUnits), publisher, state.FeatureMask, state.PlatformMask, state.UsedToolsMask,
-            state.SegmentId, shippedProductName));
+            state.SegmentId, shippedProductName, state.UsedDependencyMask, shippedDependencyVendors));
         var awarenessRepBonus = Mathf.Min(0.2f, state.Awareness * 0.004f); // 0 when unmarketed (legacy)
         state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f + awarenessRepBonus);
         state.InstalledBase += Mathf.Max(1, launchUnits); // base +1 (legacy) + marketing/review/sequel extra
@@ -543,6 +572,8 @@ public static class SiliconAlleyState
         state.UsedToolsMask = 0; // issue #36: licensed/used tools are per-project — reset (OwnedToolsMask persists)
         state.SegmentId = 0;     // issue #38: the audience segment is a per-product choice — reset to Broad
         state.ProductName = string.Empty; // issue #82: the next project starts with the derived/default name
+        state.UsedDependencyMask = 0;
+        ResetDependencyVendors(state);
         state.DesignPrompted = false; // nudge again for the next project
         // Issue #88 (player-driven lifecycle): a ship returns the studio to Idle. Reset Progress explicitly
         // (an early release ships below 100%, so the simulator no longer subtracts the project size), and the
@@ -653,7 +684,9 @@ public static class SiliconAlleyState
             return 1f;
         var state = Get(key);
         var bonus = SiliconAlleyFeatures.QualityBonus(state.FeatureMask, businessTypeName)
-            + SiliconAlleyTools.QualityBonus(state.UsedToolsMask, businessTypeName); // issue #36: used tools raise the ceiling too
+            + SiliconAlleyTools.QualityBonus(state.UsedToolsMask, businessTypeName) // issue #36
+            + SiliconAlleyProductDependencies.QualityBonus(state.UsedDependencyMask, state.OwnedDependencyMask,
+                EnsureDependencyVendors(state), businessTypeName); // issue #83
         var ceiling = Mathf.Min(1f, 0.5f + 0.5f * designQuality + bonus);
         // Issue #39: uncovered features (no owned/licensed provider tool) cap the achievable quality. Full
         // coverage / no features ⇒ CoverageCeiling 1.0 ⇒ the cap above is unchanged.
@@ -712,6 +745,110 @@ public static class SiliconAlleyState
     {
         var state = Get(key);
         return SiliconAlleyTools.Royalty(state.UsedToolsMask, state.OwnedToolsMask, businessTypeName);
+    }
+
+    // ---- issue #83 (Build-or-buy dependencies): current-project slots + vendor ordinals ---------------
+    public static int GetOwnedDependencyMask(string key) => Get(key).OwnedDependencyMask;
+    public static int GetUsedDependencyMask(string key) => Get(key).UsedDependencyMask;
+    public static bool IsDependencyOwned(string key, int bit) => (Get(key).OwnedDependencyMask & (1 << bit)) != 0;
+    public static bool IsDependencyUsed(string key, int bit) => (Get(key).UsedDependencyMask & (1 << bit)) != 0;
+
+    public static int GetDependencyVendorOrdinal(string key, int bit)
+    {
+        var vendors = EnsureDependencyVendors(Get(key));
+        return bit >= 0 && bit < vendors.Length ? vendors[bit] : -1;
+    }
+
+    public static int[] GetDependencyVendorOrdinals(string key)
+    {
+        var vendors = EnsureDependencyVendors(Get(key));
+        var copy = new int[vendors.Length];
+        for (var i = 0; i < vendors.Length; i++)
+            copy[i] = vendors[i];
+        return copy;
+    }
+
+    public static bool IsDependencyOfferAvailable(string businessTypeName, int dependencyBit, int vendorOrdinal)
+        => SiliconAlleyProductDependencies.HasOffer(businessTypeName, dependencyBit, vendorOrdinal);
+
+    public static bool LicenseDependency(string key, string businessTypeName, int dependencyBit, int vendorOrdinal)
+    {
+        if (!CanEditConcept(key) || !SiliconAlleyProductDependencies.HasOffer(businessTypeName, dependencyBit, vendorOrdinal))
+            return false;
+        var state = Get(key);
+        if ((state.OwnedDependencyMask & (1 << dependencyBit)) != 0)
+            return UseOwnedDependency(key, businessTypeName, dependencyBit);
+        var vendors = EnsureDependencyVendors(state);
+        state.UsedDependencyMask |= 1 << dependencyBit;
+        vendors[dependencyBit] = vendorOrdinal;
+        return true;
+    }
+
+    public static bool UseOwnedDependency(string key, string businessTypeName, int dependencyBit)
+    {
+        if (!CanEditConcept(key) || !SiliconAlleyProductDependencies.TryGetDependency(businessTypeName, dependencyBit, out _))
+            return false;
+        var state = Get(key);
+        if ((state.OwnedDependencyMask & (1 << dependencyBit)) == 0)
+            return false;
+        state.UsedDependencyMask |= 1 << dependencyBit;
+        EnsureDependencyVendors(state)[dependencyBit] = -1;
+        return true;
+    }
+
+    public static bool SetDependencyOwned(string key, string businessTypeName, int dependencyBit)
+    {
+        if (!CanEditConcept(key) || !SiliconAlleyProductDependencies.TryGetDependency(businessTypeName, dependencyBit, out _))
+            return false;
+        var state = Get(key);
+        state.OwnedDependencyMask |= 1 << dependencyBit;
+        state.UsedDependencyMask |= 1 << dependencyBit;
+        EnsureDependencyVendors(state)[dependencyBit] = -1;
+        return true;
+    }
+
+    public static bool ClearDependency(string key, string businessTypeName, int dependencyBit)
+    {
+        if (!CanEditConcept(key) || !SiliconAlleyProductDependencies.TryGetDependency(businessTypeName, dependencyBit, out _))
+            return false;
+        var state = Get(key);
+        state.UsedDependencyMask &= ~(1 << dependencyBit);
+        EnsureDependencyVendors(state)[dependencyBit] = -1;
+        return true;
+    }
+
+    public static float DependencyQualityBonus(string key, string businessTypeName)
+    {
+        var state = Get(key);
+        return SiliconAlleyProductDependencies.QualityBonus(state.UsedDependencyMask, state.OwnedDependencyMask,
+            EnsureDependencyVendors(state), businessTypeName);
+    }
+
+    public static float DependencyRoyalty(string key, string businessTypeName)
+    {
+        var state = Get(key);
+        return SiliconAlleyProductDependencies.Royalty(state.UsedDependencyMask, state.OwnedDependencyMask,
+            EnsureDependencyVendors(state), businessTypeName);
+    }
+
+    public static float LaunchRoyalty(string key, string businessTypeName)
+        => Mathf.Clamp(ToolRoyalty(key, businessTypeName) + DependencyRoyalty(key, businessTypeName), 0f, SiliconAlleyTools.MaxRoyalty);
+
+    public static float DependencySupportRoyalty(string key, string businessTypeName)
+    {
+        var state = Get(key);
+        if (state.InstalledBase <= 0 || state.Releases.Count == 0)
+            return 0f;
+        var weighted = 0f;
+        foreach (var release in state.Releases)
+        {
+            if (release.LaunchUnits <= 0 || release.UsedDependencyMask == 0)
+                continue;
+            var vendors = ParseDependencyVendorOrdinals(release.DependencyVendorOrdinals);
+            var royalty = SiliconAlleyProductDependencies.RoyaltyFromSnapshot(release.UsedDependencyMask, vendors, businessTypeName);
+            weighted += release.LaunchUnits * royalty;
+        }
+        return Mathf.Clamp(weighted / Mathf.Max(1, state.InstalledBase), 0f, SiliconAlleyTools.MaxRoyalty);
     }
 
     // ---- issue #38 (Market): per-project audience segment -------------------------------------------
@@ -779,6 +916,8 @@ public static class SiliconAlleyState
         state.ConceptLocked = 0;
         state.ProjectType = GlobalProjectType; // adopt the current scope pre-selection for the new project
         state.ProductName = string.Empty;
+        state.UsedDependencyMask = 0;
+        ResetDependencyVendors(state);
         state.DesignPrompted = false;
     }
 
@@ -990,7 +1129,8 @@ public static class SiliconAlleyState
     //    |designQualitySum|designQualityWeight|devQualitySum|devQualityWeight|testQualitySum|testQualityWeight
     //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation
     //    |dealPublisher|dealDeadlineDay|dealPayout|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId
-    //    |contractScope|contractProgress|contractDeadlineDay|contractPayout|stage|releaseHistory|productName,
+    //    |contractScope|contractProgress|contractDeadlineDay|contractPayout|stage|releaseHistory|productName
+    //    |ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals,
     // joined by ';'. The publisher-deal fields (issue #23: dealPublisher default -1 = no deal, dealDeadlineDay/
     // dealPayout 0) append after the lifecycle fields; absent in old saves ⇒ no active deal. A third reserved
     // header "~publishers|r0,r1,…" carries the player's per-publisher reputation (issue #22, append-only by
@@ -1092,7 +1232,11 @@ public static class SiliconAlleyState
                 // Issue #78: release history block (index 39). Empty/absent => no history.
                 .Append(SerializeReleaseHistory(state.Releases)).Append('|')
                 // Issue #82: player-typed product name (index 40). Empty/absent => derived display name.
-                .Append(EscapeReleaseString(state.ProductName)).Append(';');
+                .Append(EscapeReleaseString(state.ProductName)).Append('|')
+                // Issue #83: build-or-buy dependencies (indices 41..43). All absent/0/-1 => no dependencies.
+                .Append(state.OwnedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(state.UsedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(SerializeDependencyVendorOrdinals(EnsureDependencyVendors(state))).Append(';');
         }
         return builder.ToString();
     }
@@ -1236,6 +1380,12 @@ public static class SiliconAlleyState
                     LoadReleaseHistory(parts[39], state.Releases);
                 if (parts.Length > 40)
                     state.ProductName = UnescapeReleaseString(parts[40]);
+                if (parts.Length > 41)
+                    int.TryParse(parts[41], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.OwnedDependencyMask);
+                if (parts.Length > 42)
+                    int.TryParse(parts[42], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.UsedDependencyMask);
+                if (parts.Length > 43)
+                    state.DependencyVendorOrdinals = ParseDependencyVendorOrdinals(parts[43]);
                 States[parts[0]] = state;
             }
             catch
@@ -1266,6 +1416,40 @@ public static class SiliconAlleyState
         }
     }
 
+    private static void ResetDependencyVendors(BusinessState state)
+    {
+        var vendors = EnsureDependencyVendors(state);
+        for (var i = 0; i < vendors.Length; i++)
+            vendors[i] = -1;
+    }
+
+    private static string SerializeDependencyVendorOrdinals(int[] vendors)
+    {
+        if (vendors == null || vendors.Length == 0)
+            return string.Empty;
+        var builder = new StringBuilder();
+        for (var i = 0; i < vendors.Length; i++)
+        {
+            if (i > 0) builder.Append(',');
+            builder.Append(vendors[i].ToString(CultureInfo.InvariantCulture));
+        }
+        return builder.ToString();
+    }
+
+    private static int[] ParseDependencyVendorOrdinals(string encoded)
+    {
+        var vendors = new int[SiliconAlleyProductDependencies.MaxCount];
+        for (var i = 0; i < vendors.Length; i++)
+            vendors[i] = -1;
+        if (string.IsNullOrEmpty(encoded))
+            return vendors;
+        var tokens = encoded.Split(',');
+        for (var i = 0; i < tokens.Length && i < vendors.Length; i++)
+            if (int.TryParse(tokens[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var vendor))
+                vendors[i] = SiliconAlleyVendors.TryGetById(vendor, out _) ? vendor : -1;
+        return vendors;
+    }
+
     private static string SerializeReleaseHistory(List<ReleaseRecord> releases)
     {
         if (releases == null || releases.Count == 0)
@@ -1289,7 +1473,9 @@ public static class SiliconAlleyState
                 .Append(r.PlatformMask.ToString(CultureInfo.InvariantCulture)).Append('~')
                 .Append(r.UsedToolsMask.ToString(CultureInfo.InvariantCulture)).Append('~')
                 .Append(r.SegmentId.ToString(CultureInfo.InvariantCulture)).Append('~')
-                .Append(EscapeReleaseString(r.ProductName));
+                .Append(EscapeReleaseString(r.ProductName)).Append('~')
+                .Append(r.UsedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(EscapeReleaseString(r.DependencyVendorOrdinals));
         }
         return builder.ToString();
     }
@@ -1330,8 +1516,13 @@ public static class SiliconAlleyState
             int.TryParse(fields[10], NumberStyles.Integer, CultureInfo.InvariantCulture, out var usedToolsMask);
             int.TryParse(fields[11], NumberStyles.Integer, CultureInfo.InvariantCulture, out var segmentId);
             var productName = fields.Length > 12 ? UnescapeReleaseString(fields[12]) : string.Empty;
+            var usedDependencyMask = 0;
+            if (fields.Length > 13)
+                int.TryParse(fields[13], NumberStyles.Integer, CultureInfo.InvariantCulture, out usedDependencyMask);
+            var dependencyVendorOrdinals = fields.Length > 14 ? UnescapeReleaseString(fields[14]) : string.Empty;
             releases.Add(new ReleaseRecord(day, version, kind, review, quality, launchPayout, launchUnits,
-                publisher, featureMask, platformMask, usedToolsMask, segmentId, productName));
+                publisher, featureMask, platformMask, usedToolsMask, segmentId, productName,
+                usedDependencyMask, dependencyVendorOrdinals));
         }
     }
 

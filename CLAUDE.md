@@ -128,9 +128,18 @@ line that has shipped.
   - `3` `siliconalley:publisher_sentinel` (focus Security, tier 2)
   - (`PublisherFocus { Any, Games, Office, Security }` is NOT persisted — only the publisher ordinal +
   the deal fields are; the enum is free to change.)
+- **Competitor vendor ids** (#83; `SiliconAlleyVendors.Roster` - the persisted token is the **array ordinal**,
+  APPEND-ONLY: never rename/reorder/remove, add new vendors only by appending):
+  - `0` `siliconalley:vendor_omniware`
+  - `1` `siliconalley:vendor_nimbushost`
+  - `2` `siliconalley:vendor_cipherworks`
+  - `3` `siliconalley:vendor_sentinelgrid`
+  - `4` `siliconalley:vendor_pixelruntime`
+  - `5` `siliconalley:vendor_playfabrix`
 - **Persisted enum ordinals** (inside the `"SiliconAlley"` blob): `ProjectKind { Quick=0, Standard=1,
   Ambitious=2 }`; publisher ordinals (see above) persisted as the active-deal `dealPublisher`; the
-  design-wizard `segmentId` ordinal + `featureMask`/`platformMask`/`ownedToolsMask`/`usedToolsMask` bitmasks
+  design-wizard `segmentId` ordinal + `featureMask`/`platformMask`/`ownedToolsMask`/`usedToolsMask` bitmasks;
+  dependency `ownedDependencyMask` / `usedDependencyMask` bitmasks plus `dependencyVendorOrdinals` entries
   (per-bit/ordinal = the reserved enum families directly below).
 - **Design-wizard reserved enum families** (epic #34 / #40; APPEND-ONLY — once a bit/ordinal ships, never
   rename/reorder/remove; add new members only by appending). The bit/ordinal members are minted by the owning
@@ -147,6 +156,12 @@ line that has shipped.
     `2` UI Toolkit. Security (`cybersecurity`): `0` Scan Engine · `1` Crypto Library · `2` SIEM Platform. Game
     (`gamestudio`): `0` Game Engine · `1` Art Suite · `2` Audio Middleware. (Quality bonus, build cost, royalty
     rate + licensor are tunable catalog data, NOT persisted — royalty is derived from `usedToolsMask & ~ownedToolsMask`.)
+  - `DependencyId` - per business type; bit positions in `ownedDependencyMask` / `usedDependencyMask` (#83,
+    **SHIPPED** - `SiliconAlleyProductDependencies`, APPEND-ONLY by `Bit`). Office (`softwarestudio`): `0` OS
+    Runtime · `1` App Framework · `2` Cloud Backend. Security (`cybersecurity`): `0` Hardened OS · `1` Crypto
+    Framework · `2` Threat Intel Platform. Game (`gamestudio`): `0` Runtime OS Layer · `1` Game Framework ·
+    `2` Online Services SDK. `dependencyVendorOrdinals` stores one vendor ordinal per dependency bit; `-1` means
+    none/self-built. Quality bonus, build cost and royalty rates are tunable catalog data.
   - `PlatformId` — per business type; bit positions in `platformMask` (#37, **SHIPPED** — `SiliconAlleyPlatforms`,
     APPEND-ONLY by `Bit`). Office (`softwarestudio`): `0` Desktop · `1` Web · `2` Mobile · `3` Cloud/SaaS.
     Security (`cybersecurity`): `0` Desktop · `1` Server · `2` Cloud · `3` Mobile. Game (`gamestudio`): `0` PC ·
@@ -210,19 +225,24 @@ line that has shipped.
   truth for what the studio is doing and what the screen shows.)
   Then - the next trailing append - `|releaseHistory` - a variable-length per-studio release-history block
   (issue #78), formatted as
-  `count:day~version~kind~review~quality~launchPayout~launchUnits~publisher~featureMask~platformMask~usedToolsMask~segmentId~productName,...`.
+  `count:day~version~kind~review~quality~launchPayout~launchUnits~publisher~featureMask~platformMask~usedToolsMask~segmentId~productName~usedDependencyMask~dependencyVendorOrdinals,...`.
   `count 0` / absent => empty history. A record is appended in `OnProjectCompleted` before per-project fields
   reset, so `version`, `ProjectKind`, design masks, publisher ordinal (`-1` = none), net launch payout and
   launch installed-base jump describe the product that just shipped. `productName` is optional for #82; empty
   means derive the display name from business type + version. Product names percent-escape `%`, `|`, `;`, `,`,
-  `:` and `~` as `%XX`. Extra fields inside a release record are ignored by older readers. Pure trailing append
-  => **no schema bump**.
+  `:` and `~` as `%XX`; `dependencyVendorOrdinals` uses the same escaping because it is a CSV inside the release
+  record. Extra fields inside a release record are ignored by older readers. Pure trailing append => **no schema bump**.
   Then - the next trailing append - `|productName` - the current in-flight product's player-typed display name
   (issue #82). Empty / absent => derive the display name from the business type, so old saves and untouched
   projects behave unchanged. The string uses the same percent-escape scheme as release-history product names:
   `%`, `|`, `;`, `,`, `:` and `~` are encoded as `%XX`. On ship, the current `productName` is copied into the
   release-history row and transient ship report, then reset for the next project. Pure trailing append => **no
   schema bump**.
+  Then - the next trailing append - `|ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals` - build-or-buy
+  dependencies (issue #83). `ownedDependencyMask` is studio-level and survives project completion; `usedDependencyMask`
+  and `dependencyVendorOrdinals` are current-project choices and reset on ship/start. `dependencyVendorOrdinals` is a
+  CSV by dependency bit; `-1` means none/self-built. All absent/`0`/`-1` => no dependencies, so old saves are unchanged.
+  Pure trailing append => **no schema bump**.
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /

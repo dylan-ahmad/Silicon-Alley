@@ -233,6 +233,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #36: licensed tools take a recurring royalty cut of support income too (0 when no tool is
             // licensed / legacy save, so support is unchanged). Layered on top — SupportRatePerDay is untouched.
             support *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
+            support *= 1f - SiliconAlleyState.DependencySupportRoyalty(key, businessType.businessTypeName);
             // Issue #28: recurring support breathes with the category's market demand too (a new factor; the
             // competition MarketFactor / SupportRatePerDay are untouched). Derived from the day — no state.
             support *= SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
@@ -302,7 +303,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #36: licensed tools take a royalty cut of the launch revenue (0 when no tool is licensed /
             // legacy, so payout is unchanged). Reduces the NET payout the player sees in the toast + ship report;
             // layered on top — MarketFactor / reputationFactor / the project-kind multiplier are untouched.
-            payout *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
+            payout *= 1f - SiliconAlleyState.LaunchRoyalty(key, businessType.businessTypeName);
             // Issue #38: the target audience segment scales the per-unit launch price (Broad ⇒ ×1.0, so a
             // legacy/default ship is unchanged). A new multiplier layered on top — MarketFactor / reputationFactor
             // / the project-kind multiplier are untouched; the volume side feeds the installed base below.
