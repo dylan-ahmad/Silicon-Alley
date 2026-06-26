@@ -150,6 +150,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _dependenciesPage;
     private SiliconAlleyUI.CardItem[] _depCards;
     private TMP_Text _depReadout;
+    // Components page (issue #84): interactive build-or-buy product dependencies (#83). One cycle card per
+    // dependency slot — Off → License Vendor A → License Vendor B → Build in-house (owned, reusable). Its own
+    // wizard phase (Order 15); mirrors the Tools page and reads/writes the persisted #83 dependency state.
+    private GameObject _componentsPage;
+    private SiliconAlleyUI.CardItem[] _componentCards;
+    private TMP_Text _componentsReadout;
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -672,7 +678,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var type = _ctxBusinessType?.businessTypeName;
         var dq = Mathf.Max(0f, SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design));
         var bonus = SiliconAlleyFeatures.QualityBonus(SiliconAlleyState.GetFeatureMask(key), type)
-            + SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type);
+            + SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type)
+            + SiliconAlleyState.DependencyQualityBonus(key, type); // issue #84: product-dependency quality (matches DesignQualityCeiling)
         var ceiling = Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
         // Issue #39: uncovered feature→tool dependencies cap the ceiling (full coverage ⇒ no change).
         return Mathf.Min(ceiling, SiliconAlleyDependencies.CoverageCeiling(
@@ -798,6 +805,112 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var sum = 0f;
         foreach (var t in SiliconAlleyTools.ToolsFor(businessTypeName))
             if ((ownedUsed & (1 << t.Bit)) != 0) sum += t.BuildCost;
+        return sum;
+    }
+
+    // Components page (issue #84): one cycle card per product dependency (#83). Off → License Vendor A →
+    // License Vendor B → Build in-house (R&D cash, then owned/reusable). Owned deps toggle in/out of the
+    // current product. Chips show the licensor/royalty/quality; the readout sums the quality + royalty.
+    private void RefreshComponentsPage()
+    {
+        var key = _currentKey;
+        var type = _ctxBusinessType?.businessTypeName;
+        var deps = SiliconAlleyProductDependencies.DependenciesFor(type);
+        for (var i = 0; i < _componentCards.Length; i++)
+        {
+            var c = _componentCards[i];
+            var has = i < deps.Length;
+            c.Root.SetActive(has);
+            if (!has)
+                continue;
+            var d = deps[i];
+            var owned = SiliconAlleyState.IsDependencyOwned(key, d.Bit);
+            var used = SiliconAlleyState.IsDependencyUsed(key, d.Bit);
+            var selfQuality = Compose("siliconalley:wiz_chip_quality", ("v", Mathf.RoundToInt(d.SelfBuildQuality * 100f).ToString(CultureInfo.InvariantCulture)));
+            var build = Compose("siliconalley:wiz_chip_build", ("v", Mathf.RoundToInt(d.BuildCost).ToString(CultureInfo.InvariantCulture)));
+            SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(d.NameKey)); // #55 icon
+            c.Title.text = d.NameKey.GetLocalization();
+            if (owned && used) // self-built, in this product
+            {
+                SetCardChips(c, selfQuality);
+                c.Card.color = Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f);
+                SetCardBadge(c, "siliconalley:wiz_state_owned".GetLocalization(), SiliconAlleyTheme.Ok);
+            }
+            else if (owned) // self-built studio asset, not used here
+            {
+                SetCardChips(c, selfQuality);
+                c.Card.color = SiliconAlleyTheme.Card;
+                SetCardBadge(c, "siliconalley:wiz_state_owned".GetLocalization(), SiliconAlleyTheme.Slate);
+            }
+            else if (used) // licensed from a competitor vendor (royalty)
+            {
+                var vendorOrdinal = SiliconAlleyState.GetDependencyVendorOrdinal(key, d.Bit);
+                var vendorName = SiliconAlleyVendors.TryGetById(vendorOrdinal, out var vendor) ? vendor.NameKey.GetLocalization() : "—";
+                var royalty = Compose("siliconalley:wiz_chip_royalty", ("v", Mathf.RoundToInt(OfferRoyalty(type, d.Bit, vendorOrdinal) * 100f).ToString(CultureInfo.InvariantCulture)));
+                var quality = Compose("siliconalley:wiz_chip_quality", ("v", Mathf.RoundToInt(OfferQuality(type, d.Bit, vendorOrdinal) * 100f).ToString(CultureInfo.InvariantCulture)));
+                SetCardChips(c, vendorName, royalty, quality);
+                c.Card.color = Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Warn, 0.30f);
+                SetCardBadge(c, "siliconalley:wiz_state_licensed".GetLocalization(), SiliconAlleyTheme.Warn);
+            }
+            else // off — show the build cost + the cheapest licensing royalty as a hint
+            {
+                var royaltyHint = Compose("siliconalley:wiz_chip_royalty", ("v", Mathf.RoundToInt(MinOfferRoyalty(type, d.Bit) * 100f).ToString(CultureInfo.InvariantCulture)));
+                SetCardChips(c, build, royaltyHint);
+                c.Card.color = SiliconAlleyTheme.Card;
+                SetCardBadge(c, "siliconalley:wiz_state_off".GetLocalization(), SiliconAlleyTheme.Slate);
+            }
+        }
+        _componentsReadout.text = Compose("siliconalley:wiz_components_readout",
+            ("quality", Mathf.RoundToInt(SiliconAlleyState.DependencyQualityBonus(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+            ("royalty", Mathf.RoundToInt(SiliconAlleyState.DependencyRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+            ("licensed", LicensedDependencyCount(key, type).ToString(CultureInfo.InvariantCulture)));
+    }
+
+    // Ordered vendor ordinals offering a dependency slot (catalog order), driving the build-or-buy cycle.
+    private static List<int> VendorOrdinalsFor(string businessTypeName, int dependencyBit)
+    {
+        var list = new List<int>();
+        foreach (var o in SiliconAlleyProductDependencies.OffersFor(businessTypeName))
+            if (o.DependencyBit == dependencyBit)
+                list.Add(o.VendorOrdinal);
+        return list;
+    }
+
+    private static float OfferRoyalty(string businessTypeName, int dependencyBit, int vendorOrdinal)
+        => SiliconAlleyProductDependencies.TryGetOffer(businessTypeName, dependencyBit, vendorOrdinal, out var offer) ? offer.RoyaltyRate : 0f;
+
+    private static float OfferQuality(string businessTypeName, int dependencyBit, int vendorOrdinal)
+        => SiliconAlleyProductDependencies.TryGetOffer(businessTypeName, dependencyBit, vendorOrdinal, out var offer) ? offer.QualityBonus : 0f;
+
+    // The cheapest royalty among the slot's vendor offers — the "off"-state licensing hint chip.
+    private static float MinOfferRoyalty(string businessTypeName, int dependencyBit)
+    {
+        var min = float.MaxValue;
+        foreach (var o in SiliconAlleyProductDependencies.OffersFor(businessTypeName))
+            if (o.DependencyBit == dependencyBit && o.RoyaltyRate < min)
+                min = o.RoyaltyRate;
+        return min == float.MaxValue ? 0f : min;
+    }
+
+    // Count of licensed (used but not self-built) dependencies on the current project — drives the readout
+    // and the Summary royalty row alongside the licensed-tool count.
+    private int LicensedDependencyCount(string key, string businessTypeName)
+    {
+        var licensed = SiliconAlleyState.GetUsedDependencyMask(key) & ~SiliconAlleyState.GetOwnedDependencyMask(key);
+        var count = 0;
+        foreach (var d in SiliconAlleyProductDependencies.DependenciesFor(businessTypeName))
+            if ((licensed & (1 << d.Bit)) != 0) count++;
+        return count;
+    }
+
+    // Total R&D cash sunk into the owned dependencies used on this product — drives the Summary cost row
+    // alongside the owned-tool R&D.
+    private float OwnedDependenciesRnd(string key, string businessTypeName)
+    {
+        var ownedUsed = SiliconAlleyState.GetUsedDependencyMask(key) & SiliconAlleyState.GetOwnedDependencyMask(key);
+        var sum = 0f;
+        foreach (var d in SiliconAlleyProductDependencies.DependenciesFor(businessTypeName))
+            if ((ownedUsed & (1 << d.Bit)) != 0) sum += d.BuildCost;
         return sum;
     }
 
@@ -937,17 +1050,17 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                         ("total", covTotal.ToString(CultureInfo.InvariantCulture))),
             covFull ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn);
 
-        // #36 editors & tools: up-front R&D for owned tools + ongoing licensed-tool royalty.
-        var ownedRnd = OwnedToolsRnd(key, type);
+        // #36 tools + #84 product dependencies: up-front R&D for owned items + ongoing licensed royalty.
+        var ownedRnd = OwnedToolsRnd(key, type) + OwnedDependenciesRnd(key, type);
         SetStat(_sumCost, "stat_cost", "siliconalley:wiz_sum_lbl_cost",
             ownedRnd <= 0f ? "siliconalley:wiz_placeholder_none".GetLocalization()
                            : Compose("siliconalley:wiz_cost_value", ("amount", Mathf.RoundToInt(ownedRnd).ToString(CultureInfo.InvariantCulture))),
             ownedRnd <= 0f ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Warn);
-        var licensed = LicensedToolCount(key, type);
+        var licensed = LicensedToolCount(key, type) + LicensedDependencyCount(key, type);
         SetStat(_sumRoyalty, "stat_royalty", "siliconalley:wiz_sum_lbl_royalties",
             licensed <= 0 ? "siliconalley:wiz_placeholder_noroyalties".GetLocalization()
                           : Compose("siliconalley:wiz_royalty_value",
-                              ("royalty", Mathf.RoundToInt(SiliconAlleyState.ToolRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+                              ("royalty", Mathf.RoundToInt(SiliconAlleyState.LaunchRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
                               ("count", licensed.ToString(CultureInfo.InvariantCulture))),
             licensed <= 0 ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Warn);
 
@@ -1334,6 +1447,49 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         else if (SiliconAlleyMoney.TrySpend(_ctxReg, t.BuildCost,        // Licensed → Build & Own (charge R&D)
             t.NameKey.GetLocalization(), "siliconalley:transaction_tools"))
             SiliconAlleyState.SetToolOwned(_currentKey, t.Bit);          // owned now (usedToolsMask stays set)
+        Refresh();
+    }
+
+    // Issue #84: cycle this product-dependency slot (#83 build-or-buy). Off → License Vendor A → License
+    // Vendor B → Build in-house (charge R&D cash once; then it's an owned, reusable studio asset). An owned
+    // dependency just toggles in/out of the current product (can't un-own). An unaffordable build (the money
+    // API shows its own insufficient-funds toast) loops back to Off. Gated to the editable Design phase.
+    private void OnCycleComponent(int slot)
+    {
+        if (!SiliconAlleyState.CanEditConcept(_currentKey))
+            return;
+        var type = _ctxBusinessType?.businessTypeName;
+        var deps = SiliconAlleyProductDependencies.DependenciesFor(type);
+        if (slot < 0 || slot >= deps.Length)
+            return;
+        var d = deps[slot];
+        var vendors = VendorOrdinalsFor(type, d.Bit);
+        if (SiliconAlleyState.IsDependencyOwned(_currentKey, d.Bit))
+        {
+            // Owned (self-built, reusable): toggle whether this product uses it.
+            if (SiliconAlleyState.IsDependencyUsed(_currentKey, d.Bit))
+                SiliconAlleyState.ClearDependency(_currentKey, type, d.Bit);
+            else
+                SiliconAlleyState.UseOwnedDependency(_currentKey, type, d.Bit);
+        }
+        else if (!SiliconAlleyState.IsDependencyUsed(_currentKey, d.Bit))
+        {
+            // Off → license the first vendor offer.
+            if (vendors.Count > 0)
+                SiliconAlleyState.LicenseDependency(_currentKey, type, d.Bit, vendors[0]);
+        }
+        else
+        {
+            // Licensing a vendor → advance to the next vendor, or (past the last) build in-house.
+            var idx = vendors.IndexOf(SiliconAlleyState.GetDependencyVendorOrdinal(_currentKey, d.Bit));
+            if (idx >= 0 && idx < vendors.Count - 1)
+                SiliconAlleyState.LicenseDependency(_currentKey, type, d.Bit, vendors[idx + 1]);
+            else if (SiliconAlleyMoney.TrySpend(_ctxReg, d.BuildCost,
+                d.NameKey.GetLocalization(), "siliconalley:transaction_dependencies"))
+                SiliconAlleyState.SetDependencyOwned(_currentKey, type, d.Bit); // built & owned now
+            else
+                SiliconAlleyState.ClearDependency(_currentKey, type, d.Bit);    // can't afford → back to Off
+        }
         Refresh();
     }
 
@@ -1762,6 +1918,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _depCards[i] = MakeCardItem(_dependenciesPage.transform, null, 1); // read-only coverage card (1 "needs …" chip)
         _depReadout = MakeText(_dependenciesPage.transform, "DepReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
+        // Components page (issue #84): interactive build-or-buy product dependencies (#83). A reusable pool of
+        // CYCLE cards (one per dependency slot: Off → License Vendor A → License Vendor B → Build in-house &
+        // own), sized to the largest dependency table; RefreshComponentsPage relabels per type. Its own phase.
+        _componentsPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_componentsPage.transform, "siliconalley:wiz_components_header");
+        var componentSlots = SiliconAlleyProductDependencies.MaxCount;
+        _componentCards = new SiliconAlleyUI.CardItem[componentSlots];
+        for (var i = 0; i < componentSlots; i++)
+        {
+            var slot = i; // capture per-slot index for the cycle closure (the bit is resolved at click time)
+            _componentCards[i] = MakeCardItem(_componentsPage.transform, () => OnCycleComponent(slot));
+        }
+        _componentsReadout = MakeText(_componentsPage.transform, "ComponentsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+
         // ---- Issue #81: fold the 7 sub-pages into 4 wide, multi-column phases ----
         // Concept and Summary stay single-column. Dependencies groups Features + Tools + Coverage as columns;
         // Market groups Platforms + Segment as columns. The sub-page roots (built above) are re-parented into
@@ -1788,6 +1958,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 || SiliconAlleyTools.ToolsFor(_ctxBusinessType?.businessTypeName).Length > 0,
             Refresh = RefreshDependenciesPhase,
             TitleKey = "siliconalley:wiz_step_deps",
+        });
+        // Components phase (issue #84): interactive build-or-buy product dependencies (#83). Present for any
+        // type that has dependency slots (all three do). Sits between the Dependencies and Market phases.
+        _wizardPages.Add(new WizardPage
+        {
+            Order = 15,
+            Root = _componentsPage,
+            IsPresent = () => SiliconAlleyProductDependencies.DependenciesFor(_ctxBusinessType?.businessTypeName).Length > 0,
+            Refresh = RefreshComponentsPage,
+            TitleKey = "siliconalley:wiz_step_components",
         });
         // Market phase: Platforms (self-hides if none) + Segment (universal), always present.
         _wizardPages.Add(new WizardPage { Order = 20, Root = _phaseMarket, IsPresent = () => true, Refresh = RefreshMarketPhase, TitleKey = "siliconalley:wiz_step_market" });
