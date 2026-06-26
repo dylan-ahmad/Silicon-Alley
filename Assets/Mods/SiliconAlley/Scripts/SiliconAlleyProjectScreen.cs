@@ -156,6 +156,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _componentsPage;
     private SiliconAlleyUI.CardItem[] _componentCards;
     private TMP_Text _componentsReadout;
+    // Market-targeting (issue #86): per-feature % allocation sliders + a per-aspect demand panel with live fit.
+    // Sits atop the Market phase; reads/writes the #85 FeatureWeights + the SiliconAlleyAspects demand/fit model.
+    private GameObject _targetingBlock, _allocationPage, _demandPage;
+    private TMP_Text _allocHint, _targetingReadout;
+    private WeightRow[] _weightRows;
+    private DemandRow[] _demandRows;
+
+    // A pooled per-feature allocation row: [icon] name … slider … %. The slider sets the feature weight (#85).
+    private sealed class WeightRow
+    {
+        public GameObject Root;
+        public Image Icon;
+        public TMP_Text Label, Pct;
+        public Slider Slider;
+    }
+
+    // A pooled per-aspect demand row: name + "wants/you" label, then a demand bar and the player's allocation bar.
+    private sealed class DemandRow
+    {
+        public GameObject Root;
+        public TMP_Text Name, Lbl;
+        public SiliconAlleyUI.ProgressBar Demand, Alloc;
+    }
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -514,13 +537,161 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (hasDeps) RefreshDependenciesPage();
     }
 
-    // Issue #81: the Market phase folds Platforms + Segment into columns (segments are universal).
+    // Issue #81: the Market phase folds Platforms + Segment into columns (segments are universal). Issue #86:
+    // the market-targeting block (per-feature % sliders + a per-aspect demand panel with live fit) sits on top.
     private void RefreshMarketPhase()
     {
-        var hasPlatforms = SiliconAlleyPlatforms.PlatformsFor(_ctxBusinessType?.businessTypeName).Length > 0;
+        var type = _ctxBusinessType?.businessTypeName;
+        var hasPlatforms = SiliconAlleyPlatforms.PlatformsFor(type).Length > 0;
         _platformsPage.SetActive(hasPlatforms);
         if (hasPlatforms) RefreshPlatformsPage();
         RefreshMarketPage();
+        // Issue #86: market targeting is present when the type has features to allocate across.
+        var hasFeatures = SiliconAlleyFeatures.FeaturesFor(type).Length > 0;
+        _targetingBlock.SetActive(hasFeatures);
+        if (hasFeatures)
+        {
+            RefreshAllocationPage();
+            RefreshDemandPage();
+        }
+    }
+
+    // Issue #86: a per-feature allocation row — [icon] name + a 0..1 emphasis slider + a normalized % readout.
+    // The slider maps to the #85 feature weight (0..1 ↔ weight 0..2, so neutral 1.0 sits at the 0.5 midpoint).
+    private WeightRow BuildWeightRow(Transform parent, int slot)
+    {
+        var row = MakeRow(parent, 8f, 26);
+        var hlg = row.GetComponent<HorizontalLayoutGroup>();
+        hlg.childForceExpandWidth = false;
+        hlg.childAlignment = TextAnchor.MiddleLeft;
+        var icon = MakeIcon(row.transform, null, 18f);
+        var label = MakeText(row.transform, "WLabel", 14, TextAnchor.MiddleLeft);
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
+        FixWidth(label, 118f);
+        var slider = MakeSlider(row.transform); // flexibleWidth 1 from MakeSlider
+        slider.onValueChanged.AddListener(v => OnWeightChanged(slot, v));
+        var pct = MakeText(row.transform, "WPct", 14, TextAnchor.MiddleLeft);
+        pct.alignment = TextAlignmentOptions.Right;
+        pct.color = SiliconAlleyTheme.TextMuted;
+        FixWidth(pct, 44f);
+        return new WeightRow { Root = row, Icon = icon, Label = label, Slider = slider, Pct = pct };
+    }
+
+    // Issue #86: a per-aspect demand row — name + "wants/you" label, then a demand bar (Ok) over the player's
+    // allocation bar (Accent) so the player can visually match their mix to what the market wants.
+    private DemandRow BuildDemandRow(Transform parent)
+    {
+        var box = MakeSection(parent);
+        var top = MakeRow(box.transform, 6f, 20);
+        var hlg = top.GetComponent<HorizontalLayoutGroup>();
+        hlg.childForceExpandWidth = false;
+        hlg.childAlignment = TextAnchor.MiddleLeft;
+        var name = MakeText(top.transform, "AName", 14, TextAnchor.MiddleLeft, FontStyle.Bold);
+        name.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        var lbl = MakeText(top.transform, "ALbl", 14, TextAnchor.MiddleLeft);
+        lbl.alignment = TextAlignmentOptions.Right;
+        lbl.color = SiliconAlleyTheme.TextMuted;
+        lbl.enableWordWrapping = false;
+        FixWidth(lbl, 150f);
+        var demand = MakeProgressBar(box.transform, 8f);
+        var alloc = MakeProgressBar(box.transform, 8f);
+        return new DemandRow { Root = box, Name = name, Lbl = lbl, Demand = demand, Alloc = alloc };
+    }
+
+    // Issue #86: the per-feature % sliders. Show a row per SELECTED feature; set each slider from the stored
+    // weight (suppressing the write-back) and a normalized % readout. A hint shows until 2+ features are picked.
+    private void RefreshAllocationPage()
+    {
+        var key = _currentKey;
+        var type = _ctxBusinessType?.businessTypeName;
+        var feats = SiliconAlleyFeatures.FeaturesFor(type);
+        var mask = SiliconAlleyState.GetFeatureMask(key);
+        var totalW = 0f;
+        var selected = 0;
+        foreach (var f in feats)
+            if ((mask & (1 << f.Bit)) != 0)
+            {
+                totalW += SiliconAlleyState.GetFeatureWeight(key, f.Bit);
+                selected++;
+            }
+        _suppress = true; // setting slider values must not write back through OnWeightChanged
+        for (var i = 0; i < _weightRows.Length; i++)
+        {
+            var row = _weightRows[i];
+            var has = i < feats.Length && (mask & (1 << feats[i].Bit)) != 0;
+            row.Root.SetActive(has);
+            if (!has)
+                continue;
+            var f = feats[i];
+            var w = SiliconAlleyState.GetFeatureWeight(key, f.Bit);
+            SetIconSprite(row.Icon, SiliconAlleyTheme.IconFor(f.NameKey));
+            row.Label.text = f.NameKey.GetLocalization();
+            row.Slider.value = Mathf.Clamp01(w / 2f);
+            row.Pct.text = (totalW > 0f ? Mathf.RoundToInt(w / totalW * 100f) : 0).ToString(CultureInfo.InvariantCulture) + "%";
+        }
+        _suppress = false;
+        _allocHint.gameObject.SetActive(selected < 2);
+        _allocHint.text = "siliconalley:wiz_alloc_hint".GetLocalization();
+    }
+
+    // Issue #86: the demand panel + live fit readout. Per aspect: the market's demand share (Ok bar) vs the
+    // player's allocation share (Accent bar). The readout shows the fit's effect on revenue + quality (signed,
+    // relative to the even allocation, so neutral reads +0%/+0%).
+    private void RefreshDemandPage()
+    {
+        var key = _currentKey;
+        var type = _ctxBusinessType?.businessTypeName;
+        var day = TimeHelper.CurrentDay;
+        var aspects = SiliconAlleyAspects.AspectsFor(type);
+        var weights = SiliconAlleyState.GetFeatureWeights(key);
+        var mask = SiliconAlleyState.GetFeatureMask(key);
+        var demand = SiliconAlleyAspects.DemandProfile(type, day);
+        var alloc = SiliconAlleyAspects.AllocationProfile(type, mask, weights);
+        for (var i = 0; i < _demandRows.Length; i++)
+        {
+            var row = _demandRows[i];
+            var has = i < aspects.Length;
+            row.Root.SetActive(has);
+            if (!has)
+                continue;
+            var wants = demand != null && i < demand.Length ? demand[i] : 0f;
+            var you = alloc != null && i < alloc.Length ? alloc[i] : 0f;
+            row.Name.text = aspects[i].NameKey.GetLocalization();
+            row.Lbl.text = Compose("siliconalley:wiz_demand_row",
+                ("wants", Mathf.RoundToInt(wants * 100f).ToString(CultureInfo.InvariantCulture)),
+                ("you", Mathf.RoundToInt(you * 100f).ToString(CultureInfo.InvariantCulture)));
+            SetProgress(row.Demand, wants, SiliconAlleyTheme.Ok);
+            SetProgress(row.Alloc, you, SiliconAlleyTheme.Accent);
+        }
+        var market = SiliconAlleyAspects.MarketFitFactor(mask, weights, type, day);
+        var quality = SiliconAlleyAspects.QualityFitBonus(mask, weights, type, day);
+        _targetingReadout.text = Compose("siliconalley:wiz_targeting_fit",
+            ("market", SignedPct((market - 1f) * 100f)),
+            ("quality", SignedPct(quality * 100f)));
+    }
+
+    // A signed percent for the fit readout: "+3%", "-2%", or "0%".
+    private static string SignedPct(float pct)
+    {
+        var rounded = Mathf.RoundToInt(pct);
+        return (rounded > 0 ? "+" : "") + rounded.ToString(CultureInfo.InvariantCulture) + "%";
+    }
+
+    // Issue #86: a per-feature allocation slider moved. Resolve the feature bit from the row's slot (only
+    // selected features show a row), write the weight (slider 0..1 ↔ weight 0..2), then refresh the targeting
+    // display so the % readouts + demand/fit update live. The _suppress guard makes the slider-value set during
+    // that refresh a no-op (no write-back loop); we refresh only the targeting block, not the whole wizard.
+    private void OnWeightChanged(int slot, float value)
+    {
+        if (_suppress)
+            return;
+        var feats = SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName);
+        if (slot < 0 || slot >= feats.Length)
+            return;
+        SiliconAlleyState.SetFeatureWeight(_currentKey, feats[slot].Bit, value * 2f);
+        RefreshAllocationPage();
+        RefreshDemandPage();
     }
 
     // Filter _wizardPages down to the pages whose feature is present (Concept + Summary today). Sub-issues'
@@ -1933,6 +2104,27 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         }
         _componentsReadout = MakeText(_componentsPage.transform, "ComponentsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
 
+        // Market-targeting pages (issue #86): Allocation = a per-feature % weight slider pool (one per feature in
+        // the largest table; shown only for the selected features); Demand = a per-aspect demand vs allocation
+        // bar pool + a live fit readout. Built here, re-parented into the Market phase's targeting columns below.
+        _allocationPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_allocationPage.transform, "siliconalley:wiz_alloc_header");
+        _weightRows = new WeightRow[SiliconAlleyFeatures.MaxCount];
+        for (var i = 0; i < _weightRows.Length; i++)
+        {
+            var slot = i; // capture per-row index; the feature bit is resolved at change time
+            _weightRows[i] = BuildWeightRow(_allocationPage.transform, slot);
+        }
+        _allocHint = MakeText(_allocationPage.transform, "AllocHint", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+
+        _demandPage = MakeSection(_wizardSection.transform);
+        MakeHeader(_demandPage.transform, "siliconalley:wiz_demand_header");
+        _demandRows = new DemandRow[SiliconAlleyAspects.MaxCount];
+        for (var i = 0; i < _demandRows.Length; i++)
+            _demandRows[i] = BuildDemandRow(_demandPage.transform);
+        MakeDivider(_demandPage.transform);
+        _targetingReadout = MakeText(_demandPage.transform, "TargetingReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+
         // ---- Issue #81: fold the 7 sub-pages into 4 wide, multi-column phases ----
         // Concept and Summary stay single-column. Dependencies groups Features + Tools + Coverage as columns;
         // Market groups Platforms + Segment as columns. The sub-page roots (built above) are re-parented into
@@ -1944,6 +2136,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _dependenciesPage.transform.SetParent(depsColumns.transform, false);
 
         _phaseMarket = MakeSection(_wizardSection.transform);
+        // Issue #86: the market-targeting block (Allocation sliders | Demand + fit) sits ABOVE the existing
+        // Platforms | Segment columns. Wrapped in its own section so RefreshMarketPhase can hide it wholesale for
+        // a type with no features (defensive; all three types have features).
+        _targetingBlock = MakeSection(_phaseMarket.transform);
+        var targetingColumns = MakeColumns(_targetingBlock.transform);
+        _allocationPage.transform.SetParent(targetingColumns.transform, false);
+        _demandPage.transform.SetParent(targetingColumns.transform, false);
+        MakeDivider(_targetingBlock.transform);
         var marketColumns = MakeColumns(_phaseMarket.transform);
         _platformsPage.transform.SetParent(marketColumns.transform, false);
         _marketPage.transform.SetParent(marketColumns.transform, false);
