@@ -56,6 +56,13 @@ public static class SiliconAlleyHelp
         // Overview + system pages -> dedicated "Silicon Alley" category (#66 / #67 still to come).
         (OverviewSlug, ModCategoryKey),
         ("siliconalley-wizard", ModCategoryKey),   // #65 — the design-wizard guide
+        // #66 — economy & market system pages.
+        ("siliconalley-contracts",     ModCategoryKey),
+        ("siliconalley-market-demand", ModCategoryKey),
+        ("siliconalley-marketing",     ModCategoryKey),
+        ("siliconalley-publishers",    ModCategoryKey),
+        ("siliconalley-lifecycle",     ModCategoryKey),
+        ("siliconalley-bugs-reviews",  ModCategoryKey),
     };
 
     private static FieldInfo? _categoriesField;
