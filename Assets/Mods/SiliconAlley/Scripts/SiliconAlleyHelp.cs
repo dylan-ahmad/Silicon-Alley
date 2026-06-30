@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using BAModAPI;
 using Localizor;
+using UnityEngine;
 // The game type `HelpSystem` lives in the GLOBAL namespace, while the help entry structs live in the
 // namespace `UnityEngine.UI.Extensions.HelpSystem` — importing that namespace would shadow the type with
 // the same simple name. So we DON'T `using` it; we alias just the two structs and reference the global
@@ -243,7 +244,7 @@ public class SiliconAlleyHelpHotkeyHost : IModBigAmbitions
 {
     public string[] RelativeAssetBundlePaths => Array.Empty<string>();
 
-    private GameObject _host;
+    private GameObject? _host;
 
     public Task OnLoadAsync(ModContext context)
     {
@@ -266,7 +267,7 @@ public class SiliconAlleyHelpHotkeyHost : IModBigAmbitions
 
 public class SiliconAlleyHelpHotkey : MonoBehaviour
 {
-    public static SiliconAlleyHelpHotkey Instance { get; private set; }
+    public static SiliconAlleyHelpHotkey? Instance { get; private set; }
 
     private void Awake() => Instance = this;
 
