@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using BAModAPI;
 using Localizor;
 // The game type `HelpSystem` lives in the GLOBAL namespace, while the help entry structs live in the
@@ -11,6 +12,8 @@ using Localizor;
 // `HelpSystem` type directly.
 using GroupEntry = UnityEngine.UI.Extensions.HelpSystem.HelpStructureGroupEntry;
 using PageEntry = UnityEngine.UI.Extensions.HelpSystem.HelpStructurePageEntry;
+
+[assembly: RegisterModClass(typeof(SiliconAlleyHelpHotkeyHost))]
 
 // Issue #64 (epic #62 — in-game help): the FOUNDATION that puts Silicon Alley into Big Ambitions' native
 // Help System. BA exposes no Mod-API help hook — the sidebar structure lives in a private
@@ -73,6 +76,13 @@ public static class SiliconAlleyHelp
     private static bool _errorLogged;
 
     public static string LastError { get; private set; } = "";
+
+    // Issue #68: the hotkey that opens the help overview (legacy Input, like the project/dashboard screens).
+    // Rebindable via the options panel (machine-local); KeyChoices is the dropdown's index→KeyCode mapping.
+    // Polled by SiliconAlleyHelpHotkey.Update (created on city load by SiliconAlleyHelpHotkeyHost below).
+    public static KeyCode HotKey = KeyCode.F1;
+    public static readonly KeyCode[] KeyChoices =
+        { KeyCode.F1, KeyCode.F2, KeyCode.F3, KeyCode.F4, KeyCode.Tab, KeyCode.BackQuote };
 
     // Idempotent: inject the mod's pages into HelpSystem's sidebar and rebuild it. Safe to call any number
     // of times and before the help UI exists (no-op until HelpSystem is alive — a later city-load /
@@ -221,5 +231,54 @@ public static class SiliconAlleyHelp
         _errorLogged = true;
         _logger?.Error("SiliconAlley: help integration failed (" + LastError +
                        "). Sidebar skipped; page content still opens via OpenPage.");
+    }
+}
+
+// Issue #68: a persistent input listener that opens the help overview on the configurable hotkey
+// (SiliconAlleyHelp.HotKey, default F1). Created on city load — mirrors the project-screen/dashboard host
+// pattern (SiliconAlleyProjectScreenMod) — so its Update() polls the key from city load onward, regardless
+// of whether any mod window is open. Presentation only; no save-compat surface.
+[ModEntryOnCityLoad]
+public class SiliconAlleyHelpHotkeyHost : IModBigAmbitions
+{
+    public string[] RelativeAssetBundlePaths => Array.Empty<string>();
+
+    private GameObject _host;
+
+    public Task OnLoadAsync(ModContext context)
+    {
+        if (SiliconAlleyHelpHotkey.Instance == null)
+        {
+            _host = new GameObject("SiliconAlleyHelpHotkey");
+            _host.AddComponent<SiliconAlleyHelpHotkey>();
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task OnUnloadAsync()
+    {
+        if (_host != null)
+            UnityEngine.Object.Destroy(_host);
+        _host = null;
+        return Task.CompletedTask;
+    }
+}
+
+public class SiliconAlleyHelpHotkey : MonoBehaviour
+{
+    public static SiliconAlleyHelpHotkey Instance { get; private set; }
+
+    private void Awake() => Instance = this;
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+            Instance = null;
+    }
+
+    private void Update()
+    {
+        if (Input.GetKeyDown(SiliconAlleyHelp.HotKey))
+            SiliconAlleyHelp.OpenOverview();
     }
 }

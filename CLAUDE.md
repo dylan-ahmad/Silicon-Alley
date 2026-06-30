@@ -169,7 +169,9 @@ line that has shipped.
   - `SegmentId` — value of `segmentId` (#38, **SHIPPED** — `SiliconAlleySegments`, APPEND-ONLY ordinals):
     `0=Broad, 1=Enterprise, 2=Prosumer, 3=Consumer`. (Per-segment price/volume factors + market-size indicator
     are tunable catalog data, NOT persisted.)
-- **modData keys:** `SiliconAlley` (versioned state blob), `SiliconAlley.ClientWelcomeSent` (bool flag)
+- **modData keys:** `SiliconAlley` (versioned state blob), `SiliconAlley.ClientWelcomeSent` (bool flag),
+  `SiliconAlley.HelpNudgeSent` (bool flag, #68 — first-run help nudge; separate top-level key, absent ⇒ not
+  shown; no blob/schema change)
 - **Reserved `"SiliconAlley"` blob headers** (`~`-prefixed, position-independent, unknown ones ignored for
   forward-compat): `~schema|<n>`, `~global|<projectTypeIndex>`, and `~publishers|r0,r1,…` — the player's
   per-publisher reputation (epic #22), comma-separated by publisher ordinal (append-only; absent ⇒ all 0).

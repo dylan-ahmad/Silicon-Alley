@@ -24,6 +24,10 @@ public static class SiliconAlleyOptions
                 new[] { "siliconalley:key_f8", "siliconalley:key_f7", "siliconalley:key_f6",
                         "siliconalley:key_f5", "siliconalley:key_tab", "siliconalley:key_backquote" },
                 0, OnDashboardKey)
+            .AddDropdown("siliconalley_helpkey", "siliconalley:options_helpkey",
+                new[] { "siliconalley:key_f1", "siliconalley:key_f2", "siliconalley:key_f3",
+                        "siliconalley:key_f4", "siliconalley:key_tab", "siliconalley:key_backquote" },
+                0, OnHelpKey)
             .AddSplitter();
 
         OptionsService.Register(context.ModId, options);
@@ -49,4 +53,9 @@ public static class SiliconAlleyOptions
     private static void OnDashboardKey(int value) =>
         SiliconAlleyDashboardScreen.ToggleKey =
             SiliconAlleyDashboardScreen.KeyChoices[Mathf.Clamp(value, 0, SiliconAlleyDashboardScreen.KeyChoices.Length - 1)];
+
+    // Issue #68: the key that opens the in-game help overview (machine-local; index maps to KeyChoices).
+    private static void OnHelpKey(int value) =>
+        SiliconAlleyHelp.HotKey =
+            SiliconAlleyHelp.KeyChoices[Mathf.Clamp(value, 0, SiliconAlleyHelp.KeyChoices.Length - 1)];
 }

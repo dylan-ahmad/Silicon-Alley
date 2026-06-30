@@ -8,6 +8,7 @@ using Entities;
 using Helpers;
 using Localizor;
 using UI.Dialog;
+using UI.Notification;
 using UI.Smartphone.Apps.Contacts;
 using UnityEngine;
 
@@ -31,6 +32,10 @@ public class SiliconAlleyClient : IModBigAmbitions
     // with the save) so the welcome is never re-sent on a later load.
     private const string WelcomeSentKey = "SiliconAlley.ClientWelcomeSent";
 
+    // Issue #68: one-time "first-run help nudge shown" flag. A SEPARATE modData key from the welcome (and
+    // with its own subscription below) so a save that already received the welcome still gets the nudge once.
+    private const string HelpNudgeSentKey = "SiliconAlley.HelpNudgeSent";
+
     private Contact _contact;
 
     public string[] RelativeAssetBundlePaths => Array.Empty<string>();
@@ -53,6 +58,14 @@ public class SiliconAlleyClient : IModBigAmbitions
             GlobalEvents.onNewHour += TrySendWelcome;
         }
 
+        // Issue #68: the first-run help nudge rides the same hourly tick + studio-owned gate as the welcome,
+        // but on its OWN flag/subscription so a save that already saw the welcome still gets the nudge once.
+        if (!HelpNudgeAlreadySent())
+        {
+            GlobalEvents.onNewHour -= TryShowHelpNudge;
+            GlobalEvents.onNewHour += TryShowHelpNudge;
+        }
+
         context.Logger.Info("SiliconAlley: client contact registered.");
         return Task.CompletedTask;
     }
@@ -60,6 +73,7 @@ public class SiliconAlleyClient : IModBigAmbitions
     public Task OnUnloadAsync()
     {
         GlobalEvents.onNewHour -= TrySendWelcome;
+        GlobalEvents.onNewHour -= TryShowHelpNudge;
         return Task.CompletedTask;
     }
 
@@ -81,6 +95,28 @@ public class SiliconAlleyClient : IModBigAmbitions
         contact.SendMessage(new TextMessage(WelcomeMessageKey), sendNotificationInstantly: true);
         MarkWelcomeSent();
         GlobalEvents.onNewHour -= TrySendWelcome;
+    }
+
+    // Issue #68: once the player owns a studio, show a single clickable toast pointing at the in-game guide,
+    // then persist a flag and unsubscribe so it never re-fires. The click opens BA's native Help at the
+    // Silicon Alley overview (works even if the #64 sidebar injection no-ops — the page renders from its
+    // locale key regardless). Mirrors TrySendWelcome's gate/lifecycle exactly.
+    private static void TryShowHelpNudge()
+    {
+        if (SaveGameManager.Current == null)
+            return;
+        if (HelpNudgeAlreadySent())
+        {
+            GlobalEvents.onNewHour -= TryShowHelpNudge;
+            return;
+        }
+        if (!PlayerOwnsStudio())
+            return;
+
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_helpnudge", null, 8f,
+            "siliconalley:helpnudge", () => SiliconAlleyHelp.OpenOverview());
+        MarkHelpNudgeSent();
+        GlobalEvents.onNewHour -= TryShowHelpNudge;
     }
 
     // A business is the player's when the registration is rented by the player and its type is ours.
@@ -117,6 +153,21 @@ public class SiliconAlleyClient : IModBigAmbitions
         if (current?.modData != null)
             current.modData[WelcomeSentKey] = "true";
     }
+
+    private static bool HelpNudgeAlreadySent()
+    {
+        var current = SaveGameManager.Current;
+        return current?.modData != null
+               && current.modData.TryGetValue(HelpNudgeSentKey, out var value)
+               && value == "true";
+    }
+
+    private static void MarkHelpNudgeSent()
+    {
+        var current = SaveGameManager.Current;
+        if (current?.modData != null)
+            current.modData[HelpNudgeSentKey] = "true";
+    }
 }
 
 public class SiliconAlleyClientDialog : Dialog
@@ -143,6 +194,9 @@ public class SiliconAlleyClientDialog : Dialog
                     "siliconalley:client_status_none",
                     "siliconalley:client_registration_failed").Localize(),
                 Template = DialogEntry.TemplateType.Text,
+                // Issue #68: nothing to do yet, so offer the guide as the primary action.
+                ConfirmTextOverride = "siliconalley:client_open_guide".Localize(),
+                OnConfirm = OpenHelp,
                 OnCancel = DialogController.current.CancelDialog,
             };
 
@@ -178,6 +232,9 @@ public class SiliconAlleyClientDialog : Dialog
             Template = DialogEntry.TemplateType.Text,
             ConfirmTextOverride = "siliconalley:client_view_studios".Localize(),
             OnConfirm = OpenDashboard,
+            // Issue #68: the spare button opens the in-game guide.
+            SecondOptionTextOverride = "siliconalley:client_open_guide".GetLocalization(),
+            OnSecondOption = OpenHelp,
             OnCancel = DialogController.current.CancelDialog,
         };
     }
@@ -188,6 +245,15 @@ public class SiliconAlleyClientDialog : Dialog
     private DialogEntry OpenDashboard()
     {
         SiliconAlleyDashboardScreen.Open();
+        DialogController.current.FinishDialog();
+        return null;
+    }
+
+    // Issue #68: open BA's native Help at the Silicon Alley overview, then end the call (same pattern as
+    // OpenDashboard). The guaranteed entry point even if the #64 sidebar injection ever no-ops.
+    private DialogEntry OpenHelp()
+    {
+        SiliconAlleyHelp.OpenOverview();
         DialogController.current.FinishDialog();
         return null;
     }
