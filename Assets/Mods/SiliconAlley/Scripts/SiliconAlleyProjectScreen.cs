@@ -347,7 +347,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (reg == null)
         {
             _titleText.text = "siliconalley:screen_title_plain".GetLocalization();
-            _studioText.text = "siliconalley:screen_nostudio".GetLocalization();
+            _studioText.text = SiliconAlleyRegistry.NoStudioLocalizationKey(
+                "siliconalley:screen_nostudio",
+                "siliconalley:screen_registration_failed").GetLocalization();
             _phaseText.text = "";
             _summaryText.text = "";
             _wizardSection.SetActive(false);

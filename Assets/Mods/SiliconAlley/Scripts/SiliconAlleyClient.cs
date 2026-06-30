@@ -83,12 +83,12 @@ public class SiliconAlleyClient : IModBigAmbitions
         GlobalEvents.onNewHour -= TrySendWelcome;
     }
 
-    // A business is the player's when its type is ours and it has no rival owner (businessOwnerRivalId
-    // empty) — the shared rule the welcome, the client dialog and the studio dashboard all gate on.
+    // A business is the player's when the registration is rented by the player and its type is ours.
+    // Rival-owner fields are not reliable for freshly started player companies.
     public static bool IsPlayerOwned(BuildingRegistration registration)
         => registration?.businessTypeName != null
-           && registration.businessTypeName.StartsWith(BusinessTypePrefix)
-           && string.IsNullOrEmpty(registration.businessOwnerRivalId);
+           && registration.RentedByPlayer
+           && registration.businessTypeName.StartsWith(BusinessTypePrefix, StringComparison.Ordinal);
 
     // True when the player owns at least one Silicon Alley studio. Public so the client dialog can gate its
     // "View studios" offer (issue #59) on the same rule the welcome + dashboard use.
@@ -139,7 +139,9 @@ public class SiliconAlleyClientDialog : Dialog
             return new DialogEntry
             {
                 headerKey = npcNameKey,
-                messageData = "siliconalley:client_status_none".Localize(),
+                messageData = SiliconAlleyRegistry.NoStudioLocalizationKey(
+                    "siliconalley:client_status_none",
+                    "siliconalley:client_registration_failed").Localize(),
                 Template = DialogEntry.TemplateType.Text,
                 OnCancel = DialogController.current.CancelDialog,
             };

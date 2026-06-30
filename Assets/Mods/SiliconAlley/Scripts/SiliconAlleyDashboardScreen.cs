@@ -139,7 +139,7 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
 
     // ---- data --------------------------------------------------------------------------------------
 
-    // The player's studios = our business types with no rival owner (the same rule the client uses).
+    // The player's studios = our business types rented by the player (the same rule the client uses).
     private void PopulateStudios()
     {
         _studioKeys.Clear();
@@ -161,6 +161,9 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
     {
         PopulateStudios();
         var count = _studioRegs.Count;
+        _emptyText.text = SiliconAlleyRegistry.NoStudioLocalizationKey(
+            "siliconalley:dash_empty",
+            "siliconalley:dash_registration_failed").GetLocalization();
         _emptyText.gameObject.SetActive(count == 0);
         for (var i = 0; i < count; i++)
         {
