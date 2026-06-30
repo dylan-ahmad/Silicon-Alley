@@ -55,6 +55,7 @@ public static class SiliconAlleyHelp
         ("siliconalley-videogame",       GoodsCategoryKey),
         // Overview + system pages -> dedicated "Silicon Alley" category (#66 / #67 still to come).
         (OverviewSlug, ModCategoryKey),
+        ("siliconalley-getting-started", ModCategoryKey),   // #67 — new-player walkthrough
         ("siliconalley-wizard", ModCategoryKey),   // #65 — the design-wizard guide
         // #66 — economy & market system pages.
         ("siliconalley-contracts",     ModCategoryKey),
