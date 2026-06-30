@@ -1,0 +1,52 @@
+name: Auto-tag release on version bump
+
+# Maps commits to versions automatically. When the mod manifest's `Version:` first appears on `main`, this
+# creates the matching `vX.Y.Z` git tag + a GitHub Release (notes auto-generated from the commits since the
+# previous tag). Idempotent: if the tag already exists it does nothing, so ordinary pushes are no-ops.
+#
+# Flow: bump `Assets/Mods/SiliconAlley/SiliconAlley.asset` -> `Version:` (ideally as the release PR, after the
+# build is green) -> merge to main -> the tag + Release appear. Browse a version's changes via its Release or
+# `git log vPREV..vCUR`.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Read mod version from manifest
+        id: ver
+        run: |
+          manifest="Assets/Mods/SiliconAlley/SiliconAlley.asset"
+          version="$(grep -m1 -E '^[[:space:]]*Version:' "$manifest" | sed -E 's/^[[:space:]]*Version:[[:space:]]*//' | tr -d '[:space:]\r')"
+          if [ -z "$version" ]; then
+            echo "::error::Could not read Version from $manifest"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Mod version: $version"
+
+      - name: Create tag + release if new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.ver.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists — nothing to do."
+            exit 0
+          fi
+          echo "Tagging $tag at $GITHUB_SHA and cutting a release."
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
+          gh release create "$tag" --title "$tag" --generate-notes
