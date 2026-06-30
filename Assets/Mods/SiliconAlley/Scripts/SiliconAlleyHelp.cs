@@ -53,8 +53,9 @@ public static class SiliconAlleyHelp
         ("siliconalley-softwarelicense", GoodsCategoryKey),
         ("siliconalley-securityaudit",   GoodsCategoryKey),
         ("siliconalley-videogame",       GoodsCategoryKey),
-        // Overview + future system pages -> dedicated "Silicon Alley" category (#65 / #66 / #67).
+        // Overview + system pages -> dedicated "Silicon Alley" category (#66 / #67 still to come).
         (OverviewSlug, ModCategoryKey),
+        ("siliconalley-wizard", ModCategoryKey),   // #65 — the design-wizard guide
     };
 
     private static FieldInfo? _categoriesField;
