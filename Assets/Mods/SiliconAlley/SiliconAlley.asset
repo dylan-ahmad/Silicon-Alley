@@ -15,7 +15,7 @@ MonoBehaviour:
   ModId: SiliconAlley
   DisplayName: Silicon Alley
   Author: Goatmaster
-  Version: 0.3.0
+  Version: 0.4.0
   AssetBundleName: siliconalley.unity3d
   ModAssembly: {fileID: 5897886265953266890, guid: 3588c005b8c9cda42acead84a10fe14b,
     type: 3}

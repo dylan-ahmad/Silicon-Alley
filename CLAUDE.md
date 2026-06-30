@@ -37,6 +37,18 @@ mod locales load. Logs: `%LocalLow%/Hovgaard Games/Big Ambitions/Player.log` —
 To staff a business in-game: place a **Computer Workstation** and hire **Programmers from City
 Workforce Inc.** (other agencies don't offer them).
 
+## Versioning & releases
+- The mod version lives in `Assets/Mods/SiliconAlley/SiliconAlley.asset` (`Version:`) — the **single source
+  of truth**. Because every commit carries it, any commit's version is `git show <commit>:Assets/Mods/SiliconAlley/SiliconAlley.asset | grep Version`.
+- **Auto-tagging:** `.github/workflows/auto-tag.yml` watches `main`; the first time a manifest `Version`
+  appears it creates the matching **`vX.Y.Z` git tag + a GitHub Release** (notes auto-generated from commits
+  since the previous tag). Idempotent — ordinary pushes are no-ops. So the flow is: **bump `Version` (ideally
+  as the release PR, once the build is green) → merge → the tag + Release appear automatically.** Browse a
+  version's changes via its Release or `git log vPREV..vCUR`. (The first tags — `v0.3.0` at the 0.3.0 bump,
+  `v0.4.0` — were created when this flow landed.)
+- Keep **`CHANGELOG.md`** (repo root, not bundled) updated as you work — the human-readable changes→version
+  map. Bump SemVer-style: **MINOR** for features, **PATCH** for fixes.
+
 ## Conventions & gotchas (hard-won)
 - **All in-game text is English** in `en.json`; do **not** add a `nl.json`.
 - The ModManifest's **LocalesFolder must reference THIS mod's `Locales`** — a wrong GUID silently
