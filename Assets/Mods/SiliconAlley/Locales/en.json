@@ -342,5 +342,28 @@
   "siliconalley:screen_contract_lbl_due": "Due in",
   "siliconalley:screen_contract_lbl_payout": "Payout",
   "siliconalley:notify_contractdone": "{business} delivered a contract — +{payout}",
-  "siliconalley:notify_contractfail": "{business} missed a contract deadline — reputation dropped"
+  "siliconalley:notify_contractfail": "{business} missed a contract deadline — reputation dropped",
+
+  "siliconalley-help-category": "Silicon Alley",
+
+  "siliconalley-overview": "Silicon Alley Overview",
+  "help_siliconalley-overview_content": "**Silicon Alley** adds three IT companies to the game. Found one in an **Office** building and staff it with **Programmers** hired from **City Workforce Inc.**, working at **Computer Workstations**.\n\nEach studio designs software projects that ship for a quality-scored payout, then earn recurring support income from their installed base — scaled by reputation and neighbourhood competition.\n\n**Business types**\n\n- [Software Engineering Studio](siliconalley-softwarestudio)\n- [Cyber Security Firm](siliconalley-cybersecurity)\n- [Game Developer Studio](siliconalley-gamestudio)\n\n**Goods & services**\n\n- [Software License](siliconalley-softwarelicense)\n- [Security Audit](siliconalley-securityaudit)\n- [Video Game](siliconalley-videogame)\n\nMore detailed guides — the design wizard, market targeting, contracts and the product lifecycle — are on the way.",
+
+  "siliconalley-softwarestudio": "Software Engineering Studio",
+  "help_siliconalley-softwarestudio_content": "The **Software Engineering Studio** builds business software. Found it in an **Office** building and staff it with **Programmers** from **City Workforce Inc.** working at **Computer Workstations**.\n\nProgrammers accrue progress on the studio's current project. On release it ships a [Software License](siliconalley-softwarelicense) at a quality-scored payout, and the installed base earns recurring support income.\n\nFuller guidance — the design wizard, market targeting and the product lifecycle — arrives with the upcoming help-content updates.",
+
+  "siliconalley-cybersecurity": "Cyber Security Firm",
+  "help_siliconalley-cybersecurity_content": "The **Cyber Security Firm** sells security work. Found it in an **Office** building and staff it with **Programmers** from **City Workforce Inc.**\n\nEach project ships as a [Security Audit](siliconalley-securityaudit), scored on quality and scaled by reputation and local competition, with recurring support income from the installed base.\n\nDetailed guides are coming soon.",
+
+  "siliconalley-gamestudio": "Game Developer Studio",
+  "help_siliconalley-gamestudio_content": "The **Game Developer Studio** makes games. Found it in an **Office** building and staff it with **Programmers** from **City Workforce Inc.**\n\nEach project ships a [Video Game](siliconalley-videogame) at a quality-scored payout, then earns ongoing support income from its players.\n\nMore detailed guides are on the way.",
+
+  "siliconalley-softwarelicense": "Software License",
+  "help_siliconalley-softwarelicense_content": "A **Software License** is the product shipped by the [Software Engineering Studio](siliconalley-softwarestudio).\n\nEach release is scored on quality and scaled by reputation and neighbourhood competition; the installed base then earns recurring support income.",
+
+  "siliconalley-securityaudit": "Security Audit",
+  "help_siliconalley-securityaudit_content": "A **Security Audit** is the product shipped by the [Cyber Security Firm](siliconalley-cybersecurity).\n\nReleases are quality-scored and scaled by reputation and local competition, with ongoing support income from the installed base.",
+
+  "siliconalley-videogame": "Video Game",
+  "help_siliconalley-videogame_content": "A **Video Game** is the product shipped by the [Game Developer Studio](siliconalley-gamestudio).\n\nEach title is quality-scored at launch and earns recurring support income from its players afterwards."
 }

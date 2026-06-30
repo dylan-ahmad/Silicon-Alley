@@ -256,6 +256,9 @@ public class SiliconAlleyRegistrationGuard : IModBigAmbitions
     public Task OnLoadAsync(ModContext context)
     {
         SiliconAlleyRegistry.EnsureRegistered(context);
+        // Issue #64: on city load the native HelpSystem exists, so this is the pass that actually injects
+        // the mod's sidebar pages (idempotent — re-running it here and on language change is safe).
+        SiliconAlleyHelp.EnsureRegistered(context);
         return Task.CompletedTask;
     }
 

@@ -19,12 +19,17 @@ public class SiliconAlleyMod : IModBigAmbitions
         _context = context;
         SiliconAlleyRegistry.EnsureRegistered(context);
         SiliconAlleyOptions.Register(context);
+        // Issue #64: inject the mod's pages into BA's native Help System. Harmless no-op this early (the
+        // help UI isn't alive yet) — the city-load guard re-runs it once HelpSystem exists and actually
+        // performs the injection (and subscribes the language-change re-inject hook) then.
+        SiliconAlleyHelp.EnsureRegistered(context);
         return Task.CompletedTask;
     }
 
     public Task OnUnloadAsync()
     {
         SiliconAlleyRegistry.UnregisterAll(_context);
+        SiliconAlleyHelp.Unregister();
 
         if (_context != null)
             SiliconAlleyOptions.Unregister(_context);
