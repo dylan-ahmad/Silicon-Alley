@@ -127,6 +127,10 @@ public static class SiliconAlleyState
         // player allocates to each. Per-project (reset on completion). null / all-even ⇒ neutral allocation ⇒
         // the derived aspect-fit is 0 / ×1 (SiliconAlleyAspects), so old saves and untouched projects are unchanged.
         public float[] FeatureWeights;
+        // Issue #103 (server infrastructure): player-chosen role per placed Server item, keyed by stable
+        // ItemInstance.id. Unassigned servers are omitted from the map, so old saves and untouched servers
+        // serialize compactly and read as neutral.
+        public readonly Dictionary<string, ServerRole> ServerRoles = new Dictionary<string, ServerRole>();
         // Issue #26: the business type (game/office/security) that owns this building's current project, noted
         // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
         // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
@@ -268,6 +272,9 @@ public static class SiliconAlleyState
     // parks Progress at the stage ceiling until the player pushes forward. APPEND-ONLY ordinals (persisted).
     public enum ProjectStage { Idle = 0, Design = 1, Development = 2, Testing = 3 }
 
+    // Issue #103: persisted per-server role. APPEND-ONLY ordinals; unknown values load as Unassigned.
+    public enum ServerRole { Unassigned = 0, Infrastructure = 1, Backend = 2, Hosting = 3 }
+
     // Issue #78: persisted per-release row. ProductName is optional/escaped; empty means callers derive the
     // name from business type + version. #83 appends a dependency snapshot so recurring support can keep
     // charging royalties for licensed dependencies after current-project choices reset.
@@ -390,6 +397,15 @@ public static class SiliconAlleyState
     {
         var address = registration.Address;
         return address.streetName + ":" + address.streetNumber;
+    }
+
+    private static ServerRole NormalizeServerRole(ServerRole role) => NormalizeServerRole((int)role);
+
+    private static ServerRole NormalizeServerRole(int role)
+    {
+        return role < (int)ServerRole.Unassigned || role > (int)ServerRole.Hosting
+            ? ServerRole.Unassigned
+            : (ServerRole)role;
     }
 
     // Issue #26: record which business type owns this building's current project, so the per-type feature
@@ -705,6 +721,63 @@ public static class SiliconAlleyState
                 state.FeatureWeights[i] = 1f;
         }
         state.FeatureWeights[bit] = Mathf.Max(0f, value);
+    }
+
+    // ---- issue #103 (Server roles): per-placed-server assignments -------------------------------
+    // Role choices are keyed by ItemInstance.id, so moving/saving/reloading a placed server keeps the
+    // assignment. Missing ids and Unassigned are neutral.
+    public static ServerRole GetServerRole(string key, string itemInstanceId)
+    {
+        if (string.IsNullOrEmpty(itemInstanceId))
+            return ServerRole.Unassigned;
+        return Get(key).ServerRoles.TryGetValue(itemInstanceId, out var role)
+            ? NormalizeServerRole(role)
+            : ServerRole.Unassigned;
+    }
+
+    public static void SetServerRole(string key, string itemInstanceId, ServerRole role)
+    {
+        if (string.IsNullOrEmpty(itemInstanceId))
+            return;
+        var state = Get(key);
+        var normalized = NormalizeServerRole(role);
+        if (normalized == ServerRole.Unassigned)
+            state.ServerRoles.Remove(itemInstanceId);
+        else
+            state.ServerRoles[itemInstanceId] = normalized;
+    }
+
+    public static Dictionary<ServerRole, int> ServerCountsByRole(string key, BuildingRegistration registration)
+    {
+        var counts = new Dictionary<ServerRole, int>
+        {
+            { ServerRole.Unassigned, 0 },
+            { ServerRole.Infrastructure, 0 },
+            { ServerRole.Backend, 0 },
+            { ServerRole.Hosting, 0 }
+        };
+
+        var state = Get(key);
+        if (registration?.itemInstances == null)
+            return counts;
+
+        var liveServerIds = new HashSet<string>();
+        foreach (var pair in registration.itemInstances)
+        {
+            if (!SiliconAlleyOfficeSimulator.IsServerInstance(pair.Value))
+                continue;
+            liveServerIds.Add(pair.Key);
+            counts[GetServerRole(key, pair.Key)]++;
+        }
+
+        var stale = new List<string>();
+        foreach (var pair in state.ServerRoles)
+            if (!liveServerIds.Contains(pair.Key))
+                stale.Add(pair.Key);
+        for (var i = 0; i < stale.Count; i++)
+            state.ServerRoles.Remove(stale[i]);
+
+        return counts;
     }
 
     // The design-phase quality ceiling, raised by the project's selected features (issue #26) and the tools it
@@ -1165,7 +1238,7 @@ public static class SiliconAlleyState
     //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation
     //    |dealPublisher|dealDeadlineDay|dealPayout|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId
     //    |contractScope|contractProgress|contractDeadlineDay|contractPayout|stage|releaseHistory|productName
-    //    |ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals,
+    //    |ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals|featureWeights|serverRoles,
     // joined by ';'. The publisher-deal fields (issue #23: dealPublisher default -1 = no deal, dealDeadlineDay/
     // dealPayout 0) append after the lifecycle fields; absent in old saves ⇒ no active deal. A third reserved
     // header "~publishers|r0,r1,…" carries the player's per-publisher reputation (issue #22, append-only by
@@ -1273,7 +1346,9 @@ public static class SiliconAlleyState
                 .Append(state.UsedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('|')
                 .Append(SerializeDependencyVendorOrdinals(EnsureDependencyVendors(state))).Append('|')
                 // Issue #85: per-feature allocation weights (index 44). Empty/absent => neutral (even) weights.
-                .Append(SerializeFeatureWeights(state.FeatureWeights)).Append(';');
+                .Append(SerializeFeatureWeights(state.FeatureWeights)).Append('|')
+                // Issue #103: server roles (index 45). Empty/absent => all placed servers Unassigned.
+                .Append(SerializeServerRoles(state.ServerRoles)).Append(';');
         }
         return builder.ToString();
     }
@@ -1425,6 +1500,8 @@ public static class SiliconAlleyState
                     state.DependencyVendorOrdinals = ParseDependencyVendorOrdinals(parts[43]);
                 if (parts.Length > 44) // issue #85: per-feature weights (absent ⇒ null ⇒ neutral allocation)
                     state.FeatureWeights = ParseFeatureWeights(parts[44]);
+                if (parts.Length > 45) // issue #103: server roles keyed by ItemInstance.id (absent => all Unassigned)
+                    LoadServerRoles(parts[45], state.ServerRoles);
                 States[parts[0]] = state;
             }
             catch
@@ -1518,6 +1595,69 @@ public static class SiliconAlleyState
             if (float.TryParse(tokens[i], NumberStyles.Float, CultureInfo.InvariantCulture, out var w) && w >= 0f)
                 weights[i] = w;
         return weights;
+    }
+
+    private static string SerializeServerRoles(Dictionary<string, ServerRole> roles)
+    {
+        if (roles == null || roles.Count == 0)
+            return "0:";
+
+        var count = 0;
+        foreach (var pair in roles)
+            if (!string.IsNullOrEmpty(pair.Key) && NormalizeServerRole(pair.Value) != ServerRole.Unassigned)
+                count++;
+        if (count == 0)
+            return "0:";
+
+        var builder = new StringBuilder();
+        builder.Append(count.ToString(CultureInfo.InvariantCulture)).Append(':');
+        var written = 0;
+        foreach (var pair in roles)
+        {
+            var role = NormalizeServerRole(pair.Value);
+            if (string.IsNullOrEmpty(pair.Key) || role == ServerRole.Unassigned)
+                continue;
+            if (written > 0) builder.Append(',');
+            builder.Append(EscapeReleaseString(pair.Key)).Append('~')
+                .Append(((int)role).ToString(CultureInfo.InvariantCulture));
+            written++;
+        }
+        return builder.ToString();
+    }
+
+    private static void LoadServerRoles(string encoded, Dictionary<string, ServerRole> roles)
+    {
+        roles.Clear();
+        if (string.IsNullOrEmpty(encoded))
+            return;
+
+        var colon = encoded.IndexOf(':');
+        if (colon < 0)
+            return;
+        if (!int.TryParse(encoded.Substring(0, colon), NumberStyles.Integer, CultureInfo.InvariantCulture, out var count)
+            || count <= 0)
+            return;
+
+        var payload = encoded.Substring(colon + 1);
+        if (payload.Length == 0)
+            return;
+        var records = payload.Split(',');
+        for (var i = 0; i < records.Length && i < count; i++)
+        {
+            var fields = records[i].Split('~');
+            if (fields.Length < 2)
+                continue;
+
+            var itemInstanceId = UnescapeReleaseString(fields[0]);
+            if (string.IsNullOrEmpty(itemInstanceId))
+                continue;
+            if (!int.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var rawRole))
+                continue;
+
+            var role = NormalizeServerRole(rawRole);
+            if (role != ServerRole.Unassigned)
+                roles[itemInstanceId] = role;
+        }
     }
 
     private static string SerializeReleaseHistory(List<ReleaseRecord> releases)

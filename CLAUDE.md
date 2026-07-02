@@ -150,7 +150,8 @@ line that has shipped.
   - `4` `siliconalley:vendor_pixelruntime`
   - `5` `siliconalley:vendor_playfabrix`
 - **Persisted enum ordinals** (inside the `"SiliconAlley"` blob): `ProjectKind { Quick=0, Standard=1,
-  Ambitious=2 }`; publisher ordinals (see above) persisted as the active-deal `dealPublisher`; the
+  Ambitious=2 }`; `ServerRole { Unassigned=0, Infrastructure=1, Backend=2, Hosting=3 }`; publisher ordinals
+  (see above) persisted as the active-deal `dealPublisher`; the
   design-wizard `segmentId` ordinal + `featureMask`/`platformMask`/`ownedToolsMask`/`usedToolsMask` bitmasks;
   dependency `ownedDependencyMask` / `usedDependencyMask` bitmasks plus `dependencyVendorOrdinals` entries
   (per-bit/ordinal = the reserved enum families directly below).
@@ -264,6 +265,11 @@ line that has shipped.
   => `null` => neutral (even) allocation; the derived aspect-fit (below) measures fit RELATIVE to that neutral, so
   old saves and untouched projects are unchanged (quality bonus `0`, market factor `×1.0`). No new enum family —
   the weights key off the already-shipped `FeatureId` bits. Pure trailing append => **no schema bump**.
+  Then - the next trailing append - `|serverRoles` - per-placed-server role assignments (issue #103), formatted as
+  `count:itemInstanceId~role,...` where `itemInstanceId` is percent-escaped with the release-history escape scheme
+  and `role` is the persisted `ServerRole` ordinal. Empty/absent/`0:` => every placed Server is `Unassigned`.
+  Assignments are keyed by stable `ItemInstance.id`; stale ids are tolerated and pruned when live server counts are
+  requested. Out-of-range role ordinals load as `Unassigned`. Pure trailing append => **no schema bump**.
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /

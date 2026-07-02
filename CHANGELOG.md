@@ -10,6 +10,8 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 ### Added
 - **Server furniture** base asset for the server-infrastructure epic: buyable/placeable item,
   prefab/model/material bundle assets, registry entry, locale, and save-compat ledger token.
+- **Per-server role persistence** for the server-infrastructure epic: placed Servers can now carry a
+  saved Infrastructure, Backend, or Hosting role for upcoming sim/UI work.
 
 ### Fixed
 - **Getting Started help** now clarifies that Silicon Alley offices are furnished **manually** (place a
