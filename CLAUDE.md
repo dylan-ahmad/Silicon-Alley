@@ -131,6 +131,7 @@ line that has shipped.
   - `siliconalley:itemname_softwarelicense`
   - `siliconalley:itemname_securityaudit`
   - `siliconalley:itemname_videogame`
+  - `siliconalley:itemname_server`
 - **CallDialogType** (minted via `ModEnumHash.GetSafeHash`): `siliconalley_clientdialog`
 - **Publisher ids** (epic #17 / #22; `SiliconAlleyPublishers.Roster` — the persisted token is the **array
   ordinal**, APPEND-ONLY: never rename/reorder/remove, add new publishers only by appending):

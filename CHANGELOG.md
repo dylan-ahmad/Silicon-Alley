@@ -5,6 +5,18 @@ All notable changes to **Silicon Alley** are recorded here. The version is the m
 version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Release
 (see `.github/workflows/auto-tag.yml`). Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
+## [0.4.1] — unreleased
+
+### Added
+- **Server furniture** base asset for the server-infrastructure epic: buyable/placeable item,
+  prefab/model/material bundle assets, registry entry, locale, and save-compat ledger token.
+
+### Fixed
+- **Getting Started help** now clarifies that Silicon Alley offices are furnished **manually** (place a
+  Computer Workstation + bathroom) and that the base-game **Interior Installation Firm** reports *"no
+  designs available"* for these custom business types — expected, not a bug (the *product* design is the
+  separate **F9 Design Wizard**). Response to a subscriber report.
+
 ## [0.4.0] — unreleased
 
 The biggest update yet: plan every product in a Software-Inc.-scale **Design Wizard**, drive each project

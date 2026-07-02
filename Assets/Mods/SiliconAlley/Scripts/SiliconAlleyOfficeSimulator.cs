@@ -47,6 +47,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     private const string ProgrammerSkill = "ba:skill_programmer";
     private const string GraphicDesignerSkill = "ba:skill_graphicdesigner";
 
+    public const string ServerItemName = "siliconalley:itemname_server";
+
+    public static bool IsServerInstance(ItemInstance instance)
+        => instance != null && instance.ItemCached != null && instance.ItemCached.itemName == ServerItemName;
+
     public override void SimulateCurrentHour()
     {
         var businessType = BusinessTypeHelper.GetData(buildingRegistration);

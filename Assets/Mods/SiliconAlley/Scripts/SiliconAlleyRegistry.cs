@@ -25,6 +25,7 @@ public static class SiliconAlleyRegistry
         "Assets/Mods/SiliconAlley/SoftwareLicense.asset",
         "Assets/Mods/SiliconAlley/SecurityAudit.asset",
         "Assets/Mods/SiliconAlley/VideoGame.asset",
+        "Assets/Mods/SiliconAlley/Server.asset",
     };
 
     private static readonly string[] BusinessAssetPaths =
