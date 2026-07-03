@@ -18,6 +18,7 @@ public static class SiliconAlleyMoney
 {
     // Localized label shown in the financial transaction log (Locales/en.json: siliconalley:transaction_marketing).
     private const string MarketingTransactionType = "siliconalley:transaction_marketing";
+    public const string ServerUpkeepTransactionType = "siliconalley:transaction_server_upkeep";
 
     // True if the player can pay `amount` right now. Reads the SAME live balance ChangeMoneySafe debits, so
     // the button gate in SiliconAlleyProjectScreen matches exactly what TrySpend will actually allow.
@@ -33,6 +34,16 @@ public static class SiliconAlleyMoney
     // can't afford it, so callers can refuse the campaign cleanly and never charge for one that didn't land.
     public static bool TrySpend(BuildingRegistration registration, float amount, string reason,
         string transactionType = MarketingTransactionType)
+        => Spend(registration, amount, reason, transactionType, force: false, showNotification: true);
+
+    // Charge a recurring operating expense. Unlike player-triggered campaign/R&D spends, these are business
+    // obligations, so force:true lets upkeep hit cash even when the player is near-broke.
+    public static bool ChargeOperatingExpense(BuildingRegistration registration, float amount, string reason,
+        string transactionType)
+        => Spend(registration, amount, reason, transactionType, force: true, showNotification: false);
+
+    private static bool Spend(BuildingRegistration registration, float amount, string reason, string transactionType,
+        bool force, bool showNotification)
     {
         if (registration == null || amount <= 0f)
             return false;
@@ -44,10 +55,10 @@ public static class SiliconAlleyMoney
         };
         var info = new TransactionInfo(transactionType, data);
 
-        // amount<0 with force:false ⇒ ChangeMoneySafe books the expense, plays the spend sound and shows the
-        // insufficient-money toast itself, returning false (and changing nothing) if the player can't afford it.
+        // amount<0 books an expense through the same path as base-game spends. Player-triggered spends use
+        // force:false; recurring operating expenses can use force:true so the cost is not skipped near $0.
         bool spent = GameManager.ChangeMoneySafe(0f - amount, info, null, registration.Address,
-            force: false, showNotification: true);
+            force: force, showNotification: showNotification);
         if (spent)
             Debug.Log($"[SiliconAlley] {SiliconAlleyState.KeyFor(registration)} spent ${amount:F0} on {reason}.");
         return spent;

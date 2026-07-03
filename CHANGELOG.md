@@ -15,6 +15,8 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 - **Servers dashboard section** (F8): a per-studio card lists each placed Server with a 3-button role
   selector (Infrastructure / Backend / Hosting) and a live counts summary; assignments save per server and
   refresh on the 1-second tick. (Role economics arrive with the upcoming sim work.)
+- **Server economy tuning**: Servers now keep their $15,000 capex, charge daily upkeep, expose upkeep/backend
+  capacity sliders, and show hosting net, backend coverage, and infra break-even cues on the dashboard.
 
 ### Fixed
 - **Getting Started help** now clarifies that Silicon Alley offices are furnished **manually** (place a

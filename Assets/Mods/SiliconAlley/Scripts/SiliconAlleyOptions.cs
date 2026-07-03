@@ -18,6 +18,8 @@ public static class SiliconAlleyOptions
             .AddSlider("siliconalley_support", "siliconalley:options_support", 0, 100, 20, OnSupport)
             .AddSlider("siliconalley_infrastructure", "siliconalley:options_infrastructure", 0, 200, 100, OnInfrastructureStrength)
             .AddSlider("siliconalley_hostingincome", "siliconalley:options_hostingincome", 0, 2000, 500, OnHostingIncome)
+            .AddSlider("siliconalley_serverupkeep", "siliconalley:options_serverupkeep", 0, 500, 90, OnServerUpkeep)
+            .AddSlider("siliconalley_backendcap", "siliconalley:options_backendcap", 10, 500, 100, OnBackendCap)
             .AddDropdown("siliconalley_screenkey", "siliconalley:options_key",
                 new[] { "siliconalley:key_f9", "siliconalley:key_f10", "siliconalley:key_f11",
                         "siliconalley:key_f12", "siliconalley:key_tab", "siliconalley:key_backquote" },
@@ -47,6 +49,8 @@ public static class SiliconAlleyOptions
     private static void OnSupport(int value) => SiliconAlleyState.SupportRatePerDay = value / 1000f;
     private static void OnInfrastructureStrength(int value) => SiliconAlleyState.InfrastructureStrength = value / 100f;
     private static void OnHostingIncome(int value) => SiliconAlleyState.HostingIncomePerServerPerHour = value / 100f;
+    private static void OnServerUpkeep(int value) => SiliconAlleyState.ServerUpkeepPerServerPerDay = value;
+    private static void OnBackendCap(int value) => SiliconAlleyState.BackendCapPerServer = value;
 
     // Issue #14: the key that opens/closes the project screen (machine-local; index maps to KeyChoices).
     private static void OnScreenKey(int value) =>

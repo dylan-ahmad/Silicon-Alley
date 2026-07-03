@@ -52,10 +52,6 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     public static bool IsServerInstance(ItemInstance instance)
         => instance != null && instance.ItemCached != null && instance.ItemCached.itemName == ServerItemName;
 
-    // Issue #106 (Self-hosted backend role): installed-base units one Backend-role server keeps self-hosted
-    // (a tunable balance knob). Public so the dashboard can show the same coverage the sim applies. Non-persisted.
-    public const float BackendCapPerServer = 50f;
-
     // Issue #106: self-hosted-backend COVERAGE for a studio — the fraction of its installed base served by
     // Backend-role servers. Derived each tick from the live #103 server roles (mirrors OwnedMarketingAgencies):
     // 0 Backend servers ⇒ 0 ⇒ exact no-op. InstalledBase 0 ⇒ nothing to serve yet ⇒ fully covered (1); the
@@ -68,11 +64,14 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var installed = SiliconAlleyState.GetInstalledBase(key);
         if (installed <= 0)
             return 1f;
-        return Mathf.Min(1f, nBackend * BackendCapPerServer / installed);
+        return Mathf.Min(1f, nBackend * SiliconAlleyState.BackendCapPerServer / installed);
     }
 
     public static float HostingIncomePerDay(int hostingServers) =>
         Mathf.Max(0, hostingServers) * SiliconAlleyState.HostingIncomePerServerPerHour * 24f;
+
+    public static float ServerUpkeepPerDay(int servers) =>
+        Mathf.Max(0, servers) * SiliconAlleyState.ServerUpkeepPerServerPerDay;
 
     public override void SimulateCurrentHour()
     {
@@ -84,7 +83,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // Issue #26: record the business type so the per-type feature math (project size + quality ceiling)
         // can resolve this project's feature list before EffectiveProjectSize is read just below.
         SiliconAlleyState.NoteBusinessType(key, businessType.businessTypeName);
-        var infrastructureServers = InfrastructureServerCount(key, buildingRegistration);
+        var serverCounts = SiliconAlleyState.ServerCountsByRole(key, buildingRegistration);
+        var totalServers = TotalServerCount(serverCounts);
+        ChargeServerUpkeep(key, totalServers);
+        var infrastructureServers = serverCounts[SiliconAlleyState.ServerRole.Infrastructure];
         var infrastructureProgressMultiplier = InfrastructureProgressMultiplier(infrastructureServers);
         var infrastructureBugMultiplier = InfrastructureBugMultiplier(infrastructureServers);
 
@@ -278,7 +280,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // It still goes through CreditRevenue so the game sees it as normal business revenue/orders.
         if (product != null)
         {
-            var hostingIncome = SiliconAlleyState.AccrueHostingIncome(key, HostingServerCount(key, buildingRegistration));
+            var hostingIncome = SiliconAlleyState.AccrueHostingIncome(key,
+                serverCounts[SiliconAlleyState.ServerRole.Hosting]);
             if (hostingIncome > 0f)
                 CreditRevenue(product, hostingIncome, 1f);
         }
@@ -780,6 +783,22 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 count++;
         return count;
     }
+
+    private void ChargeServerUpkeep(string key, int totalServers)
+    {
+        var upkeep = ServerUpkeepPerDay(totalServers);
+        if (upkeep <= 0f || !SiliconAlleyState.TryMarkServerUpkeepCharged(key, TimeHelper.CurrentDay))
+            return;
+        SiliconAlleyMoney.ChargeOperatingExpense(buildingRegistration, upkeep,
+            "siliconalley:transaction_server_upkeep_label".GetLocalization(),
+            SiliconAlleyMoney.ServerUpkeepTransactionType);
+    }
+
+    private static int TotalServerCount(Dictionary<SiliconAlleyState.ServerRole, int> counts) =>
+        counts[SiliconAlleyState.ServerRole.Unassigned]
+        + counts[SiliconAlleyState.ServerRole.Infrastructure]
+        + counts[SiliconAlleyState.ServerRole.Backend]
+        + counts[SiliconAlleyState.ServerRole.Hosting];
 
     public static int InfrastructureServerCount(string key, BuildingRegistration registration)
     {

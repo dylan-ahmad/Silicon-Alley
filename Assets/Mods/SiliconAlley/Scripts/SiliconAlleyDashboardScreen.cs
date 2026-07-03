@@ -477,6 +477,12 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
         return key.Localize(dict).ToString();
     }
 
+    private static string Pct(float fraction01) =>
+        Mathf.RoundToInt(Mathf.Clamp01(fraction01) * 100f).ToString(CultureInfo.InvariantCulture);
+
+    private static string Money(float amount) =>
+        amount < 0f ? "-" + SiliconAlleyFormat.Money(0f - amount) : SiliconAlleyFormat.Money(amount);
+
     // ---- Servers section (issue #104) --------------------------------------------------------------
 
     // One group card per studio that owns >=1 server. Built once (pooled); Fill() re-reads live state each
@@ -488,6 +494,7 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
         private Image _typeIcon;
         private TMP_Text _name;
         private TMP_Text _chipTotal, _chipInfra, _chipBackend, _chipHosting, _chipUnassigned;
+        private TMP_Text _economy;
         private GameObject _rowsHost;
         private readonly List<ServerRow> _rows = new List<ServerRow>();
         private readonly List<string> _ids = new List<string>(); // reused scratch: this studio's server ids
@@ -514,6 +521,9 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
             MakeChip(chips.transform, SiliconAlleyTheme.Accent, SiliconAlleyTheme.Text, out c._chipBackend);
             MakeChip(chips.transform, SiliconAlleyTheme.Accent, SiliconAlleyTheme.Text, out c._chipHosting);
             MakeChip(chips.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.TextMuted, out c._chipUnassigned);
+
+            c._economy = MakeText(t, "ServerEconomy", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+            c._economy.color = SiliconAlleyTheme.TextMuted;
 
             c._rowsHost = MakeSection(t); // per-server rows pooled here
             c.Root = card;
@@ -542,6 +552,7 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
             _chipBackend.text = Compose("siliconalley:dash_servers_backend", ("n", Num(counts, SiliconAlleyState.ServerRole.Backend)));
             _chipHosting.text = Compose("siliconalley:dash_servers_hosting", ("n", Num(counts, SiliconAlleyState.ServerRole.Hosting)));
             _chipUnassigned.text = Compose("siliconalley:dash_servers_unassigned", ("n", Num(counts, SiliconAlleyState.ServerRole.Unassigned)));
+            FillEconomy(key, reg, counts);
 
             for (var i = 0; i < _ids.Count; i++)
             {
@@ -564,6 +575,29 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
 
         private static string Num(Dictionary<SiliconAlleyState.ServerRole, int> counts, SiliconAlleyState.ServerRole role) =>
             counts[role].ToString(CultureInfo.InvariantCulture);
+
+        private void FillEconomy(string key, BuildingRegistration reg,
+            Dictionary<SiliconAlleyState.ServerRole, int> counts)
+        {
+            var total = _ids.Count;
+            var hosting = counts[SiliconAlleyState.ServerRole.Hosting];
+            var backend = counts[SiliconAlleyState.ServerRole.Backend];
+            var infra = counts[SiliconAlleyState.ServerRole.Infrastructure];
+            var upkeep = SiliconAlleyOfficeSimulator.ServerUpkeepPerDay(total);
+            var hostingGross = SiliconAlleyOfficeSimulator.HostingIncomePerDay(hosting);
+            var hostingNet = hostingGross - upkeep;
+            var backendCapacity = Mathf.RoundToInt(backend * SiliconAlleyState.BackendCapPerServer);
+            var coverage = SiliconAlleyOfficeSimulator.BackendCoverage(key, reg);
+            var infraBonus = SiliconAlleyOfficeSimulator.InfrastructureProgressMultiplier(infra) - 1f;
+
+            _economy.text = Compose("siliconalley:dash_servers_economy",
+                ("upkeep", Money(upkeep)),
+                ("hosting", Money(hostingGross)),
+                ("net", Money(hostingNet)),
+                ("coverage", Pct(coverage)),
+                ("capacity", backendCapacity.ToString(CultureInfo.InvariantCulture)),
+                ("infra", Pct(infraBonus)));
+        }
     }
 
     // One row per placed server: a "Server N" label + a 3-button role selector (the scope-picker recolour

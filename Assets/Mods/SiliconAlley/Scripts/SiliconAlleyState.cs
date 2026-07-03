@@ -15,6 +15,7 @@ public static class SiliconAlleyState
         public int InstalledBase;    // completed projects still earning support income
         public float SupportAccrual; // fractional support income carried between hours
         public float HostingAccrual; // issue #107: fractional hosting income carried between hours
+        public int LastServerUpkeepDay = -1; // issue #108: transient daily debit guard, not persisted
         public float QualitySum;     // accumulated (staff-quality x phase-weight) over the project
         public float QualityWeight;  // total accumulated weight (Testing hours weigh more)
         // Per-phase quality breakdown (issue #8): the same (sample x weight) accrual as the aggregate
@@ -170,6 +171,8 @@ public static class SiliconAlleyState
     public static float SupportRatePerDay = 0.02f; // support income per installed unit per day, as a fraction of market price
     public static float InfrastructureStrength = 1f; // scales infrastructure-server bonuses from the options panel
     public static float HostingIncomePerServerPerHour = 5f; // issue #107: flat passive income per Hosting server
+    public static float ServerUpkeepPerServerPerDay = 90f; // issue #108: daily opex for every placed Server
+    public static float BackendCapPerServer = 100f; // issue #108: installed-base units one Backend server covers
 
     // ---- issue #25 (Aging) tuning. Recurring support income decays with the days since the last ship/patch,
     // from full (1.0) down to SupportAgeFloor over SupportAgeFullDays. A staffed studio patches every
@@ -1274,6 +1277,17 @@ public static class SiliconAlleyState
             return payout;
         }
         return 0f;
+    }
+
+    public static bool TryMarkServerUpkeepCharged(string key, int currentDay)
+    {
+        if (string.IsNullOrEmpty(key))
+            return false;
+        var state = Get(key);
+        if (state.LastServerUpkeepDay == currentDay)
+            return false;
+        state.LastServerUpkeepDay = currentDay;
+        return true;
     }
 
     public static void Reset()
