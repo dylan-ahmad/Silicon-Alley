@@ -192,6 +192,21 @@ public static class SiliconAlleyProductDependencies
     public static float RoyaltyFromSnapshot(int usedMask, int[] vendorOrdinals, string businessTypeName)
         => Royalty(usedMask, 0, vendorOrdinals, businessTypeName);
 
+    // Issue #101/#106: the cloud-backend dependency bit (Office Cloud Backend / Game Online Services SDK /
+    // Security Threat Intel Platform) — the one a Self-hosted-backend server (#106) rebates. Append-only (#83).
+    public const int BackendBit = 2;
+
+    // The licensed royalty rate contributed by ONE dependency bit — 0 when the bit is not used, is owned
+    // (self-built), or has no vendor offer. Same per-bit guard as Royalty() above; lets a caller scale a
+    // single bit's share (e.g. #106 backend coverage) without disturbing the aggregate.
+    public static float RoyaltyForBit(int bit, int usedMask, int ownedMask, int[] vendorOrdinals, string businessTypeName)
+    {
+        if ((usedMask & (1 << bit)) == 0 || (ownedMask & (1 << bit)) != 0)
+            return 0f;
+        var vendor = VendorOrdinalAt(vendorOrdinals, bit);
+        return TryGetOffer(businessTypeName, bit, vendor, out var offer) ? offer.RoyaltyRate : 0f;
+    }
+
     private static int VendorOrdinalAt(int[] vendorOrdinals, int bit)
         => vendorOrdinals != null && bit >= 0 && bit < vendorOrdinals.Length ? vendorOrdinals[bit] : -1;
 }

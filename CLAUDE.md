@@ -270,6 +270,10 @@ line that has shipped.
   and `role` is the persisted `ServerRole` ordinal. Empty/absent/`0:` => every placed Server is `Unassigned`.
   Assignments are keyed by stable `ItemInstance.id`; stale ids are tolerated and pruned when live server counts are
   requested. Out-of-range role ordinals load as `Unassigned`. Pure trailing append => **no schema bump**.
+  Then - the next trailing append - `|hostingAccrual` - the fractional whole-currency carry for flat Hosting-role
+  server income (issue #107). Empty/absent => `0`, so old saves and studios with no Hosting servers earn nothing.
+  The rate is an options tunable and the server count is derived live from `serverRoles`; only the sub-dollar carry
+  is persisted. Pure trailing append => **no schema bump**.
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /
@@ -279,7 +283,12 @@ line that has shipped.
   + allocation fit** (#85, `SiliconAlleyAspects` — a per-type aspect catalog + feature→aspect map + a clock-derived
   per-aspect demand profile; the player's persisted `featureWeights` allocation is scored against demand RELATIVE
   to the neutral even allocation, folded into the quality ceiling + the launch-market factor — `0` / `×1.0` at
-  neutral, so legacy is unchanged). All compute from
+  neutral, so legacy is unchanged); and the **self-hosted-backend coverage** (#106,
+  `SiliconAlleyOfficeSimulator.BackendCoverage` = `min(1, nBackend·BackendCapPerServer / InstalledBase)` from the
+  #103 `serverRoles` Backend count) rebating the **bit-2** cloud-backend slice
+  (`SiliconAlleyProductDependencies.BackendBit` / `RoyaltyForBit`) of the launch **and** support dependency royalty
+  by `coverage` — derived & reversible, **never mutates `OwnedDependencyMask`**, `0` Backend servers ⇒ no change,
+  no effect once bit 2 is self-built. All compute from
   existing state / building ownership + the game day, so old saves gain them with no field added.
 - **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
   `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →

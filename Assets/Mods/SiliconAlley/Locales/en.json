@@ -17,6 +17,8 @@
   "siliconalley:options_projectspeed": "Project speed (%, 100 = normal)",
   "siliconalley:options_payout": "Payout multiplier (%)",
   "siliconalley:options_support": "Support income (%)",
+  "siliconalley:options_infrastructure": "Infrastructure server strength (%)",
+  "siliconalley:options_hostingincome": "Hosting income (cents/server/hour)",
   "siliconalley:options_key": "Open project screen (key)",
   "siliconalley:options_dashboardkey": "Open studio dashboard (key)",
   "siliconalley:options_helpkey": "Open help (key)",
