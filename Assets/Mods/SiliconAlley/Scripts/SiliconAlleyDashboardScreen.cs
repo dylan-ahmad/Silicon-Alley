@@ -488,9 +488,6 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
         private Image _typeIcon;
         private TMP_Text _name;
         private TMP_Text _chipTotal, _chipInfra, _chipBackend, _chipHosting, _chipUnassigned;
-        private TMP_Text _coverageText; // issue #106: self-hosted-backend coverage %, shown when >=1 Backend server
-        private TMP_Text _infraEffect;
-        private TMP_Text _hostingIncome;
         private GameObject _rowsHost;
         private readonly List<ServerRow> _rows = new List<ServerRow>();
         private readonly List<string> _ids = new List<string>(); // reused scratch: this studio's server ids
@@ -517,16 +514,6 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
             MakeChip(chips.transform, SiliconAlleyTheme.Accent, SiliconAlleyTheme.Text, out c._chipBackend);
             MakeChip(chips.transform, SiliconAlleyTheme.Accent, SiliconAlleyTheme.Text, out c._chipHosting);
             MakeChip(chips.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.TextMuted, out c._chipUnassigned);
-
-            c._infraEffect = MakeText(t, "InfrastructureEffect", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-            c._infraEffect.color = SiliconAlleyTheme.TextMuted;
-
-            c._hostingIncome = MakeText(t, "HostingIncome", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-            c._hostingIncome.color = SiliconAlleyTheme.Ok;
-
-            // Issue #106: self-hosted-backend coverage readout (toggled on only when the studio has Backend servers).
-            c._coverageText = MakeText(t, "BackendCoverage", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-            c._coverageText.color = SiliconAlleyTheme.Ok;
 
             c._rowsHost = MakeSection(t); // per-server rows pooled here
             c.Root = card;
@@ -555,27 +542,6 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
             _chipBackend.text = Compose("siliconalley:dash_servers_backend", ("n", Num(counts, SiliconAlleyState.ServerRole.Backend)));
             _chipHosting.text = Compose("siliconalley:dash_servers_hosting", ("n", Num(counts, SiliconAlleyState.ServerRole.Hosting)));
             _chipUnassigned.text = Compose("siliconalley:dash_servers_unassigned", ("n", Num(counts, SiliconAlleyState.ServerRole.Unassigned)));
-            var infrastructureServers = counts[SiliconAlleyState.ServerRole.Infrastructure];
-            _infraEffect.text = Compose("siliconalley:dash_servers_infra_effect",
-                ("build", Mult(SiliconAlleyOfficeSimulator.InfrastructureProgressMultiplier(infrastructureServers))),
-                ("qa", Mult(SiliconAlleyOfficeSimulator.InfrastructureProgressMultiplier(infrastructureServers))),
-                ("bugs", BugReduction(SiliconAlleyOfficeSimulator.InfrastructureBugMultiplier(infrastructureServers))));
-            var hostingServers = counts[SiliconAlleyState.ServerRole.Hosting];
-            _hostingIncome.text = Compose("siliconalley:dash_servers_hosting_income",
-                ("income", SiliconAlleyFormat.Money(SiliconAlleyOfficeSimulator.HostingIncomePerDay(hostingServers))));
-
-            // Issue #106: show the self-hosted-backend coverage the sim applies, when this studio has Backend
-            // servers (a capacity metric; whether it currently rebates cash also needs bit 2 to be licensed).
-            if (counts[SiliconAlleyState.ServerRole.Backend] > 0)
-            {
-                var pct = Mathf.RoundToInt(SiliconAlleyOfficeSimulator.BackendCoverage(key, reg) * 100f);
-                _coverageText.text = Compose("siliconalley:dash_servers_coverage", ("pct", pct.ToString(CultureInfo.InvariantCulture)));
-                _coverageText.gameObject.SetActive(true);
-            }
-            else
-            {
-                _coverageText.gameObject.SetActive(false);
-            }
 
             for (var i = 0; i < _ids.Count; i++)
             {
@@ -598,11 +564,6 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
 
         private static string Num(Dictionary<SiliconAlleyState.ServerRole, int> counts, SiliconAlleyState.ServerRole role) =>
             counts[role].ToString(CultureInfo.InvariantCulture);
-
-        private static string Mult(float value) => "x" + value.ToString("0.00", CultureInfo.InvariantCulture);
-
-        private static string BugReduction(float bugMultiplier) =>
-            Mathf.RoundToInt((1f - bugMultiplier) * 100f).ToString(CultureInfo.InvariantCulture);
     }
 
     // One row per placed server: a "Server N" label + a 3-button role selector (the scope-picker recolour
