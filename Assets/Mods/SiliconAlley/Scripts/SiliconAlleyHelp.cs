@@ -67,6 +67,7 @@ public static class SiliconAlleyHelp
         ("siliconalley-marketing",     ModCategoryKey),
         ("siliconalley-publishers",    ModCategoryKey),
         ("siliconalley-lifecycle",     ModCategoryKey),
+        ("siliconalley-servers",       ModCategoryKey),
         ("siliconalley-bugs-reviews",  ModCategoryKey),
     };
 
