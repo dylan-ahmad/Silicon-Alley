@@ -279,7 +279,12 @@ line that has shipped.
   + allocation fit** (#85, `SiliconAlleyAspects` — a per-type aspect catalog + feature→aspect map + a clock-derived
   per-aspect demand profile; the player's persisted `featureWeights` allocation is scored against demand RELATIVE
   to the neutral even allocation, folded into the quality ceiling + the launch-market factor — `0` / `×1.0` at
-  neutral, so legacy is unchanged). All compute from
+  neutral, so legacy is unchanged); and the **self-hosted-backend coverage** (#106,
+  `SiliconAlleyOfficeSimulator.BackendCoverage` = `min(1, nBackend·BackendCapPerServer / InstalledBase)` from the
+  #103 `serverRoles` Backend count) rebating the **bit-2** cloud-backend slice
+  (`SiliconAlleyProductDependencies.BackendBit` / `RoyaltyForBit`) of the launch **and** support dependency royalty
+  by `coverage` — derived & reversible, **never mutates `OwnedDependencyMask`**, `0` Backend servers ⇒ no change,
+  no effect once bit 2 is self-built. All compute from
   existing state / building ownership + the game day, so old saves gain them with no field added.
 - **BusinessRequirement assets** reference **base-game** ids (not ours, also immutable):
   `DesktopWorkstation` → `ba:itemname_itemgroupdesktopworkstation`, `BathroomStall` →

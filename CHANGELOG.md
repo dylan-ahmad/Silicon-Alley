@@ -15,6 +15,10 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 - **Servers dashboard section** (F8): a per-studio card lists each placed Server with a 3-button role
   selector (Infrastructure / Backend / Hosting) and a live counts summary; assignments save per server and
   refresh on the 1-second tick. (Role economics arrive with the upcoming sim work.)
+- **Self-hosted backend server role** (server-infrastructure epic): Servers assigned the Backend role
+  reduce the cloud-backend dependency royalty on launch **and** support income, scaling with installed-base
+  coverage (`min(1, servers·capacity / installed base)`); fully reversible (remove the servers ⇒ royalty
+  restored) and never applied once the dependency is self-built. The F8 Servers card shows the live coverage %.
 
 ### Fixed
 - **Getting Started help** now clarifies that Silicon Alley offices are furnished **manually** (place a

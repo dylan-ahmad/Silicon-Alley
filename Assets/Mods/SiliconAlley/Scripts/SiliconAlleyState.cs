@@ -167,6 +167,7 @@ public static class SiliconAlleyState
     public static float ProjectSize = 2800f;       // progress to complete one project (~2800 ≈ a skill-70 solo programmer over ~7 in-game calendar days full-time; the Project-speed slider tunes the pace)
     public static float PayoutMultiplier = 1f;     // global payout scale
     public static float SupportRatePerDay = 0.02f; // support income per installed unit per day, as a fraction of market price
+    public static float InfrastructureStrength = 1f; // scales infrastructure-server bonuses from the options panel
 
     // ---- issue #25 (Aging) tuning. Recurring support income decays with the days since the last ship/patch,
     // from full (1.0) down to SupportAgeFloor over SupportAgeFullDays. A staffed studio patches every
@@ -193,6 +194,8 @@ public static class SiliconAlleyState
     public const float BugFixPerSkillHour = 0.02f;    // bugs cleared per tester skill-point per Testing hour
     public const float BugScale = 30f;                 // bug count that maps to "0% polish" / max ship penalty
     public const float MaxBugQualityPenalty = 0.5f;    // a maximally buggy build loses up to half its quality
+    public const float InfrastructureBonusPerServer = 0.10f; // issue #105: build/CI speed per Infrastructure server
+    public const float InfrastructureBonusCap = 0.40f;       // cap so server fleets cannot trivialize development
 
     // ---- issue #21 (Marketing) tuning. Awareness is unit-less "buzz"; AwarenessToUnits converts it to
     // extra launch installed-base units. Awareness decays each hour (slower while Hype is active). ----
@@ -939,14 +942,40 @@ public static class SiliconAlleyState
             EnsureDependencyVendors(state), businessTypeName);
     }
 
+    // Issue #106: launch dependency royalty with self-hosted-backend coverage rebating the bit-2 (cloud-
+    // backend) slice. backendCoverage 0 ⇒ returns the unmodified aggregate (exact no-op for every existing
+    // caller); 1 ⇒ the licensed bit-2 rate is fully removed. Derived only — never mutates OwnedDependencyMask.
+    public static float DependencyRoyalty(string key, string businessTypeName, float backendCoverage)
+    {
+        var full = DependencyRoyalty(key, businessTypeName);
+        var cov = Mathf.Clamp01(backendCoverage);
+        if (cov <= 0f || full <= 0f)
+            return full;
+        var state = Get(key);
+        var bit2 = SiliconAlleyProductDependencies.RoyaltyForBit(SiliconAlleyProductDependencies.BackendBit,
+            state.UsedDependencyMask, state.OwnedDependencyMask, EnsureDependencyVendors(state), businessTypeName);
+        return Mathf.Max(0f, full - bit2 * cov);
+    }
+
     public static float LaunchRoyalty(string key, string businessTypeName)
-        => Mathf.Clamp(ToolRoyalty(key, businessTypeName) + DependencyRoyalty(key, businessTypeName), 0f, SiliconAlleyTools.MaxRoyalty);
+        => LaunchRoyalty(key, businessTypeName, 0f);
+
+    public static float LaunchRoyalty(string key, string businessTypeName, float backendCoverage)
+        => Mathf.Clamp(ToolRoyalty(key, businessTypeName) + DependencyRoyalty(key, businessTypeName, backendCoverage),
+            0f, SiliconAlleyTools.MaxRoyalty);
 
     public static float DependencySupportRoyalty(string key, string businessTypeName)
+        => DependencySupportRoyalty(key, businessTypeName, 0f);
+
+    // Issue #106: recurring support royalty with the bit-2 (cloud-backend) slice of EACH release snapshot
+    // rebated by backendCoverage. 0 ⇒ identical to the pre-#106 aggregate. Snapshots pass ownedMask 0, so a
+    // self-built release (vendor -1) already contributes 0 bit-2 rate (RoyaltyForBit returns 0 there).
+    public static float DependencySupportRoyalty(string key, string businessTypeName, float backendCoverage)
     {
         var state = Get(key);
         if (state.InstalledBase <= 0 || state.Releases.Count == 0)
             return 0f;
+        var cov = Mathf.Clamp01(backendCoverage);
         var weighted = 0f;
         foreach (var release in state.Releases)
         {
@@ -954,6 +983,12 @@ public static class SiliconAlleyState
                 continue;
             var vendors = ParseDependencyVendorOrdinals(release.DependencyVendorOrdinals);
             var royalty = SiliconAlleyProductDependencies.RoyaltyFromSnapshot(release.UsedDependencyMask, vendors, businessTypeName);
+            if (cov > 0f)
+            {
+                var bit2 = SiliconAlleyProductDependencies.RoyaltyForBit(SiliconAlleyProductDependencies.BackendBit,
+                    release.UsedDependencyMask, 0, vendors, businessTypeName);
+                royalty = Mathf.Max(0f, royalty - bit2 * cov);
+            }
             weighted += release.LaunchUnits * royalty;
         }
         return Mathf.Clamp(weighted / Mathf.Max(1, state.InstalledBase), 0f, SiliconAlleyTools.MaxRoyalty);

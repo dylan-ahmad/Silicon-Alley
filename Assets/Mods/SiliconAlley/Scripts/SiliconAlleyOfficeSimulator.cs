@@ -52,6 +52,25 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     public static bool IsServerInstance(ItemInstance instance)
         => instance != null && instance.ItemCached != null && instance.ItemCached.itemName == ServerItemName;
 
+    // Issue #106 (Self-hosted backend role): installed-base units one Backend-role server keeps self-hosted
+    // (a tunable balance knob). Public so the dashboard can show the same coverage the sim applies. Non-persisted.
+    public const float BackendCapPerServer = 50f;
+
+    // Issue #106: self-hosted-backend COVERAGE for a studio — the fraction of its installed base served by
+    // Backend-role servers. Derived each tick from the live #103 server roles (mirrors OwnedMarketingAgencies):
+    // 0 Backend servers ⇒ 0 ⇒ exact no-op. InstalledBase 0 ⇒ nothing to serve yet ⇒ fully covered (1); the
+    // support-royalty path returns 0 there regardless. Reversible — removing servers next tick restores the royalty.
+    public static float BackendCoverage(string key, BuildingRegistration registration)
+    {
+        var nBackend = SiliconAlleyState.ServerCountsByRole(key, registration)[SiliconAlleyState.ServerRole.Backend];
+        if (nBackend <= 0)
+            return 0f;
+        var installed = SiliconAlleyState.GetInstalledBase(key);
+        if (installed <= 0)
+            return 1f;
+        return Mathf.Min(1f, nBackend * BackendCapPerServer / installed);
+    }
+
     public override void SimulateCurrentHour()
     {
         var businessType = BusinessTypeHelper.GetData(buildingRegistration);
@@ -62,6 +81,9 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // Issue #26: record the business type so the per-type feature math (project size + quality ceiling)
         // can resolve this project's feature list before EffectiveProjectSize is read just below.
         SiliconAlleyState.NoteBusinessType(key, businessType.businessTypeName);
+        var infrastructureServers = InfrastructureServerCount(key, buildingRegistration);
+        var infrastructureProgressMultiplier = InfrastructureProgressMultiplier(infrastructureServers);
+        var infrastructureBugMultiplier = InfrastructureBugMultiplier(infrastructureServers);
 
         // 1) Gather the staff working at a workstation this hour, with each person's programmer and
         // graphic-designer skill (issue #2). Only disciplines this business actually lists count.
@@ -90,7 +112,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             if (TimeHelper.CurrentDay > SiliconAlleyState.GetContractDeadlineDay(key))
                 HandleContractMiss(businessType, key);     // deadline passed before delivery (works even unstaffed)
             else if (staffCount > 0)
-                WorkContract(businessType, key, staff);    // accrue work; pay + clear on an on-time delivery
+                WorkContract(businessType, key, staff, infrastructureProgressMultiplier); // accrue work; pay + clear on an on-time delivery
         }
 
         // Issue #3: lock the project type when work begins; the locked type scales size/payout/competition.
@@ -141,7 +163,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 qualityScale = 0.85f;  // ... at the cost of quality (more bugs surface in Testing)
             }
 
-            var progressDelta = effectiveSkill * SiliconAlleyState.ProjectSpeed * progressScale;
+            var progressDelta = effectiveSkill * SiliconAlleyState.ProjectSpeed * progressScale * infrastructureProgressMultiplier;
             SiliconAlleyState.AddProgress(key, progressDelta);
             // Issue #88: a stage never auto-advances. The hour it fills the current stage counts (final work),
             // then it PARKS at the stage ceiling (Progress clamped); the guard on this block above freezes
@@ -169,11 +191,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             if (phase == SiliconAlleyState.ProjectPhase.Development)
             {
                 var bugRate = SiliconAlleyState.BugsPerProgress * (SiliconAlleyState.IsOvertime(key) ? SiliconAlleyState.OvertimeBugFactor : 1f);
-                SiliconAlleyState.AddBugs(key, progressDelta * bugRate);
+                SiliconAlleyState.AddBugs(key, progressDelta * bugRate * infrastructureBugMultiplier);
             }
             else if (phase == SiliconAlleyState.ProjectPhase.Testing)
             {
-                SiliconAlleyState.BurnBugs(key, effectiveSkill * SiliconAlleyState.BugFixPerSkillHour);
+                SiliconAlleyState.BurnBugs(key, effectiveSkill * SiliconAlleyState.BugFixPerSkillHour * infrastructureProgressMultiplier);
             }
             Debug.Log($"[SiliconAlley] {key} h{currentHour}: {staffCount} staff, {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
         }
@@ -238,7 +260,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #36: licensed tools take a recurring royalty cut of support income too (0 when no tool is
             // licensed / legacy save, so support is unchanged). Layered on top — SupportRatePerDay is untouched.
             support *= 1f - SiliconAlleyState.ToolRoyalty(key, businessType.businessTypeName);
-            support *= 1f - SiliconAlleyState.DependencySupportRoyalty(key, businessType.businessTypeName);
+            // Issue #106: Self-hosted-backend servers rebate the cloud-backend (bit 2) slice of the support
+            // royalty, scaled by installed-base coverage (0 Backend servers ⇒ unchanged; removing them restores it).
+            support *= 1f - SiliconAlleyState.DependencySupportRoyalty(key, businessType.businessTypeName,
+                BackendCoverage(key, buildingRegistration));
             // Issue #28: recurring support breathes with the category's market demand too (a new factor; the
             // competition MarketFactor / SupportRatePerDay are untouched). Derived from the day — no state.
             support *= SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
@@ -308,7 +333,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #36: licensed tools take a royalty cut of the launch revenue (0 when no tool is licensed /
             // legacy, so payout is unchanged). Reduces the NET payout the player sees in the toast + ship report;
             // layered on top — MarketFactor / reputationFactor / the project-kind multiplier are untouched.
-            payout *= 1f - SiliconAlleyState.LaunchRoyalty(key, businessType.businessTypeName);
+            // Issue #106: Self-hosted-backend servers also rebate the cloud-backend (bit 2) slice of the launch
+            // royalty by the same coverage (0 Backend servers ⇒ unchanged).
+            payout *= 1f - SiliconAlleyState.LaunchRoyalty(key, businessType.businessTypeName,
+                BackendCoverage(key, buildingRegistration));
             // Issue #38: the target audience segment scales the per-unit launch price (Broad ⇒ ×1.0, so a
             // legacy/default ship is unchanged). A new multiplier layered on top — MarketFactor / reputationFactor
             // / the project-kind multiplier are untouched; the volume side feeds the installed base below.
@@ -583,7 +611,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     // skill toward the scope; on reaching it (the expiry check upstream already cleared any late contract, so
     // arriving here is on time) pay the agreed sum scaled by staffing quality, then clear the contract.
     private void WorkContract(BusinessType businessType, string key,
-        List<(float programmer, float designer, float satisfaction)> staff)
+        List<(float programmer, float designer, float satisfaction)> staff, float infrastructureProgressMultiplier)
     {
         var staffCount = Mathf.Max(1, staff.Count);
         float skill = 0f, satisfaction = 0f;
@@ -592,7 +620,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             skill += Mathf.Max(member.programmer, member.designer);
             satisfaction += member.satisfaction;
         }
-        SiliconAlleyState.AddContractProgress(key, skill * SiliconAlleyState.ProjectSpeed);
+        SiliconAlleyState.AddContractProgress(key, skill * SiliconAlleyState.ProjectSpeed * infrastructureProgressMultiplier);
         if (SiliconAlleyState.GetContractProgress(key) < SiliconAlleyState.GetContractScope(key))
             return;
 
@@ -741,6 +769,26 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         return count;
     }
 
+    public static int InfrastructureServerCount(string key, BuildingRegistration registration)
+    {
+        if (string.IsNullOrEmpty(key) || registration?.itemInstances == null)
+            return 0;
+        var counts = SiliconAlleyState.ServerCountsByRole(key, registration);
+        return counts[SiliconAlleyState.ServerRole.Infrastructure];
+    }
+
+    public static float InfrastructureProgressMultiplier(int infrastructureServers) =>
+        1f + InfrastructureBonus(infrastructureServers);
+
+    public static float InfrastructureBugMultiplier(int infrastructureServers) =>
+        1f - InfrastructureBonus(infrastructureServers);
+
+    private static float InfrastructureBonus(int infrastructureServers) =>
+        Mathf.Clamp(
+            Mathf.Max(0, infrastructureServers) * SiliconAlleyState.InfrastructureBonusPerServer * SiliconAlleyState.InfrastructureStrength,
+            0f,
+            SiliconAlleyState.InfrastructureBonusCap);
+
     // Project progress this studio accrues per in-game hour at the current hour's staffing
     // (sum of programmer skill x ProjectSpeed) — the exact throughput SimulateCurrentHour applies.
     // The phone dashboard divides remaining progress by this to estimate phase/ship ETAs. Returns 0
@@ -765,6 +813,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 continue;
             totalSkill += skill.value;
         }
-        return totalSkill * SiliconAlleyState.ProjectSpeed;
+        var key = SiliconAlleyState.KeyFor(registration);
+        var infrastructureServers = InfrastructureServerCount(key, registration);
+        return totalSkill * SiliconAlleyState.ProjectSpeed * InfrastructureProgressMultiplier(infrastructureServers);
     }
 }
