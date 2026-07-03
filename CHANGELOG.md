@@ -12,6 +12,9 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   prefab/model/material bundle assets, registry entry, locale, and save-compat ledger token.
 - **Per-server role persistence** for the server-infrastructure epic: placed Servers can now carry a
   saved Infrastructure, Backend, or Hosting role for upcoming sim/UI work.
+- **Servers dashboard section** (F8): a per-studio card lists each placed Server with a 3-button role
+  selector (Infrastructure / Backend / Hosting) and a live counts summary; assignments save per server and
+  refresh on the 1-second tick. (Role economics arrive with the upcoming sim work.)
 
 ### Fixed
 - **Getting Started help** now clarifies that Silicon Alley offices are furnished **manually** (place a
