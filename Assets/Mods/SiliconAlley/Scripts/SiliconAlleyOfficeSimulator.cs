@@ -71,6 +71,9 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         return Mathf.Min(1f, nBackend * BackendCapPerServer / installed);
     }
 
+    public static float HostingIncomePerDay(int hostingServers) =>
+        Mathf.Max(0, hostingServers) * SiliconAlleyState.HostingIncomePerServerPerHour * 24f;
+
     public override void SimulateCurrentHour()
     {
         var businessType = BusinessTypeHelper.GetData(buildingRegistration);
@@ -269,6 +272,15 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             support *= SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
             if (support > 0f)
                 CreditRevenue(product, support, 1f);
+        }
+
+        // Issue #107: Hosting-role servers generate flat passive revenue, independent of installed base.
+        // It still goes through CreditRevenue so the game sees it as normal business revenue/orders.
+        if (product != null)
+        {
+            var hostingIncome = SiliconAlleyState.AccrueHostingIncome(key, HostingServerCount(key, buildingRegistration));
+            if (hostingIncome > 0f)
+                CreditRevenue(product, hostingIncome, 1f);
         }
 
         // 3b) Post-release updates: MANUAL (Software-Inc-style). A staffed studio with a live catalog can ship
@@ -775,6 +787,14 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             return 0;
         var counts = SiliconAlleyState.ServerCountsByRole(key, registration);
         return counts[SiliconAlleyState.ServerRole.Infrastructure];
+    }
+
+    public static int HostingServerCount(string key, BuildingRegistration registration)
+    {
+        if (string.IsNullOrEmpty(key) || registration?.itemInstances == null)
+            return 0;
+        var counts = SiliconAlleyState.ServerCountsByRole(key, registration);
+        return counts[SiliconAlleyState.ServerRole.Hosting];
     }
 
     public static float InfrastructureProgressMultiplier(int infrastructureServers) =>

@@ -270,6 +270,10 @@ line that has shipped.
   and `role` is the persisted `ServerRole` ordinal. Empty/absent/`0:` => every placed Server is `Unassigned`.
   Assignments are keyed by stable `ItemInstance.id`; stale ids are tolerated and pruned when live server counts are
   requested. Out-of-range role ordinals load as `Unassigned`. Pure trailing append => **no schema bump**.
+  Then - the next trailing append - `|hostingAccrual` - the fractional whole-currency carry for flat Hosting-role
+  server income (issue #107). Empty/absent => `0`, so old saves and studios with no Hosting servers earn nothing.
+  The rate is an options tunable and the server count is derived live from `serverRoles`; only the sub-dollar carry
+  is persisted. Pure trailing append => **no schema bump**.
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /

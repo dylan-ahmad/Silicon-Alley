@@ -490,6 +490,7 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
         private TMP_Text _chipTotal, _chipInfra, _chipBackend, _chipHosting, _chipUnassigned;
         private TMP_Text _coverageText; // issue #106: self-hosted-backend coverage %, shown when >=1 Backend server
         private TMP_Text _infraEffect;
+        private TMP_Text _hostingIncome;
         private GameObject _rowsHost;
         private readonly List<ServerRow> _rows = new List<ServerRow>();
         private readonly List<string> _ids = new List<string>(); // reused scratch: this studio's server ids
@@ -519,6 +520,9 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
 
             c._infraEffect = MakeText(t, "InfrastructureEffect", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
             c._infraEffect.color = SiliconAlleyTheme.TextMuted;
+
+            c._hostingIncome = MakeText(t, "HostingIncome", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+            c._hostingIncome.color = SiliconAlleyTheme.Ok;
 
             // Issue #106: self-hosted-backend coverage readout (toggled on only when the studio has Backend servers).
             c._coverageText = MakeText(t, "BackendCoverage", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
@@ -556,6 +560,9 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
                 ("build", Mult(SiliconAlleyOfficeSimulator.InfrastructureProgressMultiplier(infrastructureServers))),
                 ("qa", Mult(SiliconAlleyOfficeSimulator.InfrastructureProgressMultiplier(infrastructureServers))),
                 ("bugs", BugReduction(SiliconAlleyOfficeSimulator.InfrastructureBugMultiplier(infrastructureServers))));
+            var hostingServers = counts[SiliconAlleyState.ServerRole.Hosting];
+            _hostingIncome.text = Compose("siliconalley:dash_servers_hosting_income",
+                ("income", SiliconAlleyFormat.Money(SiliconAlleyOfficeSimulator.HostingIncomePerDay(hostingServers))));
 
             // Issue #106: show the self-hosted-backend coverage the sim applies, when this studio has Backend
             // servers (a capacity metric; whether it currently rebates cash also needs bit 2 to be licensed).

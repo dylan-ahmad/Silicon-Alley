@@ -14,6 +14,7 @@ public static class SiliconAlleyState
         public float Reputation;     // 0..~3, grows with high-quality deliveries
         public int InstalledBase;    // completed projects still earning support income
         public float SupportAccrual; // fractional support income carried between hours
+        public float HostingAccrual; // issue #107: fractional hosting income carried between hours
         public float QualitySum;     // accumulated (staff-quality x phase-weight) over the project
         public float QualityWeight;  // total accumulated weight (Testing hours weigh more)
         // Per-phase quality breakdown (issue #8): the same (sample x weight) accrual as the aggregate
@@ -168,6 +169,7 @@ public static class SiliconAlleyState
     public static float PayoutMultiplier = 1f;     // global payout scale
     public static float SupportRatePerDay = 0.02f; // support income per installed unit per day, as a fraction of market price
     public static float InfrastructureStrength = 1f; // scales infrastructure-server bonuses from the options panel
+    public static float HostingIncomePerServerPerHour = 5f; // issue #107: flat passive income per Hosting server
 
     // ---- issue #25 (Aging) tuning. Recurring support income decays with the days since the last ship/patch,
     // from full (1.0) down to SupportAgeFloor over SupportAgeFullDays. A staffed studio patches every
@@ -1256,6 +1258,24 @@ public static class SiliconAlleyState
         return 0f;
     }
 
+    // Issue #107: flat passive income from Hosting-role servers. Independent of installed base, demand,
+    // royalties and support freshness; carries sub-dollar leftovers until a whole-dollar order can be credited.
+    public static float AccrueHostingIncome(string key, int hostingServers)
+    {
+        if (hostingServers <= 0 || HostingIncomePerServerPerHour <= 0f)
+            return 0f;
+
+        var state = Get(key);
+        state.HostingAccrual += hostingServers * HostingIncomePerServerPerHour;
+        if (state.HostingAccrual >= 1f)
+        {
+            float payout = Mathf.Floor(state.HostingAccrual);
+            state.HostingAccrual -= payout;
+            return payout;
+        }
+        return 0f;
+    }
+
     public static void Reset()
     {
         States.Clear();
@@ -1273,7 +1293,7 @@ public static class SiliconAlleyState
     //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation
     //    |dealPublisher|dealDeadlineDay|dealPayout|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId
     //    |contractScope|contractProgress|contractDeadlineDay|contractPayout|stage|releaseHistory|productName
-    //    |ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals|featureWeights|serverRoles,
+    //    |ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals|featureWeights|serverRoles|hostingAccrual,
     // joined by ';'. The publisher-deal fields (issue #23: dealPublisher default -1 = no deal, dealDeadlineDay/
     // dealPayout 0) append after the lifecycle fields; absent in old saves ⇒ no active deal. A third reserved
     // header "~publishers|r0,r1,…" carries the player's per-publisher reputation (issue #22, append-only by
@@ -1383,7 +1403,9 @@ public static class SiliconAlleyState
                 // Issue #85: per-feature allocation weights (index 44). Empty/absent => neutral (even) weights.
                 .Append(SerializeFeatureWeights(state.FeatureWeights)).Append('|')
                 // Issue #103: server roles (index 45). Empty/absent => all placed servers Unassigned.
-                .Append(SerializeServerRoles(state.ServerRoles)).Append(';');
+                .Append(SerializeServerRoles(state.ServerRoles)).Append('|')
+                // Issue #107: hosting-income fractional carry (index 46). Absent => 0.
+                .Append(state.HostingAccrual.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -1537,6 +1559,12 @@ public static class SiliconAlleyState
                     state.FeatureWeights = ParseFeatureWeights(parts[44]);
                 if (parts.Length > 45) // issue #103: server roles keyed by ItemInstance.id (absent => all Unassigned)
                     LoadServerRoles(parts[45], state.ServerRoles);
+                if (parts.Length > 46) // issue #107: hosting-income fractional carry (absent => 0)
+                {
+                    float.TryParse(parts[46], NumberStyles.Float, CultureInfo.InvariantCulture, out state.HostingAccrual);
+                    if (state.HostingAccrual < 0f)
+                        state.HostingAccrual = 0f;
+                }
                 States[parts[0]] = state;
             }
             catch
