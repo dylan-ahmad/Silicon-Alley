@@ -19,6 +19,8 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   capacity sliders, and show hosting net, backend coverage, and infra break-even cues on the dashboard.
 
 ### Fixed
+- **Server appearance** — a placed Server now shows its authored server-rack model instead of the
+  placeholder box that #102 shipped (the committed `ServerRack.obj` mesh was never wired into the prefab).
 - **Getting Started help** now clarifies that Silicon Alley offices are furnished **manually** (place a
   Computer Workstation + bathroom) and that the base-game **Interior Installation Firm** reports *"no
   designs available"* for these custom business types — expected, not a bug (the *product* design is the
