@@ -232,9 +232,27 @@ public static class SiliconAlleyRegistry
             context.Logger.Error(healthLine);
     }
 
+    // Mirrors the game's ModsInternal.GetCurrentPlatformFolderName: the loader inserts this folder between
+    // the declared bundle directory and the file name, and only falls back to the flat path if that misses.
+    // Reporting the wrong platform here sent Mac players hunting for a Windows path that never existed.
+    private static string CurrentPlatformFolderName()
+    {
+        switch (Application.platform)
+        {
+            case RuntimePlatform.OSXPlayer:
+            case RuntimePlatform.OSXEditor:
+                return "Mac";
+            case RuntimePlatform.LinuxPlayer:
+            case RuntimePlatform.LinuxEditor:
+                return "Linux";
+            default:
+                return "Windows";
+        }
+    }
+
     private static string ExpectedBundlePaths(ModContext context)
     {
-        var platformPath = Path.Combine(context.ModRootPath, "AssetBundles", "Windows", "siliconalley.unity3d");
+        var platformPath = Path.Combine(context.ModRootPath, "AssetBundles", CurrentPlatformFolderName(), "siliconalley.unity3d");
         var flatPath = Path.Combine(context.ModRootPath, "AssetBundles", "siliconalley.unity3d");
         return "'" + platformPath + "' or '" + flatPath + "'";
     }
