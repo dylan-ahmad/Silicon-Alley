@@ -14,6 +14,14 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   and each release-history row now records the ship's reputation/market/demand/cleanliness multipliers so
   the ship report can survive a reload. Pure trailing appends: **old saves load unchanged** (nothing reads
   the new fields yet), pre-0.5.0 history rows show "—" where the multipliers weren't recorded.
+- **Milestone decisions** (#123): four decision windows now open mid-project — two during Development
+  (30% / 55%), two during Testing (80% / 92%), finally giving the long build stretch real choices. Each
+  window surfaces one of two events (fixed per save — reloading cannot reroll it) with two options trading
+  progress, quality, bugs, marketing buzz and cash: scope creep, a middleware offer, a tech-debt reckoning,
+  a conference demo slot, a public-beta call, crunching the QA backlog, announcing a gold date, or promising
+  a day-one patch. A clickable toast announces each window; ignoring it is always safe — the window quietly
+  closes with zero effect, which is also why legacy in-flight projects play unchanged. (The in-screen
+  decision card arrives with the 0.5.0 UI work; until then the toast + this changelog are the paper trail.)
 
 ## [0.4.1] — 2026-07-28
 

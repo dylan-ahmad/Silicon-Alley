@@ -440,6 +440,15 @@ public static class SiliconAlleyState
     public static void NoteBusinessType(string key, string businessTypeName) => Get(key).BusinessTypeName = businessTypeName;
 
     public static void AddProgress(string key, float amount) => Get(key).Progress += amount;
+
+    // Issue #123: adjust Progress by a milestone effect, clamped to [min, max] — the caller passes the
+    // stage band's start and its park ceiling, so an effect can neither regress the derived phase nor
+    // leap a stage gate (SiliconAlleyMilestones.TryResolve is the only caller).
+    public static void AdjustProgressClamped(string key, float delta, float min, float max)
+    {
+        var state = Get(key);
+        state.Progress = Mathf.Clamp(state.Progress + delta, min, Mathf.Max(min, max));
+    }
     public static float GetProgress(string key) => Get(key).Progress;
     public static float GetReputation(string key) => Get(key).Reputation;
     public static int GetInstalledBase(string key) => Get(key).InstalledBase;
