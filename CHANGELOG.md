@@ -5,7 +5,11 @@ All notable changes to **Silicon Alley** are recorded here. The version is the m
 version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Release
 (see `.github/workflows/auto-tag.yml`). Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
-## [Unreleased] — 0.5.0 (epic #121)
+## [0.5.0] — 2026-07-29
+
+The gameplay-loop release (epic #121): the long empty middle of every project now asks real questions,
+shipping finally pays like the headline act, the numbers that always steered your launch are on screen,
+contracts are honest side-work instead of the meta, and everything lives in one hub.
 
 ### Added
 - **Save-compat groundwork** for the 0.5.0 gameplay-loop release (#122): the per-building save record gains
@@ -38,6 +42,10 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   green in the sweet spot. Development and Testing gain a **Projected review** ("{n}/10 if shipped now",
   the exact math the release would use) plus a **quality gates** readout spelling out the three silent
   multipliers: design ceiling, office cleanliness and open bugs. Presentation only — no behaviour changed.
+- **Help** (#131): a new **Milestone Decisions** guide, and the Contracts, Marketing, Publisher Deals,
+  Product Lifecycle, Bugs & Reviews, Server Infrastructure and Getting Started pages updated for the
+  0.5.0 loop (the hub, the staff-split dial, the visible Press Build window, the launch economy, the
+  projected review and the release history).
 
 ### Changed
 - **One hub, one window** (#127). The F8 studio dashboard and the F9 project window are now a single

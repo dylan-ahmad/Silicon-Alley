@@ -63,6 +63,7 @@ public static class SiliconAlleyHelp
         ("siliconalley-wizard", ModCategoryKey),   // #65 — the design-wizard guide
         // #66 — economy & market system pages.
         ("siliconalley-contracts",     ModCategoryKey),
+        ("siliconalley-milestones",    ModCategoryKey),   // #131 — the 0.5.0 mid-project decision windows
         ("siliconalley-market-demand", ModCategoryKey),
         ("siliconalley-marketing",     ModCategoryKey),
         ("siliconalley-publishers",    ModCategoryKey),
