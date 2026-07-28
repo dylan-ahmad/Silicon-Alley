@@ -22,4 +22,4 @@ MonoBehaviour:
   LocalesFolder: {fileID: 102900000, guid: aac0b73ee72f51942adcd25adbbedaae, type: 3}
   DependenciesFolder: {fileID: 0}
   EnumsFile: {fileID: 0}
-  TargetPlatforms: 1
+  TargetPlatforms: 3

@@ -19,6 +19,11 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   capacity sliders, and show hosting net, backend coverage, and infra break-even cues on the dashboard.
 
 ### Fixed
+- **macOS support** — the mod now ships a **Mac AssetBundle** alongside the Windows one. Previously the
+  manifest targeted Windows only, so on macOS the game looked for `AssetBundles/Mac/siliconalley.unity3d`,
+  found nothing, and the mod loaded but registered **no content at all** — no items, business types,
+  Server or UI. The bundle-missing diagnostic now also names the path for the platform you are actually
+  running on instead of always reporting the Windows one. (Windows installs are unaffected.)
 - **Getting Started help** now clarifies that Silicon Alley offices are furnished **manually** (place a
   Computer Workstation + bathroom) and that the base-game **Interior Installation Firm** reports *"no
   designs available"* for these custom business types — expected, not a bug (the *product* design is the
