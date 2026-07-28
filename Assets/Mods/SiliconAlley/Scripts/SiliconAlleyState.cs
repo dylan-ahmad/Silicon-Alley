@@ -554,6 +554,10 @@ public static class SiliconAlleyState
         state.ContractProgress = 0f;
         state.ContractDeadlineDay = deadlineDay;
         state.ContractPayout = payout;
+        // Issue #126: "accept" keeps its historical meaning — every new contract starts at the full divert
+        // (a leftover slider position from an earlier contract must not silently leak into this one). The
+        // player dials the split down afterwards from the contract card.
+        state.ContractFocus = 1f;
     }
 
     public static void AddContractProgress(string key, float amount) => Get(key).ContractProgress += amount;

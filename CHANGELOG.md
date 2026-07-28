@@ -24,6 +24,12 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   decision card arrives with the 0.5.0 UI work; until then the toast + this changelog are the paper trail.)
 
 ### Changed
+- **Contracts no longer freeze your product** (#126). A studio holding a contract splits its staff between
+  the contract and its own product: accepting still starts at 100% contract (exactly the old behaviour),
+  but a new focus setting lets you dial the split anywhere down to product-first — the product then accrues
+  progress, bugs and QA at its share of the effort while the contract advances at the rest. Reputation only
+  decays for a *fully* diverted or unstaffed active project now. Old saves with a contract in flight keep
+  the full divert until you touch the dial (the in-screen slider lands with the 0.5.0 UI work).
 - **Contract offers are fixed, not farmable** (#125). The phone client's offer is now derived from the
   studio and the calendar — hanging up and redialing returns the **same terms** until the 3-day offer
   window rolls over, closing the reroll-until-rich exploit. The call now also lets you **choose which
