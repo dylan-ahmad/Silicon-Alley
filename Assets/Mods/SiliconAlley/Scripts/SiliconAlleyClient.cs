@@ -276,7 +276,9 @@ public class SiliconAlleyClientDialog : Dialog
             _offerStudioName = registration.GetDisplayName();
             _offerScope = UnityEngine.Random.Range(800f, 1600f);              // a few in-game days of staffed work
             _offerDeadlineDay = TimeHelper.CurrentDay + UnityEngine.Random.Range(14, 31); // 14–30 days
-            _offerPayout = _offerScope * UnityEngine.Random.Range(2.5f, 4f);  // flat fee, scope-proportional
+            // Issue #124 (epic #121): retuned from x2.5–4 so a contract is a bridge between releases, not the
+            // meta — a comparable ship now out-earns it (the launch scale made shipping the headline payoff).
+            _offerPayout = _offerScope * UnityEngine.Random.Range(1.5f, 2.5f); // flat fee, scope-proportional
             return true;
         }
         return false;

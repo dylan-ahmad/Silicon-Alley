@@ -380,6 +380,18 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             var marketFit = SiliconAlleyAspects.MarketFitFactor(SiliconAlleyState.GetFeatureMask(key),
                 SiliconAlleyState.GetFeatureWeights(key), businessType.businessTypeName, TimeHelper.CurrentDay);
             payout *= marketFit;
+            // Issue #37: the target platforms widen the launch installed-base jump (reach = Σ selected share
+            // weights; 1.0 for the single home platform, so a legacy/default launch is unchanged). Layered on
+            // the launch units only.
+            var reach = SiliconAlleyState.LaunchReach(key, businessType.businessTypeName);
+            // Issue #38: the audience segment's volume factor scales the installed-base jump too (Broad ⇒ ×1.0).
+            // A mass segment grows the base (more recurring support); a niche segment shrinks it — the volume
+            // side of the price↔volume tradeoff. SupportRatePerDay is untouched. (#124: computed BEFORE the
+            // payout is credited, so the launch scale below can feed on the launch units.)
+            var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach * SiliconAlleyState.SegmentVolumeFactor(key) * marketFit); // issue #85: market-fit scales the installed-base jump too (×1.0 at neutral)
+            // Issue #124 (epic #121): the launch scale — shipping is the headline payoff. Everything that
+            // grew the launch units now multiplies the payout too; capped so a monster sequel stays sane.
+            payout *= SiliconAlleyState.LaunchScale(launchUnits);
             CreditRevenue(product, payout, quality);
             var releasePublisher = SiliconAlleyState.HasDeal(key) ? SiliconAlleyState.GetDealPublisher(key) : -1;
             // Issue #23 (Publisher deals): if this product was under a deal, fulfil it on this ship. On-time
@@ -402,16 +414,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 }
                 SiliconAlleyState.ClearDeal(key);
             }
-            // Issue #37: the target platforms widen the launch installed-base jump (reach = Σ selected share
-            // weights; 1.0 for the single home platform, so a legacy/default launch is unchanged). Layered on the
-            // launch units only — payout/MarketFactor untouched. OnProjectCompleted still floors at Max(1, …).
-            var reach = SiliconAlleyState.LaunchReach(key, businessType.businessTypeName);
-            // Issue #38: the audience segment's volume factor scales the installed-base jump too (Broad ⇒ ×1.0).
-            // A mass segment grows the base (more recurring support); a niche segment shrinks it — the volume
-            // side of the price↔volume tradeoff. SupportRatePerDay is untouched.
-            var launchUnits = Mathf.RoundToInt((1 + launchBonus) * reach * SiliconAlleyState.SegmentVolumeFactor(key) * marketFit); // issue #85: market-fit scales the installed-base jump too (×1.0 at neutral)
+            // Issue #122 (epic #121): record the ship-report multipliers on the release row, so the "why did
+            // I earn this" breakdown survives a reload (the transient SetLastShip below still feeds the
+            // fresh-ship report). OnProjectCompleted still floors the installed-base jump at Max(1, …).
             SiliconAlleyState.OnProjectCompleted(key, quality, launchUnits, review, TimeHelper.CurrentDay, payout,
-                releasePublisher, releaseProductName);
+                releasePublisher, releaseProductName, reputationFactor, marketFactor, demand, cleanliness);
             SiliconAlleyState.SetLastPatchDay(key, TimeHelper.CurrentDay); // a fresh release resets the patch clock + support freshness (#25)
             Debug.Log($"[SiliconAlley] {key} completed v{version} {(SiliconAlleyState.ProjectKind)projectKind} project (quality {quality:F2}, review {review:F1}/10, payout {payout:F0}, market demand x{demand:F2}, +{launchUnits} installed, reputation {SiliconAlleyState.GetReputation(key):F2}, IP rep {SiliconAlleyState.GetIpReputation(key):F2}).");
             ShowProjectCompleteNotification(businessType, key, quality, payout, reputationFactor, marketFactor, review, version, releaseDisplayName);

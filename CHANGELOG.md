@@ -23,6 +23,17 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   closes with zero effect, which is also why legacy in-flight projects play unchanged. (The in-screen
   decision card arrives with the 0.5.0 UI work; until then the toast + this changelog are the paper trail.)
 
+### Changed
+- **Shipping is now the headline payoff** (#124). The launch payout is multiplied by a launch scale fed by
+  the launch installed-base jump — so marketing, reviews, sequels and IP reputation, extra platforms,
+  segment volume and market fit all now grow the money a release pays, not just the support trickle. An
+  unmarketed Standard ship that paid ≈$750 now pays ≈$3,300; a marketed one ≈$7,200; a big Ambitious sequel
+  can clear $15–25k (capped). Support, hosting, updates and publisher bonuses are unchanged. To match,
+  **phone contracts pay less** (fee ×1.5–2.5 of scope, was ×2.5–4): a contract is a bridge between
+  releases now, not the meta. Old saves: forward economics only — recorded history keeps its old numbers.
+- Release-history rows now record the ship's reputation/market/demand/cleanliness multipliers at ship time
+  (#122), so the upcoming history screen can explain every launch after a reload.
+
 ## [0.4.1] — 2026-07-28
 
 ### Added
