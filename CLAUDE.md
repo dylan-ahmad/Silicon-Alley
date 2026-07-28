@@ -21,8 +21,13 @@ A pack of IT-company business types for **Big Ambitions**, built with the offici
   - `Scripts/` — `SiliconAlleyMod` (init: register items+businesses, assign simulator, register
     options), `SiliconAlleyOfficeSimulator` (the project simulator), `SiliconAlleyState` (per-building
     state + save serialization), `SiliconAlleyOptions`, `SiliconAlleyClient` (+ dialog),
-    `SiliconAlleyPersistence`. **UI:** `SiliconAlleyProjectScreen` (the F9 code-built project/design
-    window), `SiliconAlleyTheme` + `SiliconAlleyUI` (#54: the bundled theme + 9-slice sprite kit and the
+    `SiliconAlleyMilestones` (#123: the mid-project decision catalog — deterministic FNV-1a variant pick,
+    derived pending windows, neutral auto-resolve), `SiliconAlleyContracts` (#125: deterministic phone
+    offers — FNV-1a over key + 3-day window, no reroll), `SiliconAlleyPersistence`. **UI:**
+    `SiliconAlleyProjectScreen` (the F9 code-built window — since #127 it opens on the HUB overview
+    (studio cards + servers, the old F8 dashboard content) and clicks through to per-studio detail;
+    `SiliconAlleyDashboardScreen` is only the F8 alias + the top-level hub card builders),
+    `SiliconAlleyTheme` + `SiliconAlleyUI` (#54: the bundled theme + 9-slice sprite kit and the
     reusable, sprite-backed `Make*` styled-component layer — build new screens (#55–#61) on these, not
     flat colours).
   - `Locales/en.json` — **all in-game text is English** (other languages fall back to `en`).
