@@ -17,8 +17,20 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   refresh on the 1-second tick. (Role economics arrive with the upcoming sim work.)
 - **Server economy tuning**: Servers now keep their $15,000 capex, charge daily upkeep, expose upkeep/backend
   capacity sliders, and show hosting net, backend coverage, and infra break-even cues on the dashboard.
+- **Abandon project** button in the design window (F9) footer — a permanent escape hatch out of any project
+  you no longer want. Press twice to confirm; the studio returns to **Idle**, ready to start something new.
+  You lose that project's progress, bugs, marketing and design picks, but keep reputation, installed base,
+  version number, self-built tools and components, an active publisher deal and any accepted contract.
 
 ### Fixed
+- **Design lock dead end** — shrinking a project mid-Design (un-ticking features/platforms, or dropping the
+  scope from Ambitious to Quick) could permanently hide **Start development**: the screen showed
+  *"Design (locked)"* with no Back/Next row and no Development card, so the studio could never ship and every
+  publisher deal and contract lapsed — the *"it says design lock and wont do anything, i miss all deadlines"*
+  report. The wizard was gated on the *derived* phase, recomputed from your live design picks, instead of the
+  project's actual stage; a smaller project pushed already-earned progress past the Design band and the only
+  way out disappeared. **Saves already stuck in this state recover on load, with no player action.** Progress
+  now also clamps back into the current stage when a project shrinks, instead of being stranded above it.
 - **macOS support** — the mod now ships a **Mac AssetBundle** alongside the Windows one. Previously the
   manifest targeted Windows only, so on macOS the game looked for `AssetBundles/Mac/siliconalley.unity3d`,
   found nothing, and the mod loaded but registered **no content at all** — no items, business types,

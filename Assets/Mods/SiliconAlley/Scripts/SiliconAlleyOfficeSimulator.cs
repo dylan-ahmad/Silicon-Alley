@@ -128,6 +128,13 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // (Start development = confirm wizard; Send to testing; Release). The ceiling moves up per stage.
         var stage = SiliconAlleyState.GetStage(key);
         var ceiling = SiliconAlleyState.StageCeiling(stage, size);
+        // Issue #113: shrinking the project (un-ticking features/platforms, a smaller scope) lowers `size` and
+        // with it this stage's ceiling, stranding the already-parked Progress ABOVE it. Clamp here, OUTSIDE
+        // the work block below — that block only runs while Progress < ceiling, so the clamp at its tail could
+        // never bring stranded progress back into the stage band. Idle is skipped: its ceiling is 0 and would
+        // zero out an in-flight Progress.
+        if (stage != SiliconAlleyState.ProjectStage.Idle)
+            SiliconAlleyState.ParkBelowCeiling(key, ceiling);
 
         // 2) Accrue progress, phase-weighted by discipline (issue #2): graphic designers drive the Design
         // phase, programmers drive Development/Testing; the off-discipline cross-skills at a reduced rate.

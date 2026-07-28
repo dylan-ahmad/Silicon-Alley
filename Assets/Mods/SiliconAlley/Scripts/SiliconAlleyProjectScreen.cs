@@ -190,6 +190,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _idleSection;
     private TMP_Text _idleStatusText, _startLabel;
     private Button _startButton;
+    // Footer "Abandon project" escape hatch (issue #113). Shown in any active stage; two-click confirm, and
+    // because the screen re-refreshes every second the armed state has to live in a field, not in the UI.
+    private Button _abandonButton;
+    private TMP_Text _abandonLabel;
+    private Image _abandonImage;
+    private bool _abandonArmed;
     // Development section (issue #60: card + build-progress bar + stat rows)
     private SiliconAlleyUI.ProgressBar _devBuildBar;
     private SiliconAlleyUI.StatRow _devThroughput, _devBuild, _devEta;
@@ -307,12 +313,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _visible = true;
         _refresh = 1f;
         _wizardPage = 0; // always open the wizard at the first page
+        _abandonArmed = false; // issue #113: never re-open with Abandon still armed
         Refresh();
     }
 
     private void Close()
     {
         _visible = false;
+        _abandonArmed = false; // issue #113: closing cancels a pending Abandon confirm
         if (_root != null)
             _root.SetActive(false);
     }
@@ -361,6 +369,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _updateSection.SetActive(false);
             _idleSection.SetActive(false);
             _contractSection.SetActive(false);
+            RefreshAbandon(true); // issue #113: no resolvable studio ⇒ nothing to abandon
             ClampHeight();
             return;
         }
@@ -458,7 +467,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (onContract)
             RefreshContract(key);
 
+        // Issue #113: the Abandon escape hatch — offered in every active stage, hidden while Idle.
+        RefreshAbandon(idle);
+
         ClampHeight();
+    }
+
+    // Issue #113: the footer "Abandon project" button. Hidden when the studio is Idle (there is nothing to
+    // abandon, and the Idle card's "Start new project" is the right action). Two-click confirm because it
+    // destroys the current build: the first press arms it (amber) and the second discards the project.
+    private void RefreshAbandon(bool idle)
+    {
+        if (_abandonButton == null)
+            return;
+        _abandonButton.gameObject.SetActive(!idle);
+        if (idle)
+        {
+            _abandonArmed = false;
+            return;
+        }
+        _abandonLabel.text = (_abandonArmed
+            ? "siliconalley:screen_abandon_confirm_btn"
+            : "siliconalley:screen_abandon_btn").GetLocalization();
+        _abandonImage.color = _abandonArmed ? SiliconAlleyTheme.Warn : SiliconAlleyTheme.Slate;
     }
 
     // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
@@ -1690,6 +1721,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         Refresh();
     }
 
+    // Issue #113: abandon the in-flight project. Two-click confirm — the first press arms the button (the
+    // label + colour change), the second throws the build away and returns the studio to Idle, where the
+    // player starts fresh. The permanent escape hatch out of any stage/wizard dead end.
+    private void OnAbandonPressed()
+    {
+        if (!_abandonArmed)
+        {
+            _abandonArmed = true;
+            Refresh();
+            return;
+        }
+        _abandonArmed = false;
+        SiliconAlleyState.AbandonProject(_currentKey);
+        _wizardPage = 0; // the next project opens its wizard at the first page
+        Refresh();
+    }
+
     // Issue #88: push the finished build from Development into Testing/QA (available once Development is done).
     private void OnSendToTesting()
     {
@@ -1787,6 +1835,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         idx = (idx + delta + _studioKeys.Count) % _studioKeys.Count;
         _currentKey = _studioKeys[idx];
         _wizardPage = 0; // each studio opens its wizard at the first page
+        _abandonArmed = false; // issue #113: an armed Abandon must not carry over to another studio
         Refresh();
     }
 
@@ -2300,6 +2349,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // ---- Footer (common) ----
         MakeDivider(root);
         var footer = MakeRow(root, 10f, 40);
+        // Issue #113: the Abandon escape hatch — reachable from every active stage, so no wizard/stage state
+        // can ever trap a studio again. Hidden while Idle (nothing to abandon); see RefreshAbandon.
+        _abandonButton = MakeButton(footer.transform, "", OnAbandonPressed);
+        _abandonLabel = _abandonButton.GetComponentInChildren<TMP_Text>();
+        _abandonImage = _abandonButton.GetComponent<Image>();
         MakeButton(footer.transform, "siliconalley:screen_close".GetLocalization(), Close);
 
         _root.SetActive(false);
