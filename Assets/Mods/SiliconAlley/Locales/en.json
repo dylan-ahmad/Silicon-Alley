@@ -388,7 +388,7 @@
   "siliconalley:wiz_sum_coverage": "Dependencies: {value}",
   "siliconalley:wiz_coverage_full": "all features covered",
   "siliconalley:wiz_coverage_value": "{covered}/{total} covered — uncovered features cap quality",
-  "siliconalley:client_contract_offer": "A client has a fixed-scope job for {studio}. Deliver within {days} days for {payout}. Staff the studio to work it — it pauses your own product until it's done. The terms hold for a few days — call back anytime.",
+  "siliconalley:client_contract_offer": "A client has a fixed-scope job for {studio}. Deliver within {days} days for {payout}. Staff the studio to work it — it takes the whole team off your own product unless you adjust the split on the studio's contract panel. The terms hold for a few days — call back anytime.",
   "siliconalley:client_contract_accept_for": "Accept — {studio}",
   "siliconalley:client_contract_next": "Next studio",
   "siliconalley:client_contract_accepted": "Deal. {studio} takes the contract — deliver within {days} days for {payout}. Keep it staffed to get it done on time.",

@@ -108,20 +108,24 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         }
         var staffCount = staff.Count;
 
-        // Issue #27: an accepted contract diverts the studio — its staff work the contract and the product is
-        // paused (Progress + type-lock untouched) until the contract delivers or its deadline passes. Captured
-        // once so the product work is skipped for the whole hour even if the contract resolves mid-hour.
+        // Issue #27/#126: an accepted contract diverts the studio by its contractFocus (1 = the legacy full
+        // divert; 0.5 = half the effort). The product runs on the REMAINDER below instead of being skipped.
+        // Focus and the on-contract flag are captured once so a contract that resolves mid-hour can't let the
+        // same hour's staff work double-shift.
         var onContract = SiliconAlleyState.HasContract(key);
+        var contractFocus = onContract ? SiliconAlleyState.GetContractFocus(key) : 0f;
+        var productShare = onContract ? 1f - contractFocus : 1f;
         if (onContract)
         {
             if (TimeHelper.CurrentDay > SiliconAlleyState.GetContractDeadlineDay(key))
                 HandleContractMiss(businessType, key);     // deadline passed before delivery (works even unstaffed)
             else if (staffCount > 0)
-                WorkContract(businessType, key, staff, infrastructureProgressMultiplier); // accrue work; pay + clear on an on-time delivery
+                WorkContract(businessType, key, staff, infrastructureProgressMultiplier, contractFocus); // accrue work; pay + clear on an on-time delivery
         }
 
         // Issue #3: lock the project type when work begins; the locked type scales size/payout/competition.
-        var kind = (staffCount > 0 && !onContract) ? SiliconAlleyState.EnsureProjectTypeLocked(key) : SiliconAlleyState.GetProjectType(key);
+        // (#126: "work begins" now means any product share at all, not just contract-free hours.)
+        var kind = (staffCount > 0 && productShare > 0f) ? SiliconAlleyState.EnsureProjectTypeLocked(key) : SiliconAlleyState.GetProjectType(key);
         var size = SiliconAlleyState.EffectiveProjectSize(key);
         // Issue #88 (player-driven lifecycle): the studio's stage gates the work. Idle ⇒ no product work at
         // all; an active stage works only up to its ceiling, then PARKS until the player pushes forward
@@ -142,7 +146,9 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         float totalSatisfaction = 0f;
         // Work only while the studio has an active stage AND this stage isn't parked yet. Idle ⇒ skipped
         // (no product work); a stage parked at its ceiling ⇒ skipped (frozen, waiting for the player's push).
-        if (staffCount > 0 && !onContract && stage != SiliconAlleyState.ProjectStage.Idle
+        // #126: a contract no longer skips the product — the product runs on productShare (1 − focus); only
+        // a FULL divert (focus 1, the legacy default) skips it entirely.
+        if (staffCount > 0 && productShare > 0f && stage != SiliconAlleyState.ProjectStage.Idle
             && SiliconAlleyState.GetProgress(key) < ceiling)
         {
             var progressBefore = SiliconAlleyState.GetProgress(key);
@@ -175,7 +181,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                 qualityScale = 0.85f;  // ... at the cost of quality (more bugs surface in Testing)
             }
 
-            var progressDelta = effectiveSkill * SiliconAlleyState.ProjectSpeed * progressScale * infrastructureProgressMultiplier;
+            // #126: the product only gets its share of the staff's effort while a contract runs alongside.
+            // Bug accrual keys off progressDelta below, so it scales with the split automatically; quality
+            // SAMPLES stay unscaled (they are averages of who is working, not throughput).
+            var progressDelta = effectiveSkill * SiliconAlleyState.ProjectSpeed * progressScale
+                * infrastructureProgressMultiplier * productShare;
             SiliconAlleyState.AddProgress(key, progressDelta);
             // Issue #88: a stage never auto-advances. The hour it fills the current stage counts (final work),
             // then it PARKS at the stage ceiling (Progress clamped); the guard on this block above freezes
@@ -213,14 +223,18 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             }
             else if (phase == SiliconAlleyState.ProjectPhase.Testing)
             {
-                SiliconAlleyState.BurnBugs(key, effectiveSkill * SiliconAlleyState.BugFixPerSkillHour * infrastructureProgressMultiplier);
+                // #126: QA hours split with the contract too — burn scales by the product's share.
+                SiliconAlleyState.BurnBugs(key, effectiveSkill * SiliconAlleyState.BugFixPerSkillHour
+                    * infrastructureProgressMultiplier * productShare);
             }
             Debug.Log($"[SiliconAlley] {key} h{currentHour}: {staffCount} staff, {SiliconAlleyState.PhaseOf(progressAfter, size)} progress {progressAfter:F0}/{size:F0}");
         }
-        else if (stage != SiliconAlleyState.ProjectStage.Idle && (staffCount == 0 || onContract))
+        else if (stage != SiliconAlleyState.ProjectStage.Idle
+            && (staffCount == 0 || (onContract && contractFocus >= 1f)))
         {
-            // An ACTIVE project left unstaffed or diverted to a contract stagnates — the product line slips.
-            // (Idle by choice, and a stage parked-with-staff awaiting the player's push, are NOT penalised.)
+            // An ACTIVE project left unstaffed or FULLY diverted to a contract stagnates — the product line
+            // slips. (#126: any product share at all keeps the line moving, so a split studio is not
+            // penalised; Idle by choice and a stage parked-with-staff awaiting the player's push never were.)
             SiliconAlleyState.DecayReputation(key, 0.001f);
         }
         else if (stage == SiliconAlleyState.ProjectStage.Idle && staffCount > 0 && !onContract)
@@ -657,11 +671,13 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             () => SiliconAlleyProjectScreen.Open(key));
     }
 
-    // Issue #27 (Contracts): a staffed studio holding a contract works it instead of its product. Accrue staff
-    // skill toward the scope; on reaching it (the expiry check upstream already cleared any late contract, so
-    // arriving here is on time) pay the agreed sum scaled by staffing quality, then clear the contract.
+    // Issue #27 (Contracts): a staffed studio holding a contract works it. Accrue staff skill toward the
+    // scope; on reaching it (the expiry check upstream already cleared any late contract, so arriving here
+    // is on time) pay the agreed sum scaled by staffing quality, then clear the contract. #126: the contract
+    // only gets its FOCUS share of the effort — the product runs on the remainder in the main work block.
     private void WorkContract(BusinessType businessType, string key,
-        List<(float programmer, float designer, float satisfaction)> staff, float infrastructureProgressMultiplier)
+        List<(float programmer, float designer, float satisfaction)> staff, float infrastructureProgressMultiplier,
+        float focus)
     {
         var staffCount = Mathf.Max(1, staff.Count);
         float skill = 0f, satisfaction = 0f;
@@ -670,7 +686,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             skill += Mathf.Max(member.programmer, member.designer);
             satisfaction += member.satisfaction;
         }
-        SiliconAlleyState.AddContractProgress(key, skill * SiliconAlleyState.ProjectSpeed * infrastructureProgressMultiplier);
+        SiliconAlleyState.AddContractProgress(key, skill * SiliconAlleyState.ProjectSpeed
+            * infrastructureProgressMultiplier * Mathf.Clamp01(focus));
         if (SiliconAlleyState.GetContractProgress(key) < SiliconAlleyState.GetContractScope(key))
             return;
 
