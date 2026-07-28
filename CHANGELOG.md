@@ -5,18 +5,28 @@ All notable changes to **Silicon Alley** are recorded here. The version is the m
 version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Release
 (see `.github/workflows/auto-tag.yml`). Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
-## [0.4.1] — unreleased
+## [0.4.1] — 2026-07-28
 
 ### Added
-- **Server furniture** base asset for the server-infrastructure epic: buyable/placeable item,
-  prefab/model/material bundle assets, registry entry, locale, and save-compat ledger token.
-- **Per-server role persistence** for the server-infrastructure epic: placed Servers can now carry a
-  saved Infrastructure, Backend, or Hosting role for upcoming sim/UI work.
-- **Servers dashboard section** (F8): a per-studio card lists each placed Server with a 3-button role
-  selector (Infrastructure / Backend / Hosting) and a live counts summary; assignments save per server and
-  refresh on the 1-second tick. (Role economics arrive with the upcoming sim work.)
-- **Server economy tuning**: Servers now keep their $15,000 capex, charge daily upkeep, expose upkeep/backend
-  capacity sliders, and show hosting net, backend coverage, and infra break-even cues on the dashboard.
+- **Server infrastructure** — a new gameloop. **Server** racks are buyable, placeable furniture (Mr. Scott's
+  Office Supplies, $15,000); place them in a studio office and assign each one a role from the **F8** Studio
+  Dashboard, which lists every placed Server with a 3-button role selector and a live summary that refreshes
+  on the 1-second tick. Each role pulls a different lever:
+  - **Infrastructure** — faster project progress and fewer bugs during development/testing (diminishing
+    returns, capped).
+  - **Backend** — self-hosts part of your cloud-backend dependency, cutting that vendor royalty out of launch
+    *and* support income, proportional to how much of your installed base the servers cover. Fully
+    reversible, and a no-op if you already built that component in-house.
+  - **Hosting** — flat passive income every hour, independent of the installed base, with sub-dollar amounts
+    carried between hours so nothing is lost.
+
+  Every placed Server charges **daily upkeep** whatever its role, so over-provisioning is punished and
+  right-sizing rewarded; the dashboard shows upkeep, hosting net, backend coverage and infrastructure
+  bonuses. Infrastructure strength, hosting income, daily upkeep and backend capacity per server are all
+  options sliders. Role assignments persist per server. **Old saves are unaffected** — no servers means
+  nothing changes.
+- **Server Infrastructure help page** explaining the loop, the three roles, scaling and upkeep, cross-linked
+  from the Silicon Alley overview.
 - **Abandon project** button in the design window (F9) footer — a permanent escape hatch out of any project
   you no longer want. Press twice to confirm; the studio returns to **Idle**, ready to start something new.
   You lose that project's progress, bugs, marketing and design picks, but keep reputation, installed base,
@@ -57,7 +67,7 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   still misses the deal) and that taking a contract pauses your product, which is close to a guaranteed
   deal miss. Deadlines behaved this way all along; nothing said so.
 
-## [0.4.0] — unreleased
+## [0.4.0] — 2026-06-30
 
 The biggest update yet: plan every product in a Software-Inc.-scale **Design Wizard**, drive each project
 through its lifecycle yourself, learn it all from a brand-new **in-game Help system**, and run your studios
