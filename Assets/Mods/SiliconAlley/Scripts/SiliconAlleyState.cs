@@ -582,7 +582,18 @@ public static class SiliconAlleyState
         var expectationBar = state.Version >= 2 ? SequelReviewBar : DebutReviewBar;
         state.IpReputation = Mathf.Clamp(state.IpReputation + (review - expectationBar) * IpRepSensitivity, 0f, IpRepMax);
         state.Version += 1;
-        // The launch consumes the build: bugs are resolved and awareness/hype reset for the next project.
+        // The launch consumes the build — clear everything that belonged to it and park the studio at Idle.
+        // Must stay AFTER the release record above, which snapshots the per-project masks being reset here.
+        ResetPerProjectState(state);
+    }
+
+    // Clear every per-project field and return the studio to Idle. Shared by OnProjectCompleted (a ship
+    // consumes the build) and AbandonProject (issue #113 — the player throws it away). Studio-level state is
+    // deliberately untouched: reputation, IP reputation, installed base, Version, OwnedToolsMask,
+    // OwnedDependencyMask, DesignFocus, a publisher deal and any accepted contract all survive.
+    private static void ResetPerProjectState(BusinessState state)
+    {
+        // Bugs are resolved and awareness/hype reset for the next project.
         state.BugCount = 0f;
         state.Awareness = 0f;
         state.Hype = 0f;
@@ -605,9 +616,9 @@ public static class SiliconAlleyState
         state.UsedDependencyMask = 0;
         ResetDependencyVendors(state);
         state.DesignPrompted = false; // nudge again for the next project
-        // Issue #88 (player-driven lifecycle): a ship returns the studio to Idle. Reset Progress explicitly
-        // (an early release ships below 100%, so the simulator no longer subtracts the project size), and the
-        // next project does NOT auto-start — the player chooses to start it (Stage stays Idle until then).
+        // Issue #88 (player-driven lifecycle): the studio returns to Idle. Reset Progress explicitly (an early
+        // release ships below 100%, so the simulator no longer subtracts the project size), and the next
+        // project does NOT auto-start — the player chooses to start it (Stage stays Idle until then).
         state.Progress = 0f;
         state.Stage = (int)ProjectStage.Idle;
     }
@@ -657,6 +668,9 @@ public static class SiliconAlleyState
 
     // Convenience for the per-phase screens: the building's current derived phase, from its progress and
     // locked effective size (same as PhaseOf, without the caller re-fetching both).
+    // NEVER gate a lifecycle control on this — it is recomputed from the player's live wizard picks, so it
+    // can move under you mid-Design (issue #113). Use GetStage for "what is the studio doing"; this is for
+    // display and for weighting the work an hour actually does.
     public static ProjectPhase CurrentPhase(string key) => PhaseOf(GetProgress(key), EffectiveProjectSize(key));
 
     // ---- issue #9 (Design screen): per-project Design controls -------------------------------------
@@ -666,9 +680,15 @@ public static class SiliconAlleyState
     public static bool IsConceptLocked(string key) => Get(key).ConceptLocked != 0;
     public static float GetDesignFocus(string key) => Get(key).DesignFocus;
 
-    // True while the player may still shape the concept: in the Design phase and not yet locked.
+    // True while the player may still shape the concept: the studio is in its Design STAGE and the concept
+    // is not yet committed. Issue #113: this used to key off the DERIVED CurrentPhase, which is recomputed
+    // live from EffectiveProjectSize — i.e. from the player's *current* wizard picks. Shrinking a project
+    // (un-ticking features/platforms, or dropping Ambitious → Quick) lowered the size, pushed the parked
+    // Design progress above the new 15% band, and flipped the phase to Development while the persisted Stage
+    // stayed Design — which hid the wizard nav row, the only path to BeginDevelopment, for good. The
+    // persisted Stage (#88) is the source of truth for what the studio is doing, so gate on it.
     public static bool CanEditConcept(string key) =>
-        Get(key).ConceptLocked == 0 && CurrentPhase(key) == ProjectPhase.Design;
+        Get(key).ConceptLocked == 0 && GetStage(key) == ProjectStage.Design;
 
     // Set this studio's scope for the current project — a per-studio override of the global pre-selection.
     public static void SetScope(string key, int kind)
@@ -684,10 +704,12 @@ public static class SiliconAlleyState
             Get(key).DesignFocus = Mathf.Clamp01(value);
     }
 
-    // Commit the concept: freeze scope + focus for the rest of this project.
+    // Commit the concept: freeze scope + focus for the rest of this project. Issue #113: gated on the same
+    // persisted Stage as CanEditConcept — keying this off the derived phase let BeginDevelopment advance the
+    // stage on an already-stuck studio while silently leaving ConceptLocked at 0.
     public static void LockConcept(string key)
     {
-        if (CurrentPhase(key) == ProjectPhase.Design)
+        if (GetStage(key) == ProjectStage.Design)
             Get(key).ConceptLocked = 1;
     }
 
@@ -1067,6 +1089,19 @@ public static class SiliconAlleyState
         state.UsedDependencyMask = 0;
         ResetDependencyVendors(state);
         state.DesignPrompted = false;
+    }
+
+    // Issue #113: abandon the in-flight project — a permanent escape hatch out of any dead end. Discards the
+    // build (progress, bugs, quality samples, marketing, per-project design picks) and returns the studio to
+    // Idle, where the player starts fresh. Studio-level assets survive: reputation, installed base, version,
+    // owned tools/dependencies, an active publisher deal (a NEW product can still deliver it before the
+    // deadline — deals are per building, not per project) and any accepted contract. SAVE-COMPAT: adds no
+    // field and reinterprets none — Stage and Progress are already persisted (#88).
+    public static void AbandonProject(string key)
+    {
+        var state = Get(key);
+        ResetPerProjectState(state);
+        state.ReleaseRequested = false; // a queued release must not fire against the NEXT project
     }
 
     // Design → Development: confirm the wizard (the 6 steps) — locks the concept AND advances the stage, so
