@@ -24,6 +24,13 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   decision card arrives with the 0.5.0 UI work; until then the toast + this changelog are the paper trail.)
 
 ### Changed
+- **One hub, one window** (#127). The F8 studio dashboard and the F9 project window are now a single
+  screen: **F9 (or F8) lands on the Overview** — every studio as a card (stage, progress, quality,
+  reputation, installed base, support, ship ETA, demand trend) plus the full **Servers** section with role
+  assignment — and clicking a studio's **Open** dives into its detail view (wizard, development, testing,
+  marketing, publishers, contract). A **‹ Overview** button in the header takes you back. Toast
+  notifications still deep-link straight to the studio they're about. The separate dashboard window is
+  gone; the phone client's "View studios" opens the same hub.
 - **Contracts no longer freeze your product** (#126). A studio holding a contract splits its staff between
   the contract and its own product: accepting still starts at 100% contract (exactly the old behaviour),
   but a new focus setting lets you dial the split anywhere down to product-first — the product then accrues

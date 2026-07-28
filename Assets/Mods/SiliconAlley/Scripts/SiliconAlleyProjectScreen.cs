@@ -236,6 +236,18 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
     private SiliconAlleyUI.StatRow _contractProgress, _contractDue, _contractPayout;
+    // Issue #127 (epic #121): hub mode — the old F8 dashboard's content (studio cards + Servers) is this
+    // screen's LANDING page. F9/F8 open the hub; a card's "Open" (or a toast deep-link) switches to that
+    // studio's detail view, and the header's "‹ Overview" button returns. One menu entry point, clicked
+    // through — no separate dashboard window anymore.
+    private bool _hubMode;
+    private GameObject _hubSection, _hubCardsHost, _hubServersBlock, _hubServersHost;
+    private TMP_Text _hubEmptyText, _hubServersEmpty;
+    private GameObject _studioRow, _phaseRow; // header rows hidden while the hub shows
+    private Button _overviewButton;
+    private readonly List<BuildingRegistration> _studioRegs = new List<BuildingRegistration>();
+    private readonly List<SiliconAlleyStudioCard> _hubCards = new List<SiliconAlleyStudioCard>();
+    private readonly List<SiliconAlleyServerGroupCard> _hubServerCards = new List<SiliconAlleyServerGroupCard>();
 
     private void Awake()
     {
@@ -255,6 +267,25 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (Instance != null)
             Instance.OpenFor(key);
+    }
+
+    // Issue #127: open the screen on its hub landing page (the F8 alias and the phone client route here).
+    public static void OpenHub()
+    {
+        if (Instance != null)
+            Instance.OpenForHub();
+    }
+
+    // Issue #127: the F8 alias's toggle — close when already showing the hub, otherwise land on it (also
+    // from the detail view: F8 is "take me to the overview" wherever you are).
+    public static void ToggleHub()
+    {
+        if (Instance == null)
+            return;
+        if (Instance._visible && Instance._hubMode)
+            Instance.Close();
+        else
+            Instance.OpenForHub();
     }
 
     private void Update()
@@ -297,14 +328,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (_visible)
             Close();
         else
-            OpenFor(null);
+            OpenForHub(); // issue #127: the hotkey lands on the hub — click through to a studio from there
     }
 
-    // Open the screen, optionally focused on a specific studio (else keep/!default to the first owned).
+    // Open the screen focused on a specific studio's detail view (toast deep-links and hub cards route here).
     private void OpenFor(string key)
     {
         EnsureBuilt();
         PopulateStudios();
+        _hubMode = false; // issue #127: an explicit studio ask goes straight to detail, not the hub
         if (!string.IsNullOrEmpty(key) && _studioKeys.Contains(key))
             _currentKey = key;
         else if (string.IsNullOrEmpty(_currentKey) || !_studioKeys.Contains(_currentKey))
@@ -315,6 +347,37 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _refresh = 1f;
         _wizardPage = 0; // always open the wizard at the first page
         _abandonArmed = false; // issue #113: never re-open with Abandon still armed
+        Refresh();
+    }
+
+    // Issue #127: open on the hub landing page.
+    private void OpenForHub()
+    {
+        EnsureBuilt();
+        _hubMode = true;
+        _root.SetActive(true);
+        _visible = true;
+        _refresh = 1f;
+        _abandonArmed = false;
+        Refresh();
+    }
+
+    // Issue #127: a hub card's "Open" — switch to that studio's detail view in place.
+    private void OpenDetailFromHub(string key)
+    {
+        _hubMode = false;
+        if (_studioKeys.Contains(key))
+            _currentKey = key;
+        _wizardPage = 0;
+        _abandonArmed = false;
+        Refresh();
+    }
+
+    // Issue #127: the header's "‹ Overview" — back to the hub in place.
+    private void GoHub()
+    {
+        _hubMode = true;
+        _abandonArmed = false;
         Refresh();
     }
 
@@ -331,12 +394,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void PopulateStudios()
     {
         _studioKeys.Clear();
+        _studioRegs.Clear(); // issue #127: the hub cards need the registrations, kept index-aligned
         var current = SaveGameManager.Current;
         if (current?.BuildingRegistrations == null)
             return;
         foreach (var reg in current.BuildingRegistrations)
             if (SiliconAlleyClient.IsPlayerOwned(reg))
+            {
                 _studioKeys.Add(SiliconAlleyState.KeyFor(reg));
+                _studioRegs.Add(reg);
+            }
     }
 
     private BuildingRegistration FindRegistration(string key)
@@ -352,6 +419,18 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void Refresh()
     {
+        // Issue #127: the hub landing page replaces every per-studio section while it shows.
+        if (_hubMode)
+        {
+            RefreshHub();
+            return;
+        }
+        _hubSection.SetActive(false);
+        _studioRow.SetActive(true);
+        _phaseRow.SetActive(true);
+        _summaryText.gameObject.SetActive(true);
+        _overviewButton.gameObject.SetActive(true);
+
         var reg = FindRegistration(_currentKey);
         if (reg == null)
         {
@@ -474,6 +553,81 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         ClampHeight();
     }
 
+    // Issue #127: the hub landing page — studio cards + the Servers section (the old F8 dashboard content),
+    // pooled and re-filled each refresh tick exactly as the standalone window did. Hides the detail header
+    // rows and every per-studio section; a card's "Open" switches to that studio's detail in place.
+    private void RefreshHub()
+    {
+        PopulateStudios(); // the count can change while open (a studio bought/sold)
+        _titleText.text = "siliconalley:dash_title".GetLocalization();
+        _studioRow.SetActive(false);
+        _phaseRow.SetActive(false);
+        _summaryText.gameObject.SetActive(false);
+        _overviewButton.gameObject.SetActive(false); // already home
+        _idleSection.SetActive(false);
+        _wizardSection.SetActive(false);
+        _developmentSection.SetActive(false);
+        _testingSection.SetActive(false);
+        _marketingSection.SetActive(false);
+        _publisherSection.SetActive(false);
+        _releaseSection.SetActive(false);
+        _updateSection.SetActive(false);
+        _contractSection.SetActive(false);
+        RefreshAbandon(true); // nothing to abandon from the overview
+        _hubSection.SetActive(true);
+
+        var count = _studioRegs.Count;
+        _hubEmptyText.text = SiliconAlleyRegistry.NoStudioLocalizationKey(
+            "siliconalley:dash_empty",
+            "siliconalley:dash_registration_failed").GetLocalization();
+        _hubEmptyText.gameObject.SetActive(count == 0);
+        for (var i = 0; i < count; i++)
+        {
+            var card = EnsureHubCard(i);
+            card.Root.SetActive(true);
+            card.Fill(_studioRegs[i], _studioKeys[i]);
+        }
+        for (var i = count; i < _hubCards.Count; i++)
+            _hubCards[i].Root.SetActive(false);
+
+        RefreshHubServers(count);
+        ClampHeight();
+    }
+
+    private SiliconAlleyStudioCard EnsureHubCard(int index)
+    {
+        while (index >= _hubCards.Count)
+            _hubCards.Add(SiliconAlleyStudioCard.Build(_hubCardsHost.transform, OpenDetailFromHub));
+        return _hubCards[index];
+    }
+
+    // Issue #104 (hub-hosted): per-studio server role assignment. The group pool is index-aligned with the
+    // studio pool; a card self-hides when its studio owns no servers, and the empty hint shows when all do.
+    private void RefreshHubServers(int count)
+    {
+        _hubServersBlock.SetActive(count > 0);
+        if (count == 0)
+            return;
+        var totalServers = 0;
+        for (var i = 0; i < count; i++)
+        {
+            var group = EnsureHubServerCard(i);
+            var n = group.Fill(_studioRegs[i], _studioKeys[i]);
+            group.Root.SetActive(n > 0);
+            totalServers += n;
+        }
+        for (var i = count; i < _hubServerCards.Count; i++)
+            _hubServerCards[i].Root.SetActive(false);
+        _hubServersEmpty.gameObject.SetActive(totalServers == 0);
+    }
+
+    private SiliconAlleyServerGroupCard EnsureHubServerCard(int index)
+    {
+        while (index >= _hubServerCards.Count)
+            _hubServerCards.Add(SiliconAlleyServerGroupCard.Build(_hubServersHost.transform, Refresh));
+        return _hubServerCards[index];
+    }
+
     // Issue #113: the footer "Abandon project" button. Hidden when the studio is Idle (there is nothing to
     // abandon, and the Idle card's "Start new project" is the right action). Two-click confirm because it
     // destroys the current build: the first press arms it (amber) and the second discards the project.
@@ -501,7 +655,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (_contentRt == null || _windowRt == null)
             return;
-        var wide = _currentKey != null && SiliconAlleyState.GetStage(_currentKey) == SiliconAlleyState.ProjectStage.Design;
+        var wide = !_hubMode && _currentKey != null && SiliconAlleyState.GetStage(_currentKey) == SiliconAlleyState.ProjectStage.Design;
         var width = wide ? WizardWidth : WindowWidth;
         _windowRt.sizeDelta = new Vector2(width, _windowRt.sizeDelta.y);
         Canvas.ForceUpdateCanvases(); // propagate the new window width down to the viewport + content rects
@@ -2056,13 +2210,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         scroll.content = _contentRt;
         var root = contentGo.transform;
 
-        // Title row: title (flexible) + [X] close.
+        // Title row: title (flexible) + [‹ Overview] (issue #127: back to the hub; hidden on it) + [X] close.
         var titleRow = MakeRow(root, 6f, 30);
         _titleText = MakeText(titleRow.transform, "Title", 22, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);
+        FixWidth(_overviewButton, 120f);
         FixWidth(MakeButton(titleRow.transform, "X", Close), 34f);
 
-        // Studio selector: [<]  [type icon] name  [>]
+        // Studio selector: [<]  [type icon] name  [>]  (detail mode only — the hub hides this row, #127)
         var studioRow = MakeRow(root);
+        _studioRow = studioRow;
         FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 44f);
         _typeIcon = MakeIcon(studioRow.transform, null, 22f, SiliconAlleyTheme.Text); // issue #55: current business-type icon
         _studioText = MakeText(studioRow.transform, "Studio", 17, TextAnchor.MiddleCenter);
@@ -2070,9 +2227,25 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Phase indicator: [phase icon] phase + progress (issue #55 adds the icon).
         var phaseRow = MakeRow(root, 6f, 24);
+        _phaseRow = phaseRow;
         _phaseIcon = MakeIcon(phaseRow.transform, null, 20f, SiliconAlleyTheme.Header);
         _phaseText = MakeText(phaseRow.transform, "Phase", 16, TextAnchor.MiddleLeft);
         _summaryText = MakeText(root, "Summary", 15, TextAnchor.MiddleLeft);
+
+        // ---- Hub landing page (issue #127): the old F8 dashboard content, hosted as this screen's first
+        // page — studio cards + the Servers section. Hidden whenever a studio's detail view shows.
+        _hubSection = MakeSection(root);
+        _hubEmptyText = MakeText(_hubSection.transform, "HubEmpty", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        _hubCardsHost = MakeSection(_hubSection.transform);
+        _hubServersBlock = MakeSection(_hubSection.transform);
+        MakeDivider(_hubServersBlock.transform);
+        MakeHeader(_hubServersBlock.transform, "siliconalley:dash_servers_header");
+        _hubServersEmpty = MakeText(_hubServersBlock.transform, "ServersEmpty",
+            SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _hubServersEmpty.color = SiliconAlleyTheme.TextMuted;
+        _hubServersEmpty.text = "siliconalley:dash_servers_hint".GetLocalization();
+        _hubServersHost = MakeSection(_hubServersBlock.transform);
+        _hubSection.SetActive(false);
 
         // ---- Idle section (issue #88: no active project — start the next version) ----
         _idleSection = MakeSection(root);
