@@ -33,6 +33,11 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   "breakdown not recorded". The transient ship report remains for the fresh-ship moment.
 - **Contract staff-split dial** (#129): the contract card gains the #126 slider — "All on contract" to
   "Product first" — with a live "{n}% contract · {n}% product" readout.
+- **The hidden numbers are on screen** (#130). The **Press Build timing window** — the campaign always
+  landed at only ×0.4 outside 50–72% of the build, silently — now shows as a live line under its button,
+  green in the sweet spot. Development and Testing gain a **Projected review** ("{n}/10 if shipped now",
+  the exact math the release would use) plus a **quality gates** readout spelling out the three silent
+  multipliers: design ceiling, office cleanliness and open bugs. Presentation only — no behaviour changed.
 
 ### Changed
 - **One hub, one window** (#127). The F8 studio dashboard and the F9 project window are now a single
