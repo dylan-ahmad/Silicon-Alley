@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Threading.Tasks;
 using BAModAPI;
 using BigAmbitions.Items;
+using Buildings.BuildingTypes.Shared.Dirtiness; // issue #130: GetCleanliness for the review forecast
 using Entities;
 using Helpers;
 using Localizor;
@@ -219,6 +220,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private SiliconAlleyUI.StatRow _mktAwareness, _mktHype, _mktSynergy; // #29 synergy row hidden when no agency
     private TMP_Text _adSpendLabel;
     private Image _adSpendImage;
+    // Issue #130: the live Press Build timing line + the projected-review rows with the quality-gate readout.
+    private TMP_Text _mktTimingText;
+    private SiliconAlleyUI.StatRow _devForecast, _testForecast;
+    private TMP_Text _devForecastMults, _testForecastMults;
     private Button _pressReleaseButton, _pressBuildButton, _hypeButton;
     private TMP_Text _pressReleaseLabel, _pressBuildLabel, _hypeLabel;
     // Publisher section (issue #17/#22/#23): shown pre-release; sign a publishing deal or watch its countdown.
@@ -1616,6 +1621,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ThroughputValue(reg, perHour), SiliconAlleyTheme.Text);
         var remaining = SiliconAlleyState.PhaseEndProgress(SiliconAlleyState.ProjectPhase.Development, size) - rawProgress;
         SetStat(_devEta, "stat_eta", "siliconalley:screen_dev_lbl_eta", EtaText(remaining, perHour), SiliconAlleyTheme.Text);
+        RefreshForecast(reg, businessType, key, _devForecast, _devForecastMults); // issue #130
 
         var on = SiliconAlleyState.IsOvertime(key);
         _overtimeLabel.text = Compose("siliconalley:screen_overtime",
@@ -1650,6 +1656,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SiliconAlleyState.GetBugCount(key), FmtInt, SiliconAlleyTheme.Text);
         SetStat(_testStaff, "stat_market", "siliconalley:screen_test_lbl_staff",
             ThroughputValue(reg, perHour), SiliconAlleyTheme.Text);
+        RefreshForecast(reg, businessType, key, _testForecast, _testForecastMults); // issue #130
 
         var requested = SiliconAlleyState.IsReleaseRequested(key);
         if (requested)
@@ -1883,6 +1890,54 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()),
             ("cost", Money(SiliconAlleyState.AdSpendCostPerHour)));
         _adSpendImage.color = on ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+
+        // Issue #130: the Press Build timing line — the window the purchase handler always applied, live.
+        var timing = SiliconAlleyState.PressBuildTiming(rawProgress, size);
+        var windowStart = Mathf.RoundToInt(SiliconAlleyState.PressBuildWindowStart * 100f).ToString(CultureInfo.InvariantCulture);
+        var windowEnd = Mathf.RoundToInt(SiliconAlleyState.PressBuildWindowEnd * 100f).ToString(CultureInfo.InvariantCulture);
+        if (timing >= 1f)
+        {
+            _mktTimingText.text = Compose("siliconalley:screen_mkt_timing_hot", ("start", windowStart), ("end", windowEnd));
+            _mktTimingText.color = SiliconAlleyTheme.Ok;
+        }
+        else
+        {
+            _mktTimingText.text = Compose("siliconalley:screen_mkt_timing_cold",
+                ("factor", timing.ToString("0.0#", CultureInfo.InvariantCulture)),
+                ("start", windowStart), ("end", windowEnd));
+            _mktTimingText.color = SiliconAlleyTheme.TextMuted;
+        }
+    }
+
+    // Issue #130: the projected review — the exact ship-block quality math (accrued capped by the design
+    // ceiling, then the cleanliness floor and the bug factor), fed through ComputeReviewScore — plus the
+    // silent quality gates spelled out as multipliers. "—" until any quality has accrued (fresh project).
+    private void RefreshForecast(BuildingRegistration reg, BusinessType businessType, string key,
+        SiliconAlleyUI.StatRow forecastRow, TMP_Text multsText)
+    {
+        var accrued = SiliconAlleyState.GetAverageQuality(key);
+        if (accrued < 0f)
+        {
+            SetStat(forecastRow, "stat_quality", "siliconalley:screen_forecast_lbl", "—", SiliconAlleyTheme.TextMuted);
+            multsText.gameObject.SetActive(false);
+            return;
+        }
+        var designQuality = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
+        var ceiling = SiliconAlleyState.DesignQualityCeiling(key, businessType?.businessTypeName, designQuality, TimeHelper.CurrentDay);
+        var capped = Mathf.Min(accrued, ceiling);
+        var cleanFactor = Mathf.Max(0.25f, Mathf.Clamp01(reg.GetCleanliness() / 100f));
+        var bugFactor = SiliconAlleyState.BugQualityFactor(key);
+        var review = SiliconAlleyState.ComputeReviewScore(capped * cleanFactor * bugFactor, designQuality,
+            SiliconAlleyState.GetAwareness(key));
+        SetStat(forecastRow, "stat_quality", "siliconalley:screen_forecast_lbl",
+            Compose("siliconalley:screen_forecast_val", ("review", review.ToString("F1", CultureInfo.InvariantCulture))),
+            review >= 7f ? SiliconAlleyTheme.Ok : review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
+        multsText.gameObject.SetActive(true);
+        var capFactor = accrued > 0f ? capped / accrued : 1f;
+        multsText.text = Compose("siliconalley:screen_forecast_mults",
+            ("cap", capFactor.ToString("F2", CultureInfo.InvariantCulture)),
+            ("clean", cleanFactor.ToString("F2", CultureInfo.InvariantCulture)),
+            ("bugs", bugFactor.ToString("F2", CultureInfo.InvariantCulture)));
     }
 
     // Issue #17/#22/#23 (Publishers): with no active deal, show one sign button per ELIGIBLE publisher (focus
@@ -2152,8 +2207,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // delivers a fraction of its awareness. Timing factor 0.4..1.0 across the project.
     private void OnPressBuild()
     {
-        var fraction = SiliconAlleyState.GetProgress(_currentKey) / Mathf.Max(1f, SiliconAlleyState.EffectiveProjectSize(_currentKey));
-        var timing = (fraction >= 0.5f && fraction <= 0.72f) ? 1f : 0.4f;
+        // Issue #130: the window is a shared State helper now, so this and the card's timing line agree.
+        var timing = SiliconAlleyState.PressBuildTiming(SiliconAlleyState.GetProgress(_currentKey),
+            SiliconAlleyState.EffectiveProjectSize(_currentKey));
         BuyCampaign(SiliconAlleyState.PressBuildCost, SiliconAlleyState.PressBuildAwareness * timing, 0f, "siliconalley:mkt_name_pressbuild");
     }
 
@@ -2664,6 +2720,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _devBuild = MakeStatRow(devCard.transform);
         _devThroughput = MakeStatRow(devCard.transform);
         _devEta = MakeStatRow(devCard.transform);
+        // Issue #130: the projected review + the silent quality gates, live while building.
+        _devForecast = MakeStatRow(devCard.transform);
+        _devForecastMults = MakeText(devCard.transform, "DevForecastMults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _devForecastMults.color = SiliconAlleyTheme.TextMuted;
         var overtimeButton = MakeButton(devCard.transform, "", OnToggleOvertime);
         _overtimeImage = overtimeButton.GetComponent<Image>();
         _overtimeLabel = overtimeButton.GetComponentInChildren<TMP_Text>();
@@ -2683,6 +2743,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _testPolishBar = MakeProgressBar(testCard.transform);
         _testBugs = MakeStatRow(testCard.transform);
         _testStaff = MakeStatRow(testCard.transform);
+        // Issue #130: the projected review + quality gates — most useful right before the Release call.
+        _testForecast = MakeStatRow(testCard.transform);
+        _testForecastMults = MakeText(testCard.transform, "TestForecastMults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _testForecastMults.color = SiliconAlleyTheme.TextMuted;
         // Manual release: a status line (ready / market-demand timing hint) + the Release button. Replaces the
         // old Hold toggle + Ship-now — a product no longer auto-ships (see SiliconAlleyOfficeSimulator).
         _shipStatusText = MakeText(testCard.transform, "ShipStatus", 13, TextAnchor.MiddleLeft);
@@ -2732,6 +2796,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _pressReleaseButton = MakeButton(mktCard.transform, "", OnPressRelease);
         _pressReleaseLabel = _pressReleaseButton.GetComponentInChildren<TMP_Text>();
         _pressBuildButton = MakeButton(mktCard.transform, "", OnPressBuild);
+        // Issue #130: the Press Build timing window, finally visible (a live line under its button).
+        _mktTimingText = MakeText(mktCard.transform, "MktTiming", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _mktTimingText.color = SiliconAlleyTheme.TextMuted;
         _pressBuildLabel = _pressBuildButton.GetComponentInChildren<TMP_Text>();
         _hypeButton = MakeButton(mktCard.transform, "", OnHype);
         _hypeLabel = _hypeButton.GetComponentInChildren<TMP_Text>();

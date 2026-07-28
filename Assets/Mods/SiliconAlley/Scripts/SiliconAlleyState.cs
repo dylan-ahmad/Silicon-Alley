@@ -226,6 +226,20 @@ public static class SiliconAlleyState
     public const float PressBuildCost = 6000f, PressBuildAwareness = 30f;
     public const float HypeCost = 2500f, HypeAmount = 12f;
     public const float AdSpendCostPerHour = 120f;
+    // Issue #130 (epic #121): the Press Build timing window, extracted from the screen handler so the
+    // marketing card can SHOW the window it always applied: fired inside it the campaign lands at full
+    // strength, outside it only PressBuildOffWindowFactor of the awareness lands. Behaviour unchanged.
+    public const float PressBuildWindowStart = 0.50f; // fraction of EffectiveProjectSize
+    public const float PressBuildWindowEnd = 0.72f;
+    public const float PressBuildOffWindowFactor = 0.4f;
+
+    // The timing multiplier a Press Build fired at `progress` would land with — one definition shared by
+    // the purchase handler and the marketing card's live timing line.
+    public static float PressBuildTiming(float progress, float size)
+    {
+        var fraction = progress / Mathf.Max(1f, size);
+        return fraction >= PressBuildWindowStart && fraction <= PressBuildWindowEnd ? 1f : PressBuildOffWindowFactor;
+    }
 
     // ---- issue #124 (epic #121): launch economy. The ship payout is multiplied by a launch scale derived
     // from the launch installed-base jump, so everything that grows launch units (marketing, reviews,
