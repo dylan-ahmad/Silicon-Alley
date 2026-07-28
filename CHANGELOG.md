@@ -40,6 +40,12 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   Computer Workstation + bathroom) and that the base-game **Interior Installation Firm** reports *"no
   designs available"* for these custom business types — expected, not a bug (the *product* design is the
   separate **F9 Design Wizard**). Response to a subscriber report.
+- **Publisher Deals and Contracts help** now explain that deadlines run on **calendar days** while work only
+  happens during hours the studio is **open** with someone actually **at a workstation** — so short opening
+  hours or thin staffing burn a deadline without moving the build. Both pages also warn that a queued
+  release is only carried out on the next *open* hour (so releasing after closing time on the deadline day
+  still misses the deal) and that taking a contract pauses your product, which is close to a guaranteed
+  deal miss. Deadlines behaved this way all along; nothing said so.
 
 ## [0.4.0] — unreleased
 
