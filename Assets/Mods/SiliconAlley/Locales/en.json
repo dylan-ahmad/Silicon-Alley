@@ -55,6 +55,8 @@
   "siliconalley:notify_dealfail": "{business} missed {publisher}'s deadline — no bonus, reputation lost",
   "siliconalley:notify_dealwarn": "{business}: {publisher} deadline in {days}d — ship before it lapses",
   "siliconalley:notify_milestone": "{business}: {event} — a decision is waiting for {product} (F9 or click here)",
+  "siliconalley:ms_header": "Decision needed",
+  "siliconalley:ms_countdown": "No decision by {pct}% progress and the team keeps its course (no effect).",
   "siliconalley:ms_scope_creep_title": "Scope creep",
   "siliconalley:ms_scope_creep_desc": "A flashy feature request has crept into the build. Cutting it keeps the schedule; doing it properly costs time but shows real craft.",
   "siliconalley:ms_scope_creep_opt0": "Cut the feature",

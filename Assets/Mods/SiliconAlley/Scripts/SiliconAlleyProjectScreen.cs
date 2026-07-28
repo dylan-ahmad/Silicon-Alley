@@ -236,6 +236,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
     private SiliconAlleyUI.StatRow _contractProgress, _contractDue, _contractPayout;
+    // Issue #128 (epic #121): the milestone decision card — renders whatever #123 milestone window is open
+    // for the current studio (stage + progress derived; nothing persisted but the resolved bit). The click
+    // handlers route through SiliconAlleyMilestones.TryResolve, which re-validates the window.
+    private GameObject _milestoneSection;
+    private Image _milestoneIcon;
+    private TMP_Text _milestoneTitle, _milestoneDesc, _milestoneCountdown, _msOptASummary, _msOptBSummary;
+    private Button _msOptAButton, _msOptBButton;
+    private TMP_Text _msOptALabel, _msOptBLabel;
+    private int _msSlot = -1; // the slot the card currently shows (what the buttons resolve)
     // Issue #127 (epic #121): hub mode — the old F8 dashboard's content (studio cards + Servers) is this
     // screen's LANDING page. F9/F8 open the hub; a card's "Open" (or a toast deep-link) switches to that
     // studio's detail view, and the header's "‹ Overview" button returns. One menu entry point, clicked
@@ -443,6 +452,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _wizardSection.SetActive(false);
             _developmentSection.SetActive(false);
             _testingSection.SetActive(false);
+            _milestoneSection.SetActive(false); // issue #128
             _marketingSection.SetActive(false);
             _publisherSection.SetActive(false);
             _releaseSection.SetActive(false);
@@ -513,6 +523,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         else if (inTesting)
             RefreshTesting(reg, businessType, key, perHour, rawProgress >= size);
 
+        // Issue #128: the milestone decision card — visible while a #123 window is open for this stage.
+        // Pending is derived every tick, so the card expires (and the neutral auto-resolve happens) even
+        // while the screen sits open.
+        var msSlot = -1;
+        var msEvt = default(SiliconAlleyMilestones.MilestoneEvent);
+        var msPending = !idle && SiliconAlleyMilestones.TryGetPending(key, stage, rawProgress, size, out msSlot, out msEvt);
+        _milestoneSection.SetActive(msPending);
+        if (msPending)
+            RefreshMilestone(reg, key, msSlot, msEvt, size);
+
         // Marketing (issue #21) + Publisher deal (issue #17/#22/#23): pre-release campaign blocks — visible on
         // an ACTIVE project (Design/Development/Testing); hidden when idle (nothing to market). Issue #35:
         // while the concept wizard is still editable they stay hidden so the wizard is a focused flow; they
@@ -568,6 +588,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _wizardSection.SetActive(false);
         _developmentSection.SetActive(false);
         _testingSection.SetActive(false);
+        _milestoneSection.SetActive(false); // issue #128
         _marketingSection.SetActive(false);
         _publisherSection.SetActive(false);
         _releaseSection.SetActive(false);
@@ -626,6 +647,43 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         while (index >= _hubServerCards.Count)
             _hubServerCards.Add(SiliconAlleyServerGroupCard.Build(_hubServersHost.transform, Refresh));
         return _hubServerCards[index];
+    }
+
+    // Issue #128: fill the decision card from the pending milestone's deterministic event. Paid options show
+    // their cost in the label (from the catalog's locale strings) and disable when the player can't pay.
+    private void RefreshMilestone(BuildingRegistration reg, string key, int slot,
+        SiliconAlleyMilestones.MilestoneEvent evt, float size)
+    {
+        _msSlot = slot;
+        SetIconSprite(_milestoneIcon, SiliconAlleyTheme.IconFor("ms_" + evt.Id)); // drop-in art; null-graceful
+        _milestoneTitle.text = evt.TitleKey.GetLocalization();
+        _milestoneDesc.text = evt.DescKey.GetLocalization();
+        FillMilestoneOption(_msOptAButton, _msOptALabel, _msOptASummary, evt.OptionA, reg);
+        FillMilestoneOption(_msOptBButton, _msOptBLabel, _msOptBSummary, evt.OptionB, reg);
+        var closePct = Mathf.RoundToInt(100f * SiliconAlleyMilestones.CloseProgress(slot, size) / Mathf.Max(1f, size));
+        _milestoneCountdown.text = Compose("siliconalley:ms_countdown",
+            ("pct", closePct.ToString(CultureInfo.InvariantCulture)));
+    }
+
+    private static void FillMilestoneOption(Button button, TMP_Text label, TMP_Text summary,
+        SiliconAlleyMilestones.MilestoneOption option, BuildingRegistration reg)
+    {
+        label.text = option.LabelKey.GetLocalization();
+        summary.text = option.SummaryKey.GetLocalization();
+        button.interactable = option.Cost <= 0f || SiliconAlleyMoney.CanAfford(reg, option.Cost);
+    }
+
+    // Issue #128: resolve the shown slot with the clicked option. TryResolve re-validates the window (the
+    // card may have expired between the render and the click) and charges paid options itself.
+    private void OnMilestoneOption(int optionIndex)
+    {
+        if (_msSlot < 0 || string.IsNullOrEmpty(_currentKey))
+            return;
+        var reg = FindRegistration(_currentKey);
+        if (reg == null)
+            return;
+        SiliconAlleyMilestones.TryResolve(_currentKey, _msSlot, optionIndex, reg);
+        Refresh(); // reflect the resolution (or the expiry) immediately
     }
 
     // Issue #113: the footer "Abandon project" button. Hidden when the studio is Idle (there is nothing to
@@ -2512,6 +2570,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _shipStatusText.color = SiliconAlleyTheme.TextMuted;
         _shipButton = MakeButton(testCard.transform, "", OnReleaseNow, primary: true);
         _shipLabel = _shipButton.GetComponentInChildren<TMP_Text>();
+
+        // ---- Milestone decision card (issue #128, epic #121): shown while a #123 milestone window is open
+        // in Development/Testing. Two option buttons with effect summaries + the auto-resolve countdown.
+        _milestoneSection = MakeSection(root);
+        MakeHeader(_milestoneSection.transform, "siliconalley:ms_header");
+        var msCard = MakeCardPanel(_milestoneSection.transform, "MilestoneCard");
+        var msTitleRow = MakeRow(msCard.transform, 8f, 28);
+        msTitleRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        _milestoneIcon = MakeIcon(msTitleRow.transform, null, 24f, SiliconAlleyTheme.Accent);
+        _milestoneTitle = MakeText(msTitleRow.transform, "MsTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _milestoneTitle.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        _milestoneDesc = MakeText(msCard.transform, "MsDesc", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        _milestoneDesc.color = SiliconAlleyTheme.TextMuted;
+        _msOptAButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(0), primary: true);
+        _msOptALabel = _msOptAButton.GetComponentInChildren<TMP_Text>();
+        _msOptASummary = MakeText(msCard.transform, "MsOptASum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _msOptASummary.color = SiliconAlleyTheme.TextMuted;
+        _msOptBButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(1));
+        _msOptBLabel = _msOptBButton.GetComponentInChildren<TMP_Text>();
+        _msOptBSummary = MakeText(msCard.transform, "MsOptBSum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _msOptBSummary.color = SiliconAlleyTheme.TextMuted;
+        _milestoneCountdown = MakeText(msCard.transform, "MsCountdown", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _milestoneCountdown.color = SiliconAlleyTheme.TextMuted;
 
         // ---- Updates section (issue #88: manual post-launch updates for the live catalog) ----
         _updateSection = MakeSection(root);
