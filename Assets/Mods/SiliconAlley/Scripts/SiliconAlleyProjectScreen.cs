@@ -125,7 +125,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _summaryPage;
     private Image _sumScopeIcon;                       // issue #58: review-card hero scope icon
     private TMP_Text _sumHeroTitle, _sumHeroSub;
-    private SiliconAlleyUI.StatRow _sumQuality, _sumCoverage, _sumCost, _sumRoyalty, _sumMarket;
+    // Issue #87: the review card also states the build-or-buy split (#84) and the market fit (#85/#86).
+    private SiliconAlleyUI.StatRow _sumQuality, _sumCoverage, _sumComponents, _sumCost, _sumRoyalty, _sumMarket, _sumFit;
     // Features page (issue #26): a fixed pool of toggle buttons (sized to the largest feature table), relabelled
     // and shown/hidden per business type each refresh; bit i toggles the matching FeatureMask bit.
     private GameObject _featuresPage;
@@ -1108,6 +1109,18 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         return count;
     }
 
+    // Issue #87: count of self-built (owned AND used) dependencies on the current project — the other half of
+    // the Summary's build-or-buy row. Mirrors LicensedDependencyCount with `used & owned` instead of
+    // `used & ~owned`, so the two counts always partition the used mask.
+    private int BuiltDependencyCount(string key, string businessTypeName)
+    {
+        var built = SiliconAlleyState.GetUsedDependencyMask(key) & SiliconAlleyState.GetOwnedDependencyMask(key);
+        var count = 0;
+        foreach (var d in SiliconAlleyProductDependencies.DependenciesFor(businessTypeName))
+            if ((built & (1 << d.Bit)) != 0) count++;
+        return count;
+    }
+
     // Total R&D cash sunk into the owned dependencies used on this product — drives the Summary cost row
     // alongside the owned-tool R&D.
     private float OwnedDependenciesRnd(string key, string businessTypeName)
@@ -1255,6 +1268,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                         ("total", covTotal.ToString(CultureInfo.InvariantCulture))),
             covFull ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn);
 
+        // Issue #87: the #84 build-or-buy split, stated outright at the commit gate. The two counts partition
+        // the used-dependency mask, so "1 built · 2 licensed" reads as the whole stack. Licensed items carry a
+        // royalty (amber); an all-self-built stack carries none (green); nothing selected is neutral.
+        var builtDeps = BuiltDependencyCount(key, type);
+        var licensedDeps = LicensedDependencyCount(key, type);
+        SetStat(_sumComponents, "cat_tool", "siliconalley:wiz_sum_lbl_components",
+            builtDeps + licensedDeps <= 0
+                ? "siliconalley:wiz_sum_components_none".GetLocalization()
+                : Compose("siliconalley:wiz_sum_components_value",
+                    ("built", builtDeps.ToString(CultureInfo.InvariantCulture)),
+                    ("licensed", licensedDeps.ToString(CultureInfo.InvariantCulture))),
+            builtDeps + licensedDeps <= 0 ? SiliconAlleyTheme.TextMuted
+                : licensedDeps > 0 ? SiliconAlleyTheme.Warn : SiliconAlleyTheme.Ok);
+
         // #36 tools + #84 product dependencies: up-front R&D for owned items + ongoing licensed royalty.
         var ownedRnd = OwnedToolsRnd(key, type) + OwnedDependenciesRnd(key, type);
         SetStat(_sumCost, "stat_cost", "siliconalley:wiz_sum_lbl_cost",
@@ -1272,6 +1299,32 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // Epic #34: reachable market = platform reach (#37) × segment volume (#38).
         SetStat(_sumMarket, "stat_market", "siliconalley:wiz_sum_lbl_market",
             MarketSummaryText(key, type), SiliconAlleyTheme.Text);
+
+        // Issue #87: the #85/#86 market fit — how the player's per-feature allocation scores against demand,
+        // in the same vocabulary the Market-targeting step uses, so the two screens agree. Both effects are
+        // signed RELATIVE to the neutral even split. Under 2 selected features there is nothing to reallocate
+        // (FitDelta returns 0 by design), so say "not targeted" rather than a misleading +0%.
+        var fitMask = SiliconAlleyState.GetFeatureMask(key);
+        var fitWeights = SiliconAlleyState.GetFeatureWeights(key);
+        var day = TimeHelper.CurrentDay;
+        var fitMarket = SiliconAlleyAspects.MarketFitFactor(fitMask, fitWeights, type, day);
+        var fitQuality = SiliconAlleyAspects.QualityFitBonus(fitMask, fitWeights, type, day);
+        var fitDelta = SiliconAlleyAspects.FitDelta(type, fitMask, fitWeights, day);
+        // Gate the readout on the SAME condition FitDelta gates on — fewer than 2 selected features means no
+        // reallocation is possible. Keying off "delta == 0" instead would mislabel a deliberate allocation
+        // that happens to score neutral as "not targeted".
+        var selectedFeatures = 0;
+        foreach (var f in SiliconAlleyFeatures.FeaturesFor(type))
+            if ((fitMask & (1 << f.Bit)) != 0) selectedFeatures++;
+        var targeted = selectedFeatures >= 2;
+        SetStat(_sumFit, "cat_segment", "siliconalley:wiz_sum_lbl_fit",
+            targeted
+                ? Compose("siliconalley:wiz_sum_fit_value",
+                    ("market", SignedPct((fitMarket - 1f) * 100f)),
+                    ("quality", SignedPct(fitQuality * 100f)))
+                : "siliconalley:wiz_sum_fit_neutral".GetLocalization(),
+            !targeted || Mathf.Approximately(fitDelta, 0f) ? SiliconAlleyTheme.TextMuted
+                : fitDelta > 0f ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn);
     }
 
     // Issue #58: fill one review-card stat row (icon + label + emphasised, colour-coded value).
@@ -2073,12 +2126,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _sumHeroTitle = MakeText(heroCol.transform, "HeroTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
         _sumHeroSub = MakeText(heroCol.transform, "HeroSub", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _sumHeroSub.color = SiliconAlleyTheme.TextMuted;
+        // Issue #87: the card grew past the point where a flat list scans well, so the rows sit in three
+        // labelled groups — what you're making, what it costs, who it reaches. The two new rows borrow the
+        // cat_tool / cat_segment placeholder icons (#55); dropping stat_components.png / stat_fit.png into
+        // UI/Icons and switching those stems in RefreshSummaryPage is the drop-in upgrade.
         MakeDivider(reviewCard.transform);
+        MakeHeader(reviewCard.transform, "siliconalley:wiz_sum_grp_product");
         _sumQuality = MakeStatRow(reviewCard.transform);
         _sumCoverage = MakeStatRow(reviewCard.transform);
+        MakeDivider(reviewCard.transform);
+        MakeHeader(reviewCard.transform, "siliconalley:wiz_sum_grp_cost");
+        _sumComponents = MakeStatRow(reviewCard.transform);
         _sumCost = MakeStatRow(reviewCard.transform);
         _sumRoyalty = MakeStatRow(reviewCard.transform);
+        MakeDivider(reviewCard.transform);
+        MakeHeader(reviewCard.transform, "siliconalley:wiz_sum_grp_market");
         _sumMarket = MakeStatRow(reviewCard.transform);
+        _sumFit = MakeStatRow(reviewCard.transform);
 
         // Features page (issue #26): the design-document feature picker. A reusable pool of toggle buttons,
         // sized to the largest feature table; RefreshFeaturesPage relabels + shows the current type's list.
