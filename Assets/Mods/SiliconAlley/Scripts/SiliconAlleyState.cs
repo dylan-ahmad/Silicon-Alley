@@ -227,6 +227,22 @@ public static class SiliconAlleyState
     public const float HypeCost = 2500f, HypeAmount = 12f;
     public const float AdSpendCostPerHour = 120f;
 
+    // ---- issue #124 (epic #121): launch economy. The ship payout is multiplied by a launch scale derived
+    // from the launch installed-base jump, so everything that grows launch units (marketing, reviews,
+    // sequels/IP, platforms, segment volume, market fit) now feeds the headline number and shipping beats
+    // farming contracts/support. An unmarketed legacy-style ship (1 unit) scales by ~LaunchBaseScale; the
+    // cap keeps a huge sequel from trivialising the economy. Forward economics only — nothing persisted,
+    // old release rows keep their recorded payouts. Tunables (no options slider: PayoutMultiplier already
+    // provides global tuning on top).
+    public const float LaunchBaseScale = 4f;     // scale for a 0/1-unit launch (was effectively 1 pre-0.5.0)
+    public const float LaunchUnitRevenue = 0.35f; // extra scale per launch unit
+    public const float LaunchScaleCap = 40f;      // hard ceiling on the combined scale
+
+    // The launch-scale multiplier for a given installed-base jump — one definition shared by the simulator's
+    // ship block and any screen preview.
+    public static float LaunchScale(int launchUnits)
+        => Mathf.Min(LaunchScaleCap, LaunchBaseScale + LaunchUnitRevenue * Mathf.Max(0, launchUnits));
+
     // ---- project type (issue #3): a player-chosen scale that trades duration vs payout vs competition.
     // The dropdown sets GlobalProjectType (the pre-selection); the simulator locks it per project at the
     // start so a mid-project change only affects the NEXT project. Indices match the options dropdown. ----
