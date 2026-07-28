@@ -20,8 +20,10 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   progress, quality, bugs, marketing buzz and cash: scope creep, a middleware offer, a tech-debt reckoning,
   a conference demo slot, a public-beta call, crunching the QA backlog, announcing a gold date, or promising
   a day-one patch. A clickable toast announces each window; ignoring it is always safe — the window quietly
-  closes with zero effect, which is also why legacy in-flight projects play unchanged. (The in-screen
-  decision card arrives with the 0.5.0 UI work; until then the toast + this changelog are the paper trail.)
+  closes with zero effect, which is also why legacy in-flight projects play unchanged. The **decision card**
+  (#128) renders the open window in the studio's detail view: the event, both options with their effect
+  summaries (paid options show their price and grey out when you can't afford them), and the progress mark
+  at which the window decides itself. The window's toast deep-links straight to the card.
 
 ### Changed
 - **One hub, one window** (#127). The F8 studio dashboard and the F9 project window are now a single
