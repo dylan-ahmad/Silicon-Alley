@@ -236,6 +236,26 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
     private SiliconAlleyUI.StatRow _contractProgress, _contractDue, _contractPayout;
+    // Issue #129 (epic #121): the persistent release-history section — the reload-proof home of the ship
+    // report (#122 record extras). Pooled rows, newest first; the newest row carries the multiplier
+    // breakdown ("why did I earn this"), rendering "—" for pre-0.5.0 rows that never recorded it.
+    private GameObject _historySection, _historyHost;
+    private readonly List<HistoryRow> _historyRows = new List<HistoryRow>();
+    private const int HistoryMaxRows = 8;
+
+    // A pooled release-history row: [name vN … review chip], a meta caption, and (newest row only) the
+    // recorded multiplier breakdown.
+    private sealed class HistoryRow
+    {
+        public GameObject Root;
+        public TMP_Text Title, Meta, Mults, ReviewLabel;
+        public Image ReviewChip;
+    }
+
+    // Issue #129: the #126 contract staff-split dial (contract-first ‹ … › product-first) + its readout.
+    private Slider _contractFocusSlider;
+    private TMP_Text _contractFocusText;
+
     // Issue #128 (epic #121): the milestone decision card — renders whatever #123 milestone window is open
     // for the current studio (stage + progress derived; nothing persisted but the resolved bit). The click
     // handlers route through SiliconAlleyMilestones.TryResolve, which re-validates the window.
@@ -456,6 +476,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _marketingSection.SetActive(false);
             _publisherSection.SetActive(false);
             _releaseSection.SetActive(false);
+            _historySection.SetActive(false); // issue #129
             _updateSection.SetActive(false);
             _idleSection.SetActive(false);
             _contractSection.SetActive(false);
@@ -553,6 +574,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (report.Has)
             RefreshRelease(businessType, key, report);
 
+        // Issue #129: the persistent release history — unlike the transient report above, this survives a
+        // reload (backed by the #78 release rows + the #122 multiplier extras).
+        RefreshHistory(businessType, key);
+
         // Issue #88 (manual updates): the live catalog's post-launch update gate — independent of the current
         // project's phase. Shown whenever an update is due (installed base + the patch timer); the button is
         // gated on staffing inside RefreshUpdate (an update is dev work).
@@ -592,6 +617,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _marketingSection.SetActive(false);
         _publisherSection.SetActive(false);
         _releaseSection.SetActive(false);
+        _historySection.SetActive(false); // issue #129
         _updateSection.SetActive(false);
         _contractSection.SetActive(false);
         RefreshAbandon(true); // nothing to abandon from the overview
@@ -1716,19 +1742,112 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SetStat(_relPatch, "stat_eta", "siliconalley:screen_rel_lbl_patch", PatchEta(key), SiliconAlleyTheme.Text);
     }
 
-    // Issue #27: read-only progress of the studio's accepted contract — % done, days until the deadline, payout.
+    // Issue #27: progress of the studio's accepted contract — % done, days until the deadline, payout — plus
+    // the #126/#129 staff-split dial (the section's only write besides the phone's Accept).
     private void RefreshContract(string key)
     {
         var scope = SiliconAlleyState.GetContractScope(key);
         var frac = scope > 0f ? Mathf.Clamp01(SiliconAlleyState.GetContractProgress(key) / scope) : 0f;
         var daysLeft = Mathf.Max(0, SiliconAlleyState.GetContractDeadlineDay(key) - TimeHelper.CurrentDay);
-        // Amber bar — the contract pauses the studio's own product while it runs.
+        // Amber bar — the contract competes with the studio's own product for staff (the dial below splits them).
         SetProgress(_contractBar, frac, SiliconAlleyTheme.Warn);
         SetStatNum(_contractProgress, "stat_coverage", "siliconalley:screen_contract_lbl_progress", frac * 100f, FmtPct, SiliconAlleyTheme.Text);
         SetStat(_contractDue, "stat_eta", "siliconalley:screen_contract_lbl_due",
             daysLeft.ToString(CultureInfo.InvariantCulture) + "d", SiliconAlleyTheme.Text);
         SetStatNum(_contractPayout, "stat_cost", "siliconalley:screen_contract_lbl_payout",
             SiliconAlleyState.GetContractPayout(key), FmtMoney, SiliconAlleyTheme.Ok);
+        // Issue #129: reflect the persisted focus without writing back through the change handler.
+        var focus = SiliconAlleyState.GetContractFocus(key);
+        _suppress = true;
+        _contractFocusSlider.value = 1f - focus;
+        _suppress = false;
+        var contractPct = Mathf.RoundToInt(focus * 100f);
+        _contractFocusText.text = Compose("siliconalley:screen_contract_focus_val",
+            ("contract", contractPct.ToString(CultureInfo.InvariantCulture)),
+            ("product", (100 - contractPct).ToString(CultureInfo.InvariantCulture)));
+    }
+
+    // Issue #129: the staff-split dial writes the #126 contractFocus (slider 0 = all contract, 1 = all product).
+    private void OnContractFocusChanged(float value)
+    {
+        if (_suppress || string.IsNullOrEmpty(_currentKey))
+            return;
+        SiliconAlleyState.SetContractFocus(_currentKey, 1f - value);
+    }
+
+    // Issue #129: the persistent release-history rows — newest first, capped at HistoryMaxRows. The newest
+    // row shows the recorded multiplier breakdown; -1 sentinels (pre-0.5.0 rows) render as "not recorded".
+    private void RefreshHistory(BusinessType businessType, string key)
+    {
+        var releases = SiliconAlleyState.GetReleaseHistory(key);
+        var count = Mathf.Min(HistoryMaxRows, releases.Count);
+        _historySection.SetActive(count > 0);
+        if (count == 0)
+            return;
+        for (var i = 0; i < count; i++)
+        {
+            var row = EnsureHistoryRow(i);
+            row.Root.SetActive(true);
+            FillHistoryRow(row, releases[releases.Count - 1 - i], businessType, i == 0);
+        }
+        for (var i = count; i < _historyRows.Count; i++)
+            _historyRows[i].Root.SetActive(false);
+    }
+
+    private HistoryRow EnsureHistoryRow(int index)
+    {
+        while (index >= _historyRows.Count)
+            _historyRows.Add(BuildHistoryRow(_historyHost.transform));
+        return _historyRows[index];
+    }
+
+    private static HistoryRow BuildHistoryRow(Transform parent)
+    {
+        var r = new HistoryRow();
+        var card = MakeCardPanel(parent, "HistoryRow");
+        var t = card.transform;
+        var header = MakeRow(t, 8f, 26);
+        header.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        r.Title = MakeText(header.transform, "Title", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft, FontStyle.Bold);
+        r.Title.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the review chip to the right edge
+        r.ReviewChip = MakeChip(header.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.Text, out r.ReviewLabel);
+        r.Meta = MakeText(t, "Meta", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        r.Meta.color = SiliconAlleyTheme.TextMuted;
+        r.Mults = MakeText(t, "Mults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        r.Mults.color = SiliconAlleyTheme.TextMuted;
+        r.Root = card;
+        return r;
+    }
+
+    private void FillHistoryRow(HistoryRow row, SiliconAlleyState.ReleaseRecord rec, BusinessType businessType, bool expand)
+    {
+        var name = string.IsNullOrWhiteSpace(rec.ProductName) ? ProductName(businessType) : rec.ProductName;
+        row.Title.text = name + " v" + rec.Version.ToString(CultureInfo.InvariantCulture);
+        // The same grading the ship report's review bar uses (>=7 good, >=4 fine, else rough).
+        row.ReviewChip.color = rec.Review >= 7f ? SiliconAlleyTheme.Ok
+            : rec.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn;
+        row.ReviewLabel.text = rec.Review.ToString("F1", CultureInfo.InvariantCulture) + "/10";
+        var publisher = SiliconAlleyPublishers.TryGetById(rec.Publisher, out var pub)
+            ? pub.NameKey.GetLocalization()
+            : "—";
+        row.Meta.text = Compose("siliconalley:screen_history_meta",
+            ("day", rec.Day.ToString(CultureInfo.InvariantCulture)),
+            ("kind", SiliconAlleyState.ProjectTypeNameKey(rec.Kind).GetLocalization()),
+            ("quality", Pct(Mathf.Clamp01(rec.Quality))),
+            ("payout", Money(rec.LaunchPayout)),
+            ("units", rec.LaunchUnits.ToString(CultureInfo.InvariantCulture)),
+            ("publisher", publisher));
+        // The multiplier breakdown only expands on the newest row; -1 = never recorded (pre-0.5.0 ship).
+        row.Mults.gameObject.SetActive(expand);
+        if (!expand)
+            return;
+        row.Mults.text = rec.RepMult < 0f
+            ? "siliconalley:screen_history_mults_na".GetLocalization()
+            : Compose("siliconalley:screen_history_mults",
+                ("rep", rec.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("market", rec.MarketMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("demand", rec.DemandMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("clean", Pct(Mathf.Clamp01(rec.Cleanliness))));
     }
 
     // Issue #21 (Marketing): refresh the campaign block — current awareness/hype, channel costs, and the
@@ -2655,6 +2774,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _relPatch = MakeStatRow(relCard.transform);
         MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);
 
+        // ---- Release history (issue #129): the studio's persistent catalog, newest first ----
+        _historySection = MakeSection(root);
+        MakeDivider(_historySection.transform);
+        MakeHeader(_historySection.transform, "siliconalley:screen_history_header");
+        _historyHost = MakeSection(_historySection.transform);
+
         // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
         _contractSection = MakeSection(root);
         MakeHeader(_contractSection.transform, "siliconalley:screen_contract_header");
@@ -2663,6 +2788,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _contractProgress = MakeStatRow(contractCard.transform);
         _contractDue = MakeStatRow(contractCard.transform);
         _contractPayout = MakeStatRow(contractCard.transform);
+        // Issue #129: the #126 staff-split dial. Left = all hands on the contract (the legacy divert),
+        // right = product first; the slider maps to contractFocus = 1 − value.
+        var cfRow = MakeRow(contractCard.transform, 10f, 28);
+        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_left".GetLocalization()), 92f);
+        _contractFocusSlider = MakeSlider(cfRow.transform);
+        _contractFocusSlider.onValueChanged.AddListener(OnContractFocusChanged);
+        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_right".GetLocalization()), 92f);
+        _contractFocusText = MakeText(contractCard.transform, "ContractFocusVal", 13, TextAnchor.MiddleLeft);
+        _contractFocusText.color = SiliconAlleyTheme.TextMuted;
 
         // ---- Footer (common) ----
         MakeDivider(root);
