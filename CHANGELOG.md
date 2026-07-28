@@ -24,6 +24,11 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   decision card arrives with the 0.5.0 UI work; until then the toast + this changelog are the paper trail.)
 
 ### Changed
+- **Contract offers are fixed, not farmable** (#125). The phone client's offer is now derived from the
+  studio and the calendar — hanging up and redialing returns the **same terms** until the 3-day offer
+  window rolls over, closing the reroll-until-rich exploit. The call now also lets you **choose which
+  studio takes the job**: "Next studio" cycles every studio that's free, each with its own offer, and the
+  accept button names the studio it hires. (Deadlines stay 14–30 calendar days.)
 - **Shipping is now the headline payoff** (#124). The launch payout is multiplied by a launch scale fed by
   the launch installed-base jump — so marketing, reviews, sequels and IP reputation, extra platforms,
   segment volume and market fit all now grow the money a release pays, not just the support trickle. An

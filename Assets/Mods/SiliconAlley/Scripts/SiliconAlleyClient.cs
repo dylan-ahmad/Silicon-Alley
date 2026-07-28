@@ -172,10 +172,10 @@ public class SiliconAlleyClient : IModBigAmbitions
 
 public class SiliconAlleyClientDialog : Dialog
 {
-    // Issue #27: the contract offer generated for this call (terms shown to the player, then applied on Accept).
-    private string _offerKey, _offerStudioName;
-    private float _offerScope, _offerPayout;
-    private int _offerDeadlineDay;
+    // Issue #125: the studios eligible for a contract this call (player-owned, no active contract). The
+    // offer entry cycles them with "Next studio"; each studio shows its own DETERMINISTIC offer
+    // (SiliconAlleyContracts.OfferFor — same terms on every redial until the 3-day window rolls).
+    private readonly List<(string key, string name)> _eligible = new List<(string key, string name)>();
 
     public SiliconAlleyClientDialog()
     {
@@ -200,29 +200,11 @@ public class SiliconAlleyClientDialog : Dialog
                 OnCancel = DialogController.current.CancelDialog,
             };
 
-        // Issue #27: if a studio is free to take a contract, offer one. Three native buttons (the Dialog
-        // ceiling): Accept contract · View studios · Hang up. Issue #59: the per-studio status now lives in
-        // the card dashboard (SiliconAlleyDashboardScreen), so the offer message carries only the terms.
-        if (TryGenerateOffer())
-        {
-            var days = Mathf.Max(0, _offerDeadlineDay - TimeHelper.CurrentDay);
-            return new DialogEntry
-            {
-                headerKey = npcNameKey,
-                messageData = "siliconalley:client_contract_offer".Localize(new Dictionary<string, string>
-                {
-                    ["studio"] = _offerStudioName,
-                    ["days"] = days.ToString(CultureInfo.InvariantCulture),
-                    ["payout"] = "$" + Mathf.RoundToInt(_offerPayout).ToString("N0", CultureInfo.InvariantCulture),
-                }),
-                Template = DialogEntry.TemplateType.Text,
-                ConfirmTextOverride = "siliconalley:client_contract_accept".Localize(),
-                OnConfirm = AcceptOffer,
-                SecondOptionTextOverride = "siliconalley:client_view_studios".GetLocalization(),
-                OnSecondOption = OpenDashboard,
-                OnCancel = DialogController.current.CancelDialog,
-            };
-        }
+        // Issue #27/#125: offer the first eligible studio its contract. Three native buttons (the Dialog
+        // ceiling): Accept for {studio} · Next studio (or View studios when only one is free) · Hang up.
+        CollectEligibleStudios();
+        if (_eligible.Count > 0)
+            return OfferEntry(0);
 
         // Issue #59: no contract on offer — a short greeting + "View studios" opens the card dashboard.
         return new DialogEntry
@@ -258,13 +240,14 @@ public class SiliconAlleyClientDialog : Dialog
         return null;
     }
 
-    // Pick the first player-owned studio without an active contract and roll a fresh offer for it. Returns
-    // false (no Accept button) when every studio already holds a contract or the player owns none.
-    private bool TryGenerateOffer()
+    // Issue #125: every player-owned studio without an active contract, in registration order. Re-collected
+    // per call; the ELIGIBLE list is what "Next studio" cycles.
+    private void CollectEligibleStudios()
     {
+        _eligible.Clear();
         var current = SaveGameManager.Current;
         if (current?.BuildingRegistrations == null)
-            return false;
+            return;
         foreach (var registration in current.BuildingRegistrations)
         {
             if (!SiliconAlleyClient.IsPlayerOwned(registration))
@@ -272,30 +255,63 @@ public class SiliconAlleyClientDialog : Dialog
             var key = SiliconAlleyState.KeyFor(registration);
             if (SiliconAlleyState.HasContract(key))
                 continue;
-            _offerKey = key;
-            _offerStudioName = registration.GetDisplayName();
-            _offerScope = UnityEngine.Random.Range(800f, 1600f);              // a few in-game days of staffed work
-            _offerDeadlineDay = TimeHelper.CurrentDay + UnityEngine.Random.Range(14, 31); // 14–30 days
-            // Issue #124 (epic #121): retuned from x2.5–4 so a contract is a bridge between releases, not the
-            // meta — a comparable ship now out-earns it (the launch scale made shipping the headline payoff).
-            _offerPayout = _offerScope * UnityEngine.Random.Range(1.5f, 2.5f); // flat fee, scope-proportional
-            return true;
+            _eligible.Add((key, registration.GetDisplayName()));
         }
-        return false;
     }
 
-    // Accept the offered contract for the chosen studio (a no-op-safe state write), then confirm.
-    private DialogEntry AcceptOffer()
+    // Issue #125: the offer entry for one eligible studio. "Next studio" chains to the next entry via the
+    // non-null OnSecondOption return (ShowEntry — the base game's own negotiate-counter-offer pattern);
+    // with a single eligible studio the spare button keeps opening the dashboard, as before.
+    private DialogEntry OfferEntry(int index)
     {
-        SiliconAlleyState.AcceptContract(_offerKey, _offerScope, _offerDeadlineDay, _offerPayout);
+        var (key, name) = _eligible[index];
+        var offer = SiliconAlleyContracts.OfferFor(key, TimeHelper.CurrentDay);
+        var entry = new DialogEntry
+        {
+            headerKey = npcNameKey,
+            messageData = "siliconalley:client_contract_offer".Localize(new Dictionary<string, string>
+            {
+                ["studio"] = name,
+                ["days"] = offer.DeadlineDays.ToString(CultureInfo.InvariantCulture),
+                ["payout"] = "$" + Mathf.RoundToInt(offer.Payout).ToString("N0", CultureInfo.InvariantCulture),
+            }),
+            Template = DialogEntry.TemplateType.Text,
+            ConfirmTextOverride = "siliconalley:client_contract_accept_for".Localize(new Dictionary<string, string>
+            {
+                ["studio"] = name,
+            }),
+            OnConfirm = () => AcceptOffer(index),
+            OnCancel = DialogController.current.CancelDialog,
+        };
+        if (_eligible.Count > 1)
+        {
+            entry.SecondOptionTextOverride = "siliconalley:client_contract_next".GetLocalization();
+            entry.OnSecondOption = () => OfferEntry((index + 1) % _eligible.Count);
+        }
+        else
+        {
+            entry.SecondOptionTextOverride = "siliconalley:client_view_studios".GetLocalization();
+            entry.OnSecondOption = OpenDashboard;
+        }
+        return entry;
+    }
+
+    // Accept the shown studio's deterministic offer (a no-op-safe state write), then confirm. The absolute
+    // deadline is fixed here, at accept time, so a shown-but-unaccepted offer never ages within its window.
+    private DialogEntry AcceptOffer(int index)
+    {
+        var (key, name) = _eligible[index];
+        var offer = SiliconAlleyContracts.OfferFor(key, TimeHelper.CurrentDay);
+        var deadlineDay = TimeHelper.CurrentDay + offer.DeadlineDays;
+        SiliconAlleyState.AcceptContract(key, offer.Scope, deadlineDay, offer.Payout);
         return new DialogEntry
         {
             headerKey = npcNameKey,
             messageData = "siliconalley:client_contract_accepted".Localize(new Dictionary<string, string>
             {
-                ["studio"] = _offerStudioName,
-                ["days"] = Mathf.Max(0, _offerDeadlineDay - TimeHelper.CurrentDay).ToString(CultureInfo.InvariantCulture),
-                ["payout"] = "$" + Mathf.RoundToInt(_offerPayout).ToString("N0", CultureInfo.InvariantCulture),
+                ["studio"] = name,
+                ["days"] = offer.DeadlineDays.ToString(CultureInfo.InvariantCulture),
+                ["payout"] = "$" + Mathf.RoundToInt(offer.Payout).ToString("N0", CultureInfo.InvariantCulture),
             }),
             Template = DialogEntry.TemplateType.Text,
             OnCancel = DialogController.current.FinishDialog,
