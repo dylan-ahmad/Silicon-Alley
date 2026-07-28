@@ -21,8 +21,18 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   you no longer want. Press twice to confirm; the studio returns to **Idle**, ready to start something new.
   You lose that project's progress, bugs, marketing and design picks, but keep reputation, installed base,
   version number, self-built tools and components, an active publisher deal and any accepted contract.
+- **Design wizard Summary** now reviews the whole product before you commit. The card is grouped into
+  **Product** / **Cost** / **Market**, and two things it never mentioned are now stated outright: a
+  **Components** row showing how many parts of your stack you built versus licensed, and a **Market fit**
+  row showing what your feature allocation is worth against current demand — in revenue and quality, signed
+  against an even split, matching the Market step's own readout. A project with fewer than two features
+  reads "not targeted" rather than a misleading +0%.
 
 ### Fixed
+- **Design wizard Summary cost labels** said "owned tools" and "licensed tool(s)" while the figures had
+  included build-or-buy components since they were added, under-reporting what you were being charged for.
+  The "Dependencies" row was also named for a different concept than the components step it sat next to —
+  it has always shown feature→tool coverage, and is now labelled **Feature coverage**.
 - **Design lock dead end** — shrinking a project mid-Design (un-ticking features/platforms, or dropping the
   scope from Ambitious to Quick) could permanently hide **Start development**: the screen showed
   *"Design (locked)"* with no Back/Next row and no Development card, so the studio could never ship and every
