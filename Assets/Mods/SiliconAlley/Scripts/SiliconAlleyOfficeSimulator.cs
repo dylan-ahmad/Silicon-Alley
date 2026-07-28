@@ -183,6 +183,12 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             SiliconAlleyState.ParkBelowCeiling(key, ceiling);
             var progressAfter = SiliconAlleyState.GetProgress(key);
             AnnouncePhaseTransition(businessType, key, progressBefore, progressAfter, size);
+            // Issue #123 (epic #121): milestone decisions. Slots whose window this hour's progress passed
+            // unanswered are resolved silently (the neutral no-op); a slot whose window START was crossed
+            // fires one clickable toast (deduped per key+slot, so a time-machine catch-up can't spam).
+            var firedSlot = SiliconAlleyMilestones.ProcessTick(key, stage, progressBefore, progressAfter, size);
+            if (firedSlot >= 0)
+                AnnounceMilestone(businessType, key, firedSlot);
             // The hour the stage parks (fills to its ceiling), nudge the player how to push it forward (once):
             // Testing ⇒ "ready to release"; Development ⇒ "build done — send to QA or release".
             if (progressBefore < ceiling && progressAfter >= ceiling)
@@ -563,6 +569,21 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["product"] = ProductDisplayName(key, businessType),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_devdone", data, 6f, key + ":devdone",
+            () => SiliconAlleyProjectScreen.Open(key));
+    }
+
+    // Issue #123: a milestone decision window opened — one clickable toast per studio+slot. The card itself
+    // lives in the project screen (#128); ignoring both is always the safe neutral (the window auto-resolves).
+    private void AnnounceMilestone(BusinessType businessType, string key, int slot)
+    {
+        var evt = SiliconAlleyMilestones.EventFor(key, slot);
+        var data = new Dictionary<string, string>
+        {
+            ["business"] = buildingRegistration.GetDisplayName(),
+            ["product"] = ProductDisplayName(key, businessType),
+            ["event"] = evt.TitleKey.GetLocalization(),
+        };
+        Notifications.Show(NotificationType.Info, "siliconalley:notify_milestone", data, 6f, key + ":ms" + slot,
             () => SiliconAlleyProjectScreen.Open(key));
     }
 
