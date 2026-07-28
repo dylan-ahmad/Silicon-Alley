@@ -154,7 +154,10 @@ line that has shipped.
   (see above) persisted as the active-deal `dealPublisher`; the
   design-wizard `segmentId` ordinal + `featureMask`/`platformMask`/`ownedToolsMask`/`usedToolsMask` bitmasks;
   dependency `ownedDependencyMask` / `usedDependencyMask` bitmasks plus `dependencyVendorOrdinals` entries
-  (per-bit/ordinal = the reserved enum families directly below).
+  (per-bit/ordinal = the reserved enum families directly below); the **MilestoneSlot** bit family (epic #121 /
+  #122, bits of `milestoneMask`, APPEND-ONLY — never rename/reorder/remove a shipped bit): `0` Dev-30% ·
+  `1` Dev-55% · `2` Test-80% · `3` Test-92% (the thresholds/effects are tunable catalog data, NOT persisted;
+  the bit only means "this slot was resolved for the current project").
 - **Design-wizard reserved enum families** (epic #34 / #40; APPEND-ONLY — once a bit/ordinal ships, never
   rename/reorder/remove; add new members only by appending). The bit/ordinal members are minted by the owning
   sibling when it needs them for gameplay; #40 reserves the family names (and `SegmentId`'s ordinals). The
@@ -276,6 +279,20 @@ line that has shipped.
   is persisted. Pure trailing append => **no schema bump**.
   Issue #108 server upkeep and backend capacity add no save field: upkeep is charged once per in-game day from
   live placed-server counts with a transient per-session day guard, and backend capacity is an options tunable.
+  Then - the next trailing appends (epic #121 / #122) - `|milestoneMask|contractFocus`. `milestoneMask` (index 47,
+  int bitmask) records which mid-project **MilestoneSlot** decisions are RESOLVED for the current project;
+  per-project (reset on ship/start/abandon); absent => `0` = all slots open — and because unresolved slots
+  auto-resolve to the neutral "no action" when their progress window closes, an untouched old save plays with
+  exactly zero milestone effects. Whether a slot is *pending* is derived (stage + progress window + bit unset),
+  never persisted. `contractFocus` (index 48, float 0..1) is the staff-effort fraction an active contract diverts
+  from the product; absent => **1.0** (field initializer `1f`, overwritten only on a valid parse — the `version`
+  pattern) = the legacy full divert, so an old save's in-flight contract behaves identically. Meaningful only
+  while `contractScope > 0`. Pure trailing appends => **no schema bump**.
+  Issue #122 also appends four trailing fields **inside** each release-history record (record fields
+  `15 repMult ~ 16 marketMult ~ 17 demandMult ~ 18 cleanliness`, floats): the ship-report multiplier breakdown,
+  written at ship via `OnProjectCompleted`'s optional params. Absent/garbage => the **-1 "not recorded"**
+  sentinel (pre-0.5.0 rows render "—"). Extra record fields were already ignored by older readers, so this is
+  the documented extras-safe record extension — no schema bump.
 - **Derived (NOT persisted) market/quality factors** (no `modData`, no schema surface): the feature→tool
   **coverage** ceiling (#39, `SiliconAlleyDependencies`, from `featureMask` + the tool masks) and the per-type
   **market demand** cycle (#28, `SiliconAlleyMarket.DemandFactor`, a clock-derived sine that scales launch /

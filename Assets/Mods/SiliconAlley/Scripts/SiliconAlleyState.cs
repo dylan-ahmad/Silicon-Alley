@@ -133,6 +133,17 @@ public static class SiliconAlleyState
         // ItemInstance.id. Unassigned servers are omitted from the map, so old saves and untouched servers
         // serialize compactly and read as neutral.
         public readonly Dictionary<string, ServerRole> ServerRoles = new Dictionary<string, ServerRole>();
+        // Issue #122 (epic #121): which mid-project milestone decisions have been RESOLVED for the current
+        // project (bit = MilestoneSlot ordinal, APPEND-ONLY: 0 Dev-30%, 1 Dev-55%, 2 Test-80%, 3 Test-92%).
+        // Whether a slot is PENDING is derived (stage + progress window + this bit unset) and never persisted.
+        // Per-project (reset on completion/start). Absent in old saves => 0 = nothing resolved; the milestone
+        // auto-resolve windows make an untouched save's project play with exactly zero milestone effects.
+        public int MilestoneMask;
+        // Issue #122 (epic #121): fraction of staff effort an ACTIVE contract diverts from the product
+        // (1 = all hands on the contract — the pre-0.5.0 behaviour; 0 = product first). Field initializer 1f
+        // and load-only-on-valid-parse keep an old save's in-flight contract at the legacy full divert.
+        // Meaningful only while ContractScope > 0.
+        public float ContractFocus = 1f;
         // Issue #26: the business type (game/office/security) that owns this building's current project, noted
         // transiently each sim tick / screen refresh so the per-type feature math (size + quality ceiling) can
         // resolve the feature list from FeatureMask without threading the type through EffectiveProjectSize's
@@ -285,17 +296,21 @@ public static class SiliconAlleyState
 
     // Issue #78: persisted per-release row. ProductName is optional/escaped; empty means callers derive the
     // name from business type + version. #83 appends a dependency snapshot so recurring support can keep
-    // charging royalties for licensed dependencies after current-project choices reset.
+    // charging royalties for licensed dependencies after current-project choices reset. #122 (epic #121)
+    // appends the ship-report multipliers (reputation/market/demand/cleanliness) so the "why did I earn this"
+    // breakdown survives a reload; -1 is the "not recorded" sentinel (pre-0.5.0 rows) and renders as "—".
     public readonly struct ReleaseRecord
     {
         public readonly int Day, Version, Kind, LaunchUnits, Publisher, FeatureMask, PlatformMask, UsedToolsMask, SegmentId;
         public readonly int UsedDependencyMask;
         public readonly float Review, Quality, LaunchPayout;
         public readonly string ProductName, DependencyVendorOrdinals;
+        public readonly float RepMult, MarketMult, DemandMult, Cleanliness;
 
         public ReleaseRecord(int day, int version, int kind, float review, float quality, float launchPayout,
             int launchUnits, int publisher, int featureMask, int platformMask, int usedToolsMask, int segmentId,
-            string productName, int usedDependencyMask = 0, string dependencyVendorOrdinals = "")
+            string productName, int usedDependencyMask = 0, string dependencyVendorOrdinals = "",
+            float repMult = -1f, float marketMult = -1f, float demandMult = -1f, float cleanliness = -1f)
         {
             Day = day;
             Version = version;
@@ -312,6 +327,10 @@ public static class SiliconAlleyState
             ProductName = productName ?? string.Empty;
             UsedDependencyMask = usedDependencyMask;
             DependencyVendorOrdinals = dependencyVendorOrdinals ?? string.Empty;
+            RepMult = repMult;
+            MarketMult = marketMult;
+            DemandMult = demandMult;
+            Cleanliness = cleanliness;
         }
     }
 
@@ -526,6 +545,25 @@ public static class SiliconAlleyState
         state.ContractPayout = 0f;
     }
 
+    // ---- issue #122 (epic #121): contract staff-split focus ---------------------------------------
+    // How much of the staff's effort an active contract diverts from the product (1 = all hands on the
+    // contract, the pre-0.5.0 behaviour; 0 = product first). Read by the simulator's effort split (#126);
+    // set from the contract card's slider (#129). Meaningful only while a contract is active.
+    public static float GetContractFocus(string key) => Mathf.Clamp01(Get(key).ContractFocus);
+    public static void SetContractFocus(string key, float value) => Get(key).ContractFocus = Mathf.Clamp01(value);
+
+    // ---- issue #122 (epic #121): milestone decision bits ------------------------------------------
+    // Which milestone slots (bit = MilestoneSlot ordinal: 0 Dev-30%, 1 Dev-55%, 2 Test-80%, 3 Test-92%)
+    // are RESOLVED for the current project — by a player choice or by the window expiring (the neutral
+    // auto-resolve). Whether a slot is PENDING is derived by the milestones catalog (#123), never stored.
+    public static int GetMilestoneMask(string key) => Get(key).MilestoneMask;
+    public static bool IsMilestoneResolved(string key, int slot) => (Get(key).MilestoneMask & (1 << slot)) != 0;
+    public static void MarkMilestoneResolved(string key, int slot)
+    {
+        if (slot >= 0 && slot < 32)
+            Get(key).MilestoneMask |= 1 << slot;
+    }
+
     // The project type locked in for this building's current project (issue #3). Unlocked (-1) reads as
     // Standard so display/calc always have a concrete type.
     public static int GetProjectType(string key)
@@ -562,7 +600,8 @@ public static class SiliconAlleyState
     // awareness + review) grows the installed base by more than the flat +1. SAVE-COMPAT: a legacy launch
     // has BugCount = Awareness = 0, so the bonus is 0 and launchUnits floors at 1 — identical to before.
     public static void OnProjectCompleted(string key, float quality, int launchUnits, float review,
-        int day, float launchPayout, int publisher, string productName = "")
+        int day, float launchPayout, int publisher, string productName = "",
+        float repMult = -1f, float marketMult = -1f, float demandMult = -1f, float cleanliness = -1f)
     {
         var state = Get(key);
         var shippedVersion = state.Version;
@@ -571,7 +610,8 @@ public static class SiliconAlleyState
         var shippedDependencyVendors = SerializeDependencyVendorOrdinals(EnsureDependencyVendors(state));
         state.Releases.Add(new ReleaseRecord(day, shippedVersion, shippedKind, review, quality, launchPayout,
             Mathf.Max(1, launchUnits), publisher, state.FeatureMask, state.PlatformMask, state.UsedToolsMask,
-            state.SegmentId, shippedProductName, state.UsedDependencyMask, shippedDependencyVendors));
+            state.SegmentId, shippedProductName, state.UsedDependencyMask, shippedDependencyVendors,
+            repMult, marketMult, demandMult, cleanliness)); // #122: ship-report multipliers (-1 = not recorded)
         var awarenessRepBonus = Mathf.Min(0.2f, state.Awareness * 0.004f); // 0 when unmarketed (legacy)
         state.Reputation = Mathf.Min(3f, state.Reputation + quality * 0.1f + awarenessRepBonus);
         state.InstalledBase += Mathf.Max(1, launchUnits); // base +1 (legacy) + marketing/review/sequel extra
@@ -615,6 +655,7 @@ public static class SiliconAlleyState
         state.ProductName = string.Empty; // issue #82: the next project starts with the derived/default name
         state.UsedDependencyMask = 0;
         ResetDependencyVendors(state);
+        state.MilestoneMask = 0; // issue #122: milestone decisions are per-project — the next project's slots reopen
         state.DesignPrompted = false; // nudge again for the next project
         // Issue #88 (player-driven lifecycle): the studio returns to Idle. Reset Progress explicitly (an early
         // release ships below 100%, so the simulator no longer subtracts the project size), and the next
@@ -1088,6 +1129,7 @@ public static class SiliconAlleyState
         state.ProductName = string.Empty;
         state.UsedDependencyMask = 0;
         ResetDependencyVendors(state);
+        state.MilestoneMask = 0; // issue #122: a fresh project starts with every milestone slot open
         state.DesignPrompted = false;
     }
 
@@ -1342,7 +1384,8 @@ public static class SiliconAlleyState
     //    |designFocus|conceptLocked|overtime|hold|bugCount|awareness|hype|adSpend|supportFreshDay|version|ipReputation
     //    |dealPublisher|dealDeadlineDay|dealPayout|featureMask|platformMask|ownedToolsMask|usedToolsMask|segmentId
     //    |contractScope|contractProgress|contractDeadlineDay|contractPayout|stage|releaseHistory|productName
-    //    |ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals|featureWeights|serverRoles|hostingAccrual,
+    //    |ownedDependencyMask|usedDependencyMask|dependencyVendorOrdinals|featureWeights|serverRoles|hostingAccrual
+    //    |milestoneMask|contractFocus,
     // joined by ';'. The publisher-deal fields (issue #23: dealPublisher default -1 = no deal, dealDeadlineDay/
     // dealPayout 0) append after the lifecycle fields; absent in old saves ⇒ no active deal. A third reserved
     // header "~publishers|r0,r1,…" carries the player's per-publisher reputation (issue #22, append-only by
@@ -1454,7 +1497,11 @@ public static class SiliconAlleyState
                 // Issue #103: server roles (index 45). Empty/absent => all placed servers Unassigned.
                 .Append(SerializeServerRoles(state.ServerRoles)).Append('|')
                 // Issue #107: hosting-income fractional carry (index 46). Absent => 0.
-                .Append(state.HostingAccrual.ToString(CultureInfo.InvariantCulture)).Append(';');
+                .Append(state.HostingAccrual.ToString(CultureInfo.InvariantCulture)).Append('|')
+                // Issue #122 (epic #121): resolved milestone bits (index 47). Absent => 0 = all slots open.
+                .Append(state.MilestoneMask.ToString(CultureInfo.InvariantCulture)).Append('|')
+                // Issue #122 (epic #121): contract staff-split focus (index 48). Absent => 1 = full divert.
+                .Append(state.ContractFocus.ToString(CultureInfo.InvariantCulture)).Append(';');
         }
         return builder.ToString();
     }
@@ -1613,6 +1660,14 @@ public static class SiliconAlleyState
                     float.TryParse(parts[46], NumberStyles.Float, CultureInfo.InvariantCulture, out state.HostingAccrual);
                     if (state.HostingAccrual < 0f)
                         state.HostingAccrual = 0f;
+                }
+                if (parts.Length > 47) // issue #122: resolved milestone bits (absent => 0 = all slots open)
+                    int.TryParse(parts[47], NumberStyles.Integer, CultureInfo.InvariantCulture, out state.MilestoneMask);
+                if (parts.Length > 48) // issue #122: contract focus. Keep the 1f default (legacy full divert)
+                {
+                    // unless a value actually parses, so a corrupt field never reads as "0 = ignore the contract".
+                    if (float.TryParse(parts[48], NumberStyles.Float, CultureInfo.InvariantCulture, out var focus))
+                        state.ContractFocus = Mathf.Clamp01(focus);
                 }
                 States[parts[0]] = state;
             }
@@ -1797,7 +1852,13 @@ public static class SiliconAlleyState
                 .Append(r.SegmentId.ToString(CultureInfo.InvariantCulture)).Append('~')
                 .Append(EscapeReleaseString(r.ProductName)).Append('~')
                 .Append(r.UsedDependencyMask.ToString(CultureInfo.InvariantCulture)).Append('~')
-                .Append(EscapeReleaseString(r.DependencyVendorOrdinals));
+                .Append(EscapeReleaseString(r.DependencyVendorOrdinals)).Append('~')
+                // Issue #122 (epic #121): ship-report multipliers (record fields 15..18). -1 = not recorded
+                // (pre-0.5.0 rows); older readers ignore extra record fields, so this is a safe extension.
+                .Append(r.RepMult.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.MarketMult.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.DemandMult.ToString(CultureInfo.InvariantCulture)).Append('~')
+                .Append(r.Cleanliness.ToString(CultureInfo.InvariantCulture));
         }
         return builder.ToString();
     }
@@ -1842,9 +1903,23 @@ public static class SiliconAlleyState
             if (fields.Length > 13)
                 int.TryParse(fields[13], NumberStyles.Integer, CultureInfo.InvariantCulture, out usedDependencyMask);
             var dependencyVendorOrdinals = fields.Length > 14 ? UnescapeReleaseString(fields[14]) : string.Empty;
+            // Issue #122: ship-report multipliers (fields 15..18). Absent/garbage => the -1 "not recorded"
+            // sentinel, so pre-0.5.0 rows keep rendering as "—" instead of a bogus x0 multiplier.
+            var repMult = -1f;
+            if (fields.Length > 15 && !float.TryParse(fields[15], NumberStyles.Float, CultureInfo.InvariantCulture, out repMult))
+                repMult = -1f;
+            var marketMult = -1f;
+            if (fields.Length > 16 && !float.TryParse(fields[16], NumberStyles.Float, CultureInfo.InvariantCulture, out marketMult))
+                marketMult = -1f;
+            var demandMult = -1f;
+            if (fields.Length > 17 && !float.TryParse(fields[17], NumberStyles.Float, CultureInfo.InvariantCulture, out demandMult))
+                demandMult = -1f;
+            var cleanliness = -1f;
+            if (fields.Length > 18 && !float.TryParse(fields[18], NumberStyles.Float, CultureInfo.InvariantCulture, out cleanliness))
+                cleanliness = -1f;
             releases.Add(new ReleaseRecord(day, version, kind, review, quality, launchPayout, launchUnits,
                 publisher, featureMask, platformMask, usedToolsMask, segmentId, productName,
-                usedDependencyMask, dependencyVendorOrdinals));
+                usedDependencyMask, dependencyVendorOrdinals, repMult, marketMult, demandMult, cleanliness));
         }
     }
 

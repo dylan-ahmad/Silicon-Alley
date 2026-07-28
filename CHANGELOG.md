@@ -5,6 +5,16 @@ All notable changes to **Silicon Alley** are recorded here. The version is the m
 version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Release
 (see `.github/workflows/auto-tag.yml`). Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased] — 0.5.0 (epic #121)
+
+### Added
+- **Save-compat groundwork** for the 0.5.0 gameplay-loop release (#122): the per-building save record gains
+  two trailing fields — `milestoneMask` (which mid-project milestone decisions are resolved; per-project) and
+  `contractFocus` (how much staff effort an active contract diverts; defaults to the legacy full divert) —
+  and each release-history row now records the ship's reputation/market/demand/cleanliness multipliers so
+  the ship report can survive a reload. Pure trailing appends: **old saves load unchanged** (nothing reads
+  the new fields yet), pre-0.5.0 history rows show "—" where the multipliers weren't recorded.
+
 ## [0.4.1] — 2026-07-28
 
 ### Added
