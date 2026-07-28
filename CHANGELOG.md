@@ -25,6 +25,15 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   summaries (paid options show their price and grey out when you can't afford them), and the progress mark
   at which the window decides itself. The window's toast deep-links straight to the card.
 
+### Added (0.5.0 UI)
+- **Release history** (#129): every studio's detail view now lists its shipped catalog — day, name and
+  version, scope, a colour-graded review score, quality, net payout, launch units and publisher — newest
+  first, straight from the save, so it's all still there after a reload. The newest entry also explains
+  its payout (reputation × market × demand × office cleanliness); releases shipped before 0.5.0 read
+  "breakdown not recorded". The transient ship report remains for the fresh-ship moment.
+- **Contract staff-split dial** (#129): the contract card gains the #126 slider — "All on contract" to
+  "Product first" — with a live "{n}% contract · {n}% product" readout.
+
 ### Changed
 - **One hub, one window** (#127). The F8 studio dashboard and the F9 project window are now a single
   screen: **F9 (or F8) lands on the Overview** — every studio as a card (stage, progress, quality,
