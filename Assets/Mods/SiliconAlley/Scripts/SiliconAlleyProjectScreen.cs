@@ -164,6 +164,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private TMP_Text _allocHint, _targetingReadout;
     private WeightRow[] _weightRows;
     private DemandRow[] _demandRows;
+    // Issue #146: the demand chart — market-wants vs your-allocation as two segmented distribution bars.
+    private SiliconAlleyUI.SegmentedBar _demandBar, _allocBar;
 
     // A pooled per-feature allocation row: [icon] name … slider … %. The slider sets the feature weight (#85).
     private sealed class WeightRow
@@ -174,13 +176,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         public Slider Slider;
     }
 
-    // A pooled per-aspect demand row: name + "wants/you" label, then a demand bar and the player's allocation bar.
+    // Issue #146: a pooled per-aspect LEGEND row for the demand chart — [colour swatch] name … "wants/you".
+    // (The old shape — two stacked mini progress-bars per aspect — became the two segmented bars above it.)
     private sealed class DemandRow
     {
         public GameObject Root;
+        public Image Swatch;
         public TMP_Text Name, Lbl;
-        public SiliconAlleyUI.ProgressBar Demand, Alloc;
     }
+
+    // Issue #146: per-aspect chart colours, index-aligned with the aspect catalog and repeated when a type
+    // ever grows past them. Amber is deliberately absent (caution-only, #143); Info gets its first consumer.
+    private static readonly Color[] AspectColors =
+        { SiliconAlleyTheme.Accent, SiliconAlleyTheme.Ok, SiliconAlleyTheme.Info };
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -850,25 +858,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         return new WeightRow { Root = row, Icon = icon, Label = label, Slider = slider, Pct = pct };
     }
 
-    // Issue #86: a per-aspect demand row — name + "wants/you" label, then a demand bar (Ok) over the player's
-    // allocation bar (Accent) so the player can visually match their mix to what the market wants.
-    private DemandRow BuildDemandRow(Transform parent)
+    // Issue #86 → #146: a per-aspect legend row under the demand chart — the swatch ties the name to its
+    // segment colour in both bars; the label keeps the exact wants/you percentages.
+    private DemandRow BuildDemandRow(Transform parent, int index)
     {
-        var box = MakeSection(parent);
-        var top = MakeRow(box.transform, 6f, 20);
-        var hlg = top.GetComponent<HorizontalLayoutGroup>();
+        var row = MakeRow(parent, 6f, 20);
+        var hlg = row.GetComponent<HorizontalLayoutGroup>();
         hlg.childForceExpandWidth = false;
         hlg.childAlignment = TextAnchor.MiddleLeft;
-        var name = MakeText(top.transform, "AName", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Bold);
+        var swatch = MakeImage(row.transform, "Swatch", AspectColors[index % AspectColors.Length]);
+        swatch.raycastTarget = false;
+        ApplyPill(swatch, 10f);
+        var sle = swatch.gameObject.AddComponent<LayoutElement>();
+        sle.minWidth = sle.preferredWidth = 10f;
+        sle.minHeight = sle.preferredHeight = 10f;
+        sle.flexibleWidth = 0f;
+        var name = MakeText(row.transform, "AName", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Bold);
         name.GetComponent<LayoutElement>().flexibleWidth = 1f;
-        var lbl = MakeText(top.transform, "ALbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        var lbl = MakeText(row.transform, "ALbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         lbl.alignment = TextAlignmentOptions.Right;
         lbl.color = SiliconAlleyTheme.TextMuted;
         lbl.enableWordWrapping = false;
         FixWidth(lbl, 150f);
-        var demand = MakeProgressBar(box.transform, 8f);
-        var alloc = MakeProgressBar(box.transform, 8f);
-        return new DemandRow { Root = box, Name = name, Lbl = lbl, Demand = demand, Alloc = alloc };
+        return new DemandRow { Root = row, Swatch = swatch, Name = name, Lbl = lbl };
     }
 
     // Issue #86: the per-feature % sliders. Show a row per SELECTED feature; set each slider from the stored
@@ -920,6 +932,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var mask = SiliconAlleyState.GetFeatureMask(key);
         var demand = SiliconAlleyAspects.DemandProfile(type, day);
         var alloc = SiliconAlleyAspects.AllocationProfile(type, mask, weights);
+        // Issue #146: the market's wanted mix vs the player's allocation, one segmented bar each; the
+        // legend rows below tie names to segment colours and keep the exact percentages.
+        SetSegments(_demandBar, demand, AspectColors);
+        SetSegments(_allocBar, alloc, AspectColors);
         for (var i = 0; i < _demandRows.Length; i++)
         {
             var row = _demandRows[i];
@@ -933,8 +949,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             row.Lbl.text = Compose("siliconalley:wiz_demand_row",
                 ("wants", Pct(wants)),
                 ("you", Pct(you)));
-            SetProgress(row.Demand, wants, SiliconAlleyTheme.Ok);
-            SetProgress(row.Alloc, you, SiliconAlleyTheme.Accent);
         }
         var market = SiliconAlleyAspects.MarketFitFactor(mask, weights, type, day);
         var quality = SiliconAlleyAspects.QualityFitBonus(mask, weights, type, day);
@@ -2597,9 +2611,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         _demandPage = MakeSection(_wizardSection.transform);
         MakeHeader(_demandPage.transform, "siliconalley:wiz_demand_header");
+        // Issue #146: two distribution charts (market vs you) + a shared colour legend replace the old
+        // two-stacked-mini-bars-per-aspect layout — the segmented-bar primitive's live call site.
+        var demandBarLbl = MakeText(_demandPage.transform, "DemandBarLbl", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        demandBarLbl.color = SiliconAlleyTheme.TextMuted;
+        demandBarLbl.text = "siliconalley:wiz_demand_market_lbl".GetLocalization();
+        _demandBar = MakeSegmentedBar(_demandPage.transform, SiliconAlleyAspects.MaxCount);
+        var allocBarLbl = MakeText(_demandPage.transform, "AllocBarLbl", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        allocBarLbl.color = SiliconAlleyTheme.TextMuted;
+        allocBarLbl.text = "siliconalley:wiz_demand_you_lbl".GetLocalization();
+        _allocBar = MakeSegmentedBar(_demandPage.transform, SiliconAlleyAspects.MaxCount);
         _demandRows = new DemandRow[SiliconAlleyAspects.MaxCount];
         for (var i = 0; i < _demandRows.Length; i++)
-            _demandRows[i] = BuildDemandRow(_demandPage.transform);
+            _demandRows[i] = BuildDemandRow(_demandPage.transform, i);
         MakeDivider(_demandPage.transform);
         _targetingReadout = MakeText(_demandPage.transform, "TargetingReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 

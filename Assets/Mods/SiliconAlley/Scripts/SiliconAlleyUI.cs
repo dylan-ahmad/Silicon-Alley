@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using Localizor;
 using TMPro;
 using UnityEngine;
@@ -1112,6 +1113,79 @@ public static class SiliconAlleyUI
         reason.gameObject.SetActive(show);
         if (show)
             reason.text = reasonText;
+    }
+
+    // ---- Segmented bar (#146, stretch). One track, N coloured segments spanning cumulative fractions —
+    // a distribution chart, replacing "a stack of progress bars" as the poor-man's version. The issue
+    // sketched this as fillAmount-based; deliberate deviation: Image.fillAmount needs Type.Filled, which
+    // is exactly what #143 abandoned because it distorts the sliced pill caps (see MakeProgressBar's
+    // comment) — segments span anchorMin.x..anchorMax.x bands on the pill track instead, equally
+    // layout-inert. Values snap: the profiles this draws move on a days-scale clock, not per frame. ----
+
+    public sealed class SegmentedBar
+    {
+        public GameObject Root = null!;
+        public Image Track = null!;
+        public Image[] Segments = null!;
+    }
+
+    public static SegmentedBar MakeSegmentedBar(Transform parent, int capacity, float height = SiliconAlleyTheme.Height.Bar)
+    {
+        var go = new GameObject("SegmentedBar", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = height;
+        le.flexibleWidth = 1f;
+
+        var track = MakeImage(go.transform, "Track", SiliconAlleyTheme.Elevated);
+        track.raycastTarget = false;
+        ApplyPill(track, height);
+        Stretch(track.rectTransform);
+
+        var segments = new Image[capacity];
+        for (var i = 0; i < capacity; i++)
+        {
+            var seg = MakeImage(go.transform, "Segment", SiliconAlleyTheme.Accent);
+            seg.raycastTarget = false;
+            ApplyPill(seg, height);
+            Stretch(seg.rectTransform);
+            seg.enabled = false; // hidden until SetSegments hands it a share
+            segments[i] = seg;
+        }
+        return new SegmentedBar { Root = go, Track = track, Segments = segments };
+    }
+
+    // Fill the bar: fractions normalize over their sum (an all-zero set leaves the bare track) and lay out
+    // left→right as cumulative anchor bands, coloured by index (colours repeat when fewer than segments).
+    // Slivers under ~2% are hidden rather than rendered as crushed pill caps (the AnimatedFill floor rule).
+    public static void SetSegments(SegmentedBar bar, IList<float> fractions, IList<Color> colors)
+    {
+        var total = 0f;
+        if (fractions != null)
+            for (var i = 0; i < fractions.Count; i++)
+                total += Mathf.Max(0f, fractions[i]);
+        var x = 0f;
+        for (var i = 0; i < bar.Segments.Length; i++)
+        {
+            var seg = bar.Segments[i];
+            var frac = fractions != null && i < fractions.Count && total > 0f
+                ? Mathf.Max(0f, fractions[i]) / total
+                : 0f;
+            if (frac < 0.02f)
+            {
+                seg.enabled = false;
+                x += frac;
+                continue;
+            }
+            seg.enabled = true;
+            if (colors != null && colors.Count > 0)
+                seg.color = colors[i % colors.Count];
+            var rt = seg.rectTransform;
+            rt.anchorMin = new Vector2(x, 0f);
+            x += frac;
+            rt.anchorMax = new Vector2(x, 1f);
+            rt.offsetMin = rt.offsetMax = Vector2.zero;
+        }
     }
 }
 

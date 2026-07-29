@@ -390,6 +390,8 @@
   "siliconalley:wiz_demand_header": "What the market wants",
   "siliconalley:wiz_alloc_hint": "Select 2+ features in the Design step to allocate and target the market.",
   "siliconalley:wiz_demand_row": "wants {wants} · you {you}",
+  "siliconalley:wiz_demand_market_lbl": "Market wants",
+  "siliconalley:wiz_demand_you_lbl": "Your allocation",
   "siliconalley:wiz_targeting_fit": "Market fit: revenue {market} · quality {quality} (vs even split)",
   "siliconalley:wiz_market_estimate": "~{market}× (reach {reach}× × {segment} volume {volume}×) · price ×{price}",
   "siliconalley:wiz_deps_header": "Dependencies — does each feature have a tool?",
