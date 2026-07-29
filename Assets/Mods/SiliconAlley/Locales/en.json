@@ -459,6 +459,8 @@
   "siliconalley:screen_pub_lbl_bonus": "Bonus",
   "siliconalley:screen_pub_chip_rep": "rep {rep}",
   "siliconalley:screen_pub_badge_sign": "Sign",
+  "siliconalley:screen_pub_state_focus": "Focus match",
+  "siliconalley:screen_pub_state_generalist": "Generalist",
   "siliconalley:screen_rel_lbl_product": "Product",
   "siliconalley:screen_rel_lbl_review": "Review",
   "siliconalley:screen_rel_lbl_quality": "Quality",

@@ -248,6 +248,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _publisherSection;
     private TMP_Text _pubNoDealText;
     private SiliconAlleyUI.CardItem[] _publisherCards;
+    private GameObject[] _publisherOffers; // issue #149: per-publisher wrapper (read-only card + Sign button)
     private GameObject _pubDealCard;
     private SiliconAlleyUI.StatRow _pubDealPublisher, _pubDealDeadline, _pubDealShipEta, _pubDealBonus;
     private SiliconAlleyUI.ProgressBar _pubShipBar;
@@ -2134,10 +2135,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (SiliconAlleyState.HasDeal(key))
         {
-            // Active deal: hide the offer cards + prompt, show the deal card with a ship-progress bar.
+            // Active deal: hide the offers + prompt, show the deal card with a ship-progress bar.
             _pubNoDealText.gameObject.SetActive(false);
-            for (int i = 0; i < _publisherCards.Length; i++)
-                _publisherCards[i].Root.SetActive(false);
+            for (int i = 0; i < _publisherOffers.Length; i++)
+                _publisherOffers[i].SetActive(false); // #149: the wrapper hides the card AND its Sign button
             _pubDealCard.SetActive(true);
 
             var pub = SiliconAlleyState.GetDealPublisher(key);
@@ -2167,7 +2168,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var c = _publisherCards[i];
             var pub = roster[i];
             var eligible = SiliconAlleyPublishers.IsEligible(pub, businessTypeName);
-            c.Root.SetActive(eligible);
+            _publisherOffers[i].SetActive(eligible);
             if (!eligible)
                 continue;
             var rep = SiliconAlleyState.GetPublisherRep(pub.Index);
@@ -2179,7 +2180,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 "+" + Money(payout),
                 DaysLeft(days),
                 Compose("siliconalley:screen_pub_chip_rep", ("rep", rep.ToString("F1", CultureInfo.InvariantCulture))));
-            SetCardBadge(c, "siliconalley:screen_pub_badge_sign".GetLocalization(), SiliconAlleyTheme.Accent);
+            // Issue #149: the badge states WHY this offer is worth more — a focus match pays above a
+            // generalist. (It used to read "Sign", which is now the button beneath the card.)
+            var focusMatch = pub.Focus != SiliconAlleyPublishers.PublisherFocus.Any;
+            SetCardBadge(c, (focusMatch
+                    ? "siliconalley:screen_pub_state_focus"
+                    : "siliconalley:screen_pub_state_generalist").GetLocalization(),
+                focusMatch ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Slate);
         }
     }
 
@@ -3071,12 +3078,24 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeHeader(_publisherSection.transform, "siliconalley:screen_pub_header");
         _pubNoDealText = MakeText(_publisherSection.transform, "PubNoDeal", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _pubNoDealText.color = SiliconAlleyTheme.TextMuted;
+        // Issue #149: an offer is a READ-ONLY card plus a real Sign button. The card used to be the click
+        // target with "Sign" sitting in its BADGE slot — the only action-verb badge in the mod, while every
+        // other badge names a state. Now the badge names the state (focus match vs generalist) and the
+        // action is an actual button, so there is exactly one thing to press.
         var roster = SiliconAlleyPublishers.Roster;
         _publisherCards = new SiliconAlleyUI.CardItem[roster.Length];
+        _publisherOffers = new GameObject[roster.Length];
         for (int i = 0; i < roster.Length; i++)
         {
             var index = i; // capture a stable copy for the click closure
-            _publisherCards[i] = MakeCardItem(_publisherSection.transform, () => OnSignDeal(index));
+            var offer = MakeSection(_publisherSection.transform);
+            _publisherOffers[i] = offer;
+            _publisherCards[i] = MakeCardItem(offer.transform, null); // read-only: the button is the affordance
+            var signRow = MakeRow(offer.transform, SiliconAlleyTheme.Space.Small, 34);
+            signRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            MakeSpacer(signRow.transform); // right-align the button
+            FixWidth(MakeButton(signRow.transform, "siliconalley:screen_pub_badge_sign".GetLocalization(),
+                () => OnSignDeal(index), primary: true), 110f);
         }
         // Active-deal card (shown instead of the offers once a deal is signed): ship-progress bar + terms.
         _pubDealCard = MakeCardPanel(_publisherSection.transform, "PubDealCard");
