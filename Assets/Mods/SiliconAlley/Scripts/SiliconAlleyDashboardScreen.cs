@@ -230,6 +230,8 @@ sealed class SiliconAlleyStudioCard
 sealed class SiliconAlleyServerGroupCard
 {
     public GameObject Root;
+    private string _key;                 // issue #147: cached bind so a role click can repaint in place
+    private BuildingRegistration _reg;
     private Image _typeIcon;
     private TMP_Text _name;
     private TMP_Text _chipTotal, _chipInfra, _chipBackend, _chipHosting, _chipUnassigned;
@@ -237,11 +239,10 @@ sealed class SiliconAlleyServerGroupCard
     private GameObject _rowsHost;
     private readonly List<ServerRow> _rows = new List<ServerRow>();
     private readonly List<string> _ids = new List<string>(); // reused scratch: this studio's server ids
-    private Action _onChanged;
 
-    public static SiliconAlleyServerGroupCard Build(Transform parent, Action onChanged)
+    public static SiliconAlleyServerGroupCard Build(Transform parent)
     {
-        var c = new SiliconAlleyServerGroupCard { _onChanged = onChanged };
+        var c = new SiliconAlleyServerGroupCard();
         var card = MakeCardPanel(parent, "ServerGroupCard");
         var t = card.transform;
 
@@ -274,6 +275,8 @@ sealed class SiliconAlleyServerGroupCard
     // a handful of servers, and the two passes agree because both filter IsServerInstance over the same set.
     public int Fill(BuildingRegistration reg, string key)
     {
+        _key = key;  // issue #147: cache the bind — RefreshRolesInPlace repaints without arguments
+        _reg = reg;
         SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(reg.businessTypeName));
         _name.text = reg.GetDisplayName();
 
@@ -286,11 +289,7 @@ sealed class SiliconAlleyServerGroupCard
         _ids.Sort(StringComparer.Ordinal);
 
         var counts = SiliconAlleyState.ServerCountsByRole(key, reg);
-        _chipTotal.text = Compose("siliconalley:dash_servers_total", ("n", _ids.Count.ToString(CultureInfo.InvariantCulture)));
-        _chipInfra.text = Compose("siliconalley:dash_servers_infrastructure", ("n", Num(counts, SiliconAlleyState.ServerRole.Infrastructure)));
-        _chipBackend.text = Compose("siliconalley:dash_servers_backend", ("n", Num(counts, SiliconAlleyState.ServerRole.Backend)));
-        _chipHosting.text = Compose("siliconalley:dash_servers_hosting", ("n", Num(counts, SiliconAlleyState.ServerRole.Hosting)));
-        _chipUnassigned.text = Compose("siliconalley:dash_servers_unassigned", ("n", Num(counts, SiliconAlleyState.ServerRole.Unassigned)));
+        FillCounts(counts);
         FillEconomy(key, reg, counts);
 
         for (var i = 0; i < _ids.Count; i++)
@@ -308,8 +307,36 @@ sealed class SiliconAlleyServerGroupCard
     private ServerRow EnsureRow(int index)
     {
         while (index >= _rows.Count)
-            _rows.Add(ServerRow.Build(_rowsHost.transform, _onChanged));
+            _rows.Add(ServerRow.Build(_rowsHost.transform, RefreshRolesInPlace));
         return _rows[index];
+    }
+
+    // Issue #147: a role click repaints THIS card — row tints, count chips, economy line — instead of
+    // triggering the screen-wide Refresh (and its full layout rebuild) for what is a colour change. A
+    // role click re-buckets servers but never adds/removes one, so no row shows or hides; the only
+    // layout-dirtying writes are the auto-sizing chip texts. Cross-card effects (backend coverage on the
+    // studio cards) arrive via the next 1 Hz tick, like any sim-driven value. _reg is re-cached every
+    // Fill; a click landing in the second after the building was sold hits ServerCountsByRole's existing
+    // stale-id tolerance, same as the row's cached _key/_id always did.
+    private void RefreshRolesInPlace()
+    {
+        if (_key == null || _reg == null)
+            return;
+        var counts = SiliconAlleyState.ServerCountsByRole(_key, _reg);
+        FillCounts(counts);
+        FillEconomy(_key, _reg, counts);
+        for (var i = 0; i < _ids.Count && i < _rows.Count; i++)
+            _rows[i].RefreshRole();
+    }
+
+    // The five per-role count chips (split out of Fill so RefreshRolesInPlace can reuse it, #147).
+    private void FillCounts(Dictionary<SiliconAlleyState.ServerRole, int> counts)
+    {
+        _chipTotal.text = Compose("siliconalley:dash_servers_total", ("n", _ids.Count.ToString(CultureInfo.InvariantCulture)));
+        _chipInfra.text = Compose("siliconalley:dash_servers_infrastructure", ("n", Num(counts, SiliconAlleyState.ServerRole.Infrastructure)));
+        _chipBackend.text = Compose("siliconalley:dash_servers_backend", ("n", Num(counts, SiliconAlleyState.ServerRole.Backend)));
+        _chipHosting.text = Compose("siliconalley:dash_servers_hosting", ("n", Num(counts, SiliconAlleyState.ServerRole.Hosting)));
+        _chipUnassigned.text = Compose("siliconalley:dash_servers_unassigned", ("n", Num(counts, SiliconAlleyState.ServerRole.Unassigned)));
     }
 
     private static string Num(Dictionary<SiliconAlleyState.ServerRole, int> counts, SiliconAlleyState.ServerRole role) =>
@@ -399,7 +426,14 @@ sealed class SiliconAlleyServerGroupCard
             _key = key;
             _id = id;
             _label.text = Compose("siliconalley:dash_server_label", ("n", number.ToString(CultureInfo.InvariantCulture)));
-            var current = SiliconAlleyState.GetServerRole(key, id);
+            RefreshRole();
+        }
+
+        // Recolour the three role buttons from the currently bound server's role (issue #147: also the
+        // in-place repaint a role click triggers via the group card — colour-only, layout-inert).
+        public void RefreshRole()
+        {
+            var current = SiliconAlleyState.GetServerRole(_key, _id);
             for (var i = 0; i < 3; i++)
                 _roleImages[i].color = Roles[i] == current ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
         }
@@ -411,7 +445,7 @@ sealed class SiliconAlleyServerGroupCard
             var current = SiliconAlleyState.GetServerRole(_key, _id);
             var next = current == role ? SiliconAlleyState.ServerRole.Unassigned : role;
             SiliconAlleyState.SetServerRole(_key, _id, next);
-            _onChanged?.Invoke(); // = the hub's refresh: immediate recolour + summary update
+            _onChanged?.Invoke(); // issue #147: the GROUP CARD's in-place repaint (was the screen-wide Refresh)
         }
     }
 }

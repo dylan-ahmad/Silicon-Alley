@@ -62,9 +62,18 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     public static readonly KeyCode[] KeyChoices =
         { KeyCode.F9, KeyCode.F10, KeyCode.F11, KeyCode.F12, KeyCode.Tab, KeyCode.BackQuote };
 
-    private const float WindowWidth = 620f;
-    private const float WizardWidth = 1060f; // issue #81: the Design-stage wizard goes Software-Inc-scale wide
+    // Issue #147: ONE window width. The old 620/1060 split teleported the window 440px (and re-centred
+    // it) whenever a studio entered/left the Design stage; every screen now lays out for this width.
+    private const float WindowWidth = 940f;
     private const float MaxHeight = 940f; // window caps here (at the 1080 reference) and scrolls beyond
+
+    // Issue #147: the dragged window position, machine-local (NOT save state — presentation only). The
+    // key shape mirrors the game's "m:<modId>:<optionId>" option prefs; the game's Options reset only
+    // deletes REGISTERED option ids, so these can't be collaterally cleared. MUST be written/read via
+    // UnityEngine.PlayerPrefs — the game DLL declares a global-namespace PlayerPrefs class that shadows
+    // Unity's under the plain name.
+    private const string PrefWindowX = "m:SiliconAlley:window_x";
+    private const string PrefWindowY = "m:SiliconAlley:window_y";
 
     private static readonly int[] ScopeKinds =
     {
@@ -75,6 +84,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private GameObject _root;
     private RectTransform _windowRt, _contentRt; // window = clamped panel; content = scrollable stack
+    private SiliconAlleyWindowDrag _drag;        // issue #147: the title-strip drag handler (owns Clamp)
     private bool _built;
     private bool _visible;
     private bool _suppress;     // ignore control callbacks while we set values programmatically
@@ -349,6 +359,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 _refresh = 1f;
                 Refresh();
             }
+            FollowContentHeight(); // #147: value-path window sizing — never forces a layout pass
         }
 
         // Issue #56: advance the page-transition tween (fade + scale-pop). Layout-safe — alpha/scale never
@@ -381,6 +392,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OpenFor(string key)
     {
         EnsureBuilt();
+        _windowRt.anchoredPosition = _drag.Clamp(_windowRt.anchoredPosition); // #147: repair a stale position
         PopulateStudios();
         _hubMode = false; // issue #127: an explicit studio ask goes straight to detail, not the hub
         if (!string.IsNullOrEmpty(key) && _studioKeys.Contains(key))
@@ -392,18 +404,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _visible = true;
         _refresh = 1f;
         _wizardPage = 0; // always open the wizard at the first page
-        Refresh();
+        RefreshStructural(); // issue #147: first layout of the detail view
     }
 
     // Issue #127: open on the hub landing page.
     private void OpenForHub()
     {
         EnsureBuilt();
+        _windowRt.anchoredPosition = _drag.Clamp(_windowRt.anchoredPosition); // #147: repair a stale position
         _hubMode = true;
         _root.SetActive(true);
         _visible = true;
         _refresh = 1f;
-        Refresh();
+        RefreshStructural(); // issue #147: first layout of the hub
     }
 
     // Issue #127: a hub card's "Open" — switch to that studio's detail view in place.
@@ -413,14 +426,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (_studioKeys.Contains(key))
             _currentKey = key;
         _wizardPage = 0;
-        Refresh();
+        RefreshStructural(); // issue #147: hub → detail swaps the whole section set
     }
 
     // Issue #127: the header's "‹ Overview" — back to the hub in place.
     private void GoHub()
     {
         _hubMode = true;
-        Refresh();
+        RefreshStructural(); // issue #147: detail → hub swaps the whole section set
     }
 
     private void Close()
@@ -494,8 +507,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _idleSection.SetActive(false);
             _contractSection.SetActive(false);
             RefreshAbandon(true); // issue #113: no resolvable studio ⇒ nothing to abandon
-            ClampHeight();
-            return;
+            return; // #147: the section hides are picked up by FollowContentHeight a frame later
         }
 
         var businessType = BusinessTypeHelper.GetData(reg);
@@ -607,8 +619,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Issue #113: the Abandon escape hatch — offered in every active stage, hidden while Idle.
         RefreshAbandon(idle);
-
-        ClampHeight();
+        // #147: no layout clamp here — the value path never forces a rebuild. Structure changes reach
+        // RebuildLayout via RefreshStructural (clicks) or FollowContentHeight (sim-driven flips).
     }
 
     // Issue #127: the hub landing page — studio cards + the Servers section (the old F8 dashboard content),
@@ -651,7 +663,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _hubCards[i].Root.SetActive(false);
 
         RefreshHubServers(count);
-        ClampHeight();
+        // #147: no layout clamp here — see Refresh()'s tail note.
     }
 
     private SiliconAlleyStudioCard EnsureHubCard(int index)
@@ -684,7 +696,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private SiliconAlleyServerGroupCard EnsureHubServerCard(int index)
     {
         while (index >= _hubServerCards.Count)
-            _hubServerCards.Add(SiliconAlleyServerGroupCard.Build(_hubServersHost.transform, Refresh));
+            _hubServerCards.Add(SiliconAlleyServerGroupCard.Build(_hubServersHost.transform)); // #147: role clicks repaint in place
         return _hubServerCards[index];
     }
 
@@ -726,7 +738,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (reg == null)
             return;
         SiliconAlleyMilestones.TryResolve(_currentKey, _msSlot, optionIndex, reg);
-        Refresh(); // reflect the resolution (or the expiry) immediately
+        RefreshStructural(); // reflect the resolution (or the expiry) immediately — the card disappears (#147)
     }
 
     // Issue #113: the footer "Abandon project" button. Hidden when the studio is Idle (there is nothing to
@@ -739,20 +751,48 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _abandonButton.gameObject.SetActive(!idle);
     }
 
-    // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
-    // Issue #81: the window goes wide in the Design stage (the Software-Inc-scale wizard) and stays compact
-    // for every other stage. Set the width FIRST and force a layout pass so the Content (anchored to stretch
-    // with the viewport) reflows at the new width before we measure its height.
-    private void ClampHeight()
+    // Issue #147: the STRUCTURE path — for every click/navigation that swaps view modes, wizard pages,
+    // stages, or whole sections (anything that adds/removes/reflows blocks of content), where the window
+    // must resize the same frame. The 1 Hz tick and value-only clicks use plain Refresh() (the VALUE
+    // path), which never forces a synchronous layout pass — FollowContentHeight picks up whatever the
+    // engine's own end-of-frame layout produces.
+    private void RefreshStructural()
+    {
+        Refresh();
+        RebuildLayout();
+    }
+
+    // Issue #147: the ONE forced-synchronous layout rebuild, run only on real structure changes (never
+    // the 1 Hz tick — that was the old per-second "breathing"). Captures and restores the scroll offset
+    // across the rebuild: the content pivot is top, so anchoredPosition.y IS the pixel scroll offset,
+    // and the Clamped ScrollRect re-clamps any overshoot in its LateUpdate — shrinking content lands at
+    // the nearest valid offset instead of jumping to a stale one.
+    private void RebuildLayout()
     {
         if (_contentRt == null || _windowRt == null)
             return;
-        var wide = !_hubMode && _currentKey != null && SiliconAlleyState.GetStage(_currentKey) == SiliconAlleyState.ProjectStage.Design;
-        var width = wide ? WizardWidth : WindowWidth;
-        _windowRt.sizeDelta = new Vector2(width, _windowRt.sizeDelta.y);
-        Canvas.ForceUpdateCanvases(); // propagate the new window width down to the viewport + content rects
+        var scrollY = _contentRt.anchoredPosition.y;
+        Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(_contentRt);
-        _windowRt.sizeDelta = new Vector2(width, Mathf.Min(_contentRt.rect.height, MaxHeight));
+        _windowRt.sizeDelta = new Vector2(WindowWidth, Mathf.Min(_contentRt.rect.height, MaxHeight));
+        _contentRt.anchoredPosition = new Vector2(_contentRt.anchoredPosition.x, scrollY);
+    }
+
+    // Issue #147: the VALUE path's window sizing. Reads the content height Unity's own end-of-frame
+    // layout produced LAST frame and follows it — no ForceUpdateCanvases, no ForceRebuildLayoutImmediate,
+    // ever. Catches every sim-driven section flip (ship report appearing, a milestone window opening or
+    // expiring, update-due, a contract landing) one frame late, which is invisible; the epsilon keeps
+    // steady-state writes at zero (inside the scrollbar auto-hide's 4px/1px hysteresis), and the constant
+    // width means content height can't feed back into itself — no oscillation.
+    private const float HeightFollowEpsilon = 1f;
+
+    private void FollowContentHeight()
+    {
+        if (_windowRt == null || _contentRt == null)
+            return;
+        var target = Mathf.Min(_contentRt.rect.height, MaxHeight);
+        if (Mathf.Abs(_windowRt.sizeDelta.y - target) > HeightFollowEpsilon)
+            _windowRt.sizeDelta = new Vector2(WindowWidth, target);
     }
 
     // Issue #35: drive the Design-phase wizard. While the concept is editable, show one page at a time with
@@ -766,12 +806,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _ctxProgress = rawProgress;
         _ctxPerHour = perHour;
 
-        // Hide every page up front; the active one (or the recap) is shown below.
-        foreach (var page in _wizardPages)
-            page.Root.SetActive(false);
-
         if (!SiliconAlleyState.CanEditConcept(key))
         {
+            foreach (var page in _wizardPages) // the recap replaces the flow: every page hides
+                page.Root.SetActive(false);
             _stepIndicator.SetActive(false);
             _wizardNavRow.SetActive(false);
             _wizardRecap.SetActive(true);
@@ -784,10 +822,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _stepIndicator.SetActive(true);
         RebuildVisiblePages();
         if (_visiblePages.Count == 0)
+        {
+            foreach (var page in _wizardPages)
+                page.Root.SetActive(false);
             return;
+        }
         _wizardPage = Mathf.Clamp(_wizardPage, 0, _visiblePages.Count - 1);
         var current = _visiblePages[_wizardPage];
-        current.Root.SetActive(true);
+        // Issue #147: compute the target page FIRST and hide only the OTHERS — the active page must never
+        // see a same-frame off/on. The old hide-all-then-reshow bounced the whole visible subtree through
+        // OnDisable/OnEnable every 1 Hz tick (all its Graphics re-dirtied, hover scales reset, two layout
+        // dirties per second). Iterating _wizardPages (not _visiblePages) still hides a page whose
+        // IsPresent flipped false.
+        foreach (var page in _wizardPages)
+            if (page.Root != current.Root)
+                page.Root.SetActive(false);
+        if (!current.Root.activeSelf)
+            current.Root.SetActive(true);
         current.Refresh();
         UpdateStepIndicator(current);
         if (current.Root != _lastShownPage) // only real page changes animate (not the 1s same-page refresh)
@@ -2045,7 +2096,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (_wizardPage > 0)
             _wizardPage--;
-        Refresh();
+        RefreshStructural(); // issue #147: a page swap re-lays the wizard out
     }
 
     private void OnWizardNext()
@@ -2053,14 +2104,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         RebuildVisiblePages();
         if (_visiblePages.Count == 0)
         {
-            Refresh();
+            RefreshStructural();
             return;
         }
         if (_wizardPage >= _visiblePages.Count - 1)
             SiliconAlleyState.BeginDevelopment(_currentKey); // issue #88: Summary confirm = Start development
         else
             _wizardPage++;
-        Refresh();
+        RefreshStructural(); // issue #147: page swap (or the Summary confirm's stage change)
     }
 
     // Issue #26: toggle the feature shown in this Features-page slot for the current business type. The slot
@@ -2070,7 +2121,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var feats = SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName);
         if (slot >= 0 && slot < feats.Length)
             SiliconAlleyState.ToggleFeature(_currentKey, feats[slot].Bit);
-        Refresh();
+        RefreshStructural(); // issue #147: dep-coverage cards + weight rows appear/disappear with the bit
     }
 
     // Issue #37: toggle the platform shown in this OS-page slot for the current business type (same slot→bit
@@ -2102,7 +2153,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         else if (SiliconAlleyMoney.TrySpend(_ctxReg, t.BuildCost,        // Licensed → Build & Own (charge R&D)
             t.NameKey.GetLocalization(), "siliconalley:transaction_tools"))
             SiliconAlleyState.SetToolOwned(_currentKey, t.Bit);          // owned now (usedToolsMask stays set)
-        Refresh();
+        RefreshStructural(); // issue #147: the card's chip count changes between states (1 ↔ 3)
     }
 
     // Issue #84: cycle this product-dependency slot (#83 build-or-buy). Off → License Vendor A → License
@@ -2145,7 +2196,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             else
                 SiliconAlleyState.ClearDependency(_currentKey, type, d.Bit);    // can't afford → back to Off
         }
-        Refresh();
+        RefreshStructural(); // issue #147: the card's chip count changes between states (1 ↔ 3)
     }
 
     private void OnToggleOvertime()
@@ -2168,7 +2219,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         SiliconAlleyState.StartProject(_currentKey);
         SiliconAlleyState.ClearLastShip(_currentKey);
-        Refresh();
+        RefreshStructural(); // issue #147: Idle → Design swaps the section set
     }
 
     // Issue #113: abandon the in-flight project — the permanent escape hatch out of any stage/wizard dead
@@ -2188,7 +2239,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             {
                 SiliconAlleyState.AbandonProject(_currentKey);
                 _wizardPage = 0; // the next project opens its wizard at the first page
-                Refresh();
+                RefreshStructural(); // issue #147: the stage drops to Idle — whole section set changes
             });
     }
 
@@ -2196,7 +2247,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OnSendToTesting()
     {
         SiliconAlleyState.SendToTesting(_currentKey);
-        Refresh();
+        RefreshStructural(); // issue #147: Development → Testing swaps the section set
     }
 
     // Issue #88: queue a post-launch update for the live catalog. The simulator credits the support patch on
@@ -2279,7 +2330,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SiliconAlleyPublishers.OfferFor(pub, reg.businessTypeName, MarketPrice(businessType), rep,
             out var days, out var payout, out _, out _);
         SiliconAlleyState.SignDeal(_currentKey, publisherIndex, TimeHelper.CurrentDay + days, payout);
-        Refresh();
+        RefreshStructural(); // issue #147: the offer cards give way to the active-deal card
     }
 
     private void CycleStudio(int delta)
@@ -2290,7 +2341,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         idx = (idx + delta + _studioKeys.Count) % _studioKeys.Count;
         _currentKey = _studioKeys[idx];
         _wizardPage = 0; // each studio opens its wizard at the first page
-        Refresh();
+        RefreshStructural(); // issue #147: a whole-detail swap
     }
 
     // ---- helpers (formatting lives in SiliconAlleyFormat — issue #144) -----------------------------
@@ -2370,13 +2421,17 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         backdropButton.transition = Selectable.Transition.None;
         backdropButton.onClick.AddListener(Close);
 
-        // Window: fixed-width panel, centred, height clamped each Refresh; hosts a vertical ScrollRect so
-        // tall content (e.g. the ship report + Design stacked) scrolls instead of overflowing the screen.
+        // Window: fixed-width panel; hosts a vertical ScrollRect so tall content (e.g. the ship report +
+        // Design stacked) scrolls instead of overflowing the screen. Issue #147: the pivot sits at the TOP
+        // centre, so height changes grow the window DOWNWARD from a fixed top edge instead of moving both
+        // edges (the old per-second "breathing"); the default position puts a full-height (MaxHeight)
+        // window vertically centred on screen.
         var window = MakePanel(_root.transform, "Window");
         _windowRt = window.rectTransform;
         _windowRt.anchorMin = _windowRt.anchorMax = new Vector2(0.5f, 0.5f);
+        _windowRt.pivot = new Vector2(0.5f, 1f);
         _windowRt.sizeDelta = new Vector2(WindowWidth, 600f);
-        _windowRt.anchoredPosition = Vector2.zero;
+        _windowRt.anchoredPosition = new Vector2(0f, MaxHeight * 0.5f);
         var scroll = window.gameObject.AddComponent<ScrollRect>();
         scroll.horizontal = false;
         scroll.vertical = true;
@@ -2418,6 +2473,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Title row: title (flexible) + [‹ Overview] (issue #127: back to the hub; hidden on it) + [X] close.
         var titleRow = MakeRow(root, 6f, 30);
+        // Issue #147: invisible drag strip behind the title row — the window's drag handle. First sibling
+        // + ignoreLayout: the row's buttons render later and keep raycast priority; the strip catches
+        // everything else (alpha-0 Images still raycast; rows themselves have no Graphic). It implements
+        // the drag interfaces itself, so the ScrollRect never scrolls during a title drag, and it has no
+        // IScrollHandler, so the mouse wheel still bubbles to the ScrollRect. The strip scrolls WITH the
+        // content — draggable while scrolled to top; the always-visible fixed header is #149's.
+        var dragStrip = MakeImage(titleRow.transform, "DragStrip", Color.clear);
+        dragStrip.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        Stretch(dragStrip.rectTransform);
+        dragStrip.rectTransform.SetAsFirstSibling();
+        _drag = dragStrip.gameObject.AddComponent<SiliconAlleyWindowDrag>();
+        _drag.Window = _windowRt;
+        _drag.ScaleSource = canvas;
+        _drag.OnMoved = SaveWindowPosition;
         _titleText = MakeText(titleRow.transform, "Title", SiliconAlleyTheme.Sizes.Title, TextAnchor.MiddleLeft, FontStyle.Bold);
         _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);
         FixWidth(_overviewButton, 120f);
@@ -2835,10 +2904,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _historySection = MakeSection(root);
         MakeDivider(_historySection.transform);
         // Issue #146: the archive folds behind its header, default collapsed — it's pure history (up to 8
-        // cards ≈ 700px of scroll) and the fold reclaims that for the sections that need action. ClampHeight
-        // as the toggle callback resizes the window on the click instead of on the next 1 Hz tick.
+        // cards ≈ 700px of scroll) and the fold reclaims that for the sections that need action. The
+        // RebuildLayout toggle callback (#147) resizes the window on the click instead of a frame later.
         var historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
-            startExpanded: false, onToggled: ClampHeight);
+            startExpanded: false, onToggled: RebuildLayout);
         _historyHost = historyFold.Content;
 
         // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
@@ -2868,6 +2937,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _abandonButton = MakeButton(footer.transform, "siliconalley:screen_abandon_btn".GetLocalization(), OnAbandonPressed);
         MakeButton(footer.transform, "siliconalley:screen_close".GetLocalization(), Close);
 
+        // Issue #147: restore the last dragged position (machine-local; default = top-centred). One canvas
+        // force-update first so the CanvasScaler has sized the canvas rect the clamp checks against — a
+        // stale/off-screen/other-resolution position self-repairs instead of loading unreachable.
+        Canvas.ForceUpdateCanvases();
+        _windowRt.anchoredPosition = _drag.Clamp(new Vector2(
+            UnityEngine.PlayerPrefs.GetFloat(PrefWindowX, 0f),
+            UnityEngine.PlayerPrefs.GetFloat(PrefWindowY, MaxHeight * 0.5f)));
+
         _root.SetActive(false);
+    }
+
+    // Issue #147: persist the dragged position on end-drag (rare — flush immediately so it survives a
+    // crash). See PrefWindowX for why the PlayerPrefs qualification is load-bearing.
+    private void SaveWindowPosition(Vector2 pos)
+    {
+        UnityEngine.PlayerPrefs.SetFloat(PrefWindowX, pos.x);
+        UnityEngine.PlayerPrefs.SetFloat(PrefWindowY, pos.y);
+        UnityEngine.PlayerPrefs.Save();
     }
 }

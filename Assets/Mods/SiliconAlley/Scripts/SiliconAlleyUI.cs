@@ -998,7 +998,7 @@ public static class SiliconAlleyUI
         button.onClick.AddListener(() =>
         {
             SetCollapsibleExpanded(c, !c.Expanded);
-            onToggled?.Invoke(); // e.g. the screen's ClampHeight, so the window resizes on the click, not a second later
+            onToggled?.Invoke(); // e.g. the screen's RebuildLayout, so the window resizes on the click, not a frame later
         });
         // Initial state without the reveal fade (a freshly built screen shouldn't animate).
         c.Expanded = startExpanded;
@@ -1321,7 +1321,7 @@ public sealed class SiliconAlleyAnimatedNumber : MonoBehaviour
 
 // #146: fades the window scrollbar in only while the content actually overflows the viewport. The check is
 // hysteretic (show above 4px of overflow, hide below 1px; in between keep the current state) so the 1 Hz
-// ClampHeight re-measure — which can jitter the content height by a pixel or two — can never flip the bar
+// height-follow re-measure — which can jitter the content height by a pixel or two — can never flip the bar
 // on and off (the "no flicker" acceptance criterion). Visibility is a CanvasGroup ALPHA fade, never
 // SetActive, so neither direction triggers a layout rebuild.
 [DisallowMultipleComponent]
@@ -1448,5 +1448,62 @@ public sealed class SiliconAlleyCheckPop : MonoBehaviour
         transform.localScale = new Vector3(t, t, 1f);
         if (Group != null)
             Group.alpha = t;
+    }
+}
+
+// ---- Issue #147: window dragging. NOT the game's UI.DraggableWindows.DraggableWindow — that component
+// is unusable at runtime: its id/handle are private [SerializeField]s (AddComponent → error + early
+// return), its handle only implements pointer-down/up so a ScrollRect window SCROLLS while you "drag",
+// and its persistence keys off the never-set serialized id. This one lives on a raycastable Graphic and
+// implements the drag interfaces ITSELF, which makes uGUI route the whole drag here — the ancestor
+// ScrollRect never sees it. Event-driven (screen-px deltas / canvas scaleFactor), so game pause and
+// timescale are irrelevant. The owner persists the position via the OnMoved end-of-drag hook. ----
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyWindowDrag : MonoBehaviour,
+    IBeginDragHandler, IDragHandler, IEndDragHandler
+{
+    public RectTransform? Window;    // the rect the drag moves (anchor centre, pivot top-centre)
+    public Canvas? ScaleSource;      // the overlay canvas — scaleFactor converts screen px → canvas units
+    public Action<Vector2>? OnMoved; // end-of-drag hook with the final anchoredPosition (persist here)
+
+    private const float MinVisibleX = 120f; // canvas px of window width that must stay reachable
+    private const float MinVisibleY = 40f;  // canvas px of the title strip that must stay above the bottom
+
+    public void OnBeginDrag(PointerEventData eventData)
+    {
+        // Presence alone claims the drag from the ancestor ScrollRect — nothing to initialize.
+    }
+
+    public void OnDrag(PointerEventData eventData)
+    {
+        if (Window == null)
+            return;
+        var scale = ScaleSource != null ? ScaleSource.scaleFactor : 1f;
+        Window.anchoredPosition = Clamp(Window.anchoredPosition + eventData.delta / Mathf.Max(scale, 0.01f));
+    }
+
+    public void OnEndDrag(PointerEventData eventData)
+    {
+        if (Window != null)
+            OnMoved?.Invoke(Window.anchoredPosition);
+    }
+
+    // Keep the window substantially on-screen: the top edge never above the screen top, the title strip
+    // never below the bottom edge, and at least MinVisibleX of width reachable. Public so the owner can
+    // run a loaded/stale position (older resolution, edited prefs) through the same rule. Assumes the
+    // window pivot is top-centre (pos.y IS the top edge) and its anchor is the canvas centre.
+    public Vector2 Clamp(Vector2 pos)
+    {
+        if (Window == null || ScaleSource == null)
+            return pos;
+        var canvasRect = ((RectTransform)ScaleSource.transform).rect;
+        if (canvasRect.height < 1f)
+            return pos; // canvas not sized yet (pre-layout) — never collapse the position to a corner
+        var halfW = canvasRect.width * 0.5f;
+        var halfH = canvasRect.height * 0.5f;
+        var winHalfW = Window.rect.width * 0.5f;
+        pos.x = Mathf.Clamp(pos.x, -halfW - winHalfW + MinVisibleX, halfW + winHalfW - MinVisibleX);
+        pos.y = Mathf.Clamp(pos.y, -halfH + MinVisibleY, halfH);
+        return pos;
     }
 }

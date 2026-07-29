@@ -51,6 +51,18 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   (`14d`). The hub's demand trend pill now shows the multiplier shape too (`▲ ×1.12`). Presentation only.
 
 ### Changed (0.6.0 UI)
+- **Window behavior: one width, draggable, jank-free refresh** (#147, epic #142). The project window is
+  **one 940px width everywhere** — entering/leaving the Design stage no longer teleports it 440px — and
+  it now hangs from a **fixed top edge** (height changes grow downward instead of moving both edges).
+  It is **draggable by the title row**, and the position **persists across open/close and game
+  sessions** (machine-local; a stale or off-screen position self-repairs on the next open). The
+  per-second refresh is split into a value path (updates text/colors/bars in place, never forces a
+  layout pass) and a structure path (the one forced rebuild, run only when sections/pages/modes really
+  change, preserving the scroll position) — the once-a-second window "breathing" and scroll nudges are
+  gone, the wizard no longer blinks its active page every tick, and a **server-role click repaints just
+  its own card** instead of rebuilding the whole screen. (The game's `DraggableWindow` component turned
+  out unusable at runtime — private serialized fields, and its handle lets the ScrollRect scroll during
+  the drag — so the mod ships its own ~50-line drag handler.) Presentation only.
 - **Design-system foundation** (#143, epic #142). The theme gains real design tokens: spacing / control-height /
   corner-radius / elevation scales, a `Status` (13pt) type size for the muted status lines, and new
   `Danger` / `Info` / `Focus` / `Scrim` / `Shadow` colors plus named state blends (`CardSelected`,
