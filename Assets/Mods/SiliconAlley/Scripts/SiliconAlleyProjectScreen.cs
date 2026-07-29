@@ -119,8 +119,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Concept page
     private GameObject _conceptPage;
     private TMP_Text _designQualityText, _leadText, _etaText, _conceptNameText;
-    private readonly Image[] _scopeImages = new Image[3];
-    private readonly Button[] _scopeButtons = new Button[3];
+    private SiliconAlleyUI.TabBar _scopeTabs; // issue #146: the scope picker as a real segmented control
     private TMP_InputField _productNameInput;
     private Slider _focusSlider;
     // Summary page (placeholder rows today; sub-issues fill them in)
@@ -1068,8 +1067,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _etaText.text = Compose("siliconalley:screen_designeta", ("eta", Eta(remaining, _ctxPerHour)));
 
         var currentKind = SiliconAlleyState.GetProjectType(key);
-        for (var i = 0; i < 3; i++)
-            _scopeImages[i].color = ScopeKinds[i] == currentKind ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+        SetTabSelected(_scopeTabs, Array.IndexOf(ScopeKinds, currentKind)); // issue #146: state-driven tab tint
 
         _suppress = true; // setting the value must not write back through OnFocusChanged
         _focusSlider.value = SiliconAlleyState.GetDesignFocus(key);
@@ -1995,6 +1993,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         Refresh();
     }
 
+    // Issue #146: a scope tab picked (single-select — the tab index maps straight onto ScopeKinds).
+    private void OnScopeTab(int index)
+    {
+        if (index >= 0 && index < ScopeKinds.Length)
+            OnScopeSelected(ScopeKinds[index]);
+    }
+
     // Issue #38: pick the target audience segment for this product (single-select, like scope).
     private void OnSelectSegment(int ordinal)
     {
@@ -2444,16 +2449,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // Concept page: today's scope + focus controls, read-only product name and baseline readouts.
         _conceptPage = MakeSection(_wizardSection.transform);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_scope");
-        var scopeRow = MakeRow(_conceptPage.transform);
+        // Issue #146: the scope picker is a real segmented control (was 3 hand-recoloured MakeButtons).
         var scopeKeys = new[] { "siliconalley:projecttype_quick", "siliconalley:projecttype_standard", "siliconalley:projecttype_ambitious" };
-        for (var i = 0; i < 3; i++)
-        {
-            var kind = ScopeKinds[i];
-            var btn = MakeButton(scopeRow.transform, scopeKeys[i].GetLocalization(), () => OnScopeSelected(kind));
-            _scopeButtons[i] = btn;
-            _scopeImages[i] = btn.GetComponent<Image>();
-            SetButtonIcon(btn, SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
-        }
+        var scopeLabels = new string[scopeKeys.Length];
+        for (var i = 0; i < scopeKeys.Length; i++)
+            scopeLabels[i] = scopeKeys[i].GetLocalization();
+        _scopeTabs = MakeTabs(_conceptPage.transform, scopeLabels, OnScopeTab);
+        for (var i = 0; i < scopeKeys.Length; i++)
+            SetButtonIcon(_scopeTabs.Buttons[i], SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
         _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_product_name");
         _productNameInput = MakeInputField(_conceptPage.transform, "ProductNameInput",

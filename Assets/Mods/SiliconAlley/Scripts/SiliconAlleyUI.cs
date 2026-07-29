@@ -728,6 +728,85 @@ public static class SiliconAlleyUI
         autoHide.Group = group;
         return bar;
     }
+
+    // ---- Tabs / segmented control (#146). A capsule track holding N pill tabs; single-select, with an
+    // optional click-the-active-tab-to-clear mode (allowDeselect — the server-role selector's semantics,
+    // migrating in #148). Clicks only report the chosen index through onSelect; the screen writes state and
+    // its Refresh re-asserts the visuals via SetTabSelected (the write-state-then-Refresh flow every control
+    // here follows), so the 1 Hz tick keeps tabs honest for free. Tab children are named Label/Icon exactly
+    // like MakeButton's, so SetButtonIcon works on a tab button unchanged. ----
+
+    public sealed class TabBar
+    {
+        public GameObject Root = null!;
+        public Button[] Buttons = null!;
+        public Image[] Images = null!;
+        public TMP_Text[] Labels = null!;
+        public int Selected = -1; // last index passed to SetTabSelected (-1 = none)
+    }
+
+    public static TabBar MakeTabs(Transform parent, string[] labels, Action<int> onSelect, bool allowDeselect = false)
+    {
+        var go = new GameObject("Tabs", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var track = go.AddComponent<Image>();
+        track.color = SiliconAlleyTheme.Elevated;
+        ApplyPill(track, SiliconAlleyTheme.Height.Control);
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.padding = new RectOffset(3, 3, 3, 3);
+        h.spacing = 4f;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = true; // tabs share the width equally
+        h.childForceExpandHeight = true;
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = SiliconAlleyTheme.Height.Control;
+        le.flexibleWidth = 1f;
+
+        var bar = new TabBar
+        {
+            Root = go,
+            Buttons = new Button[labels.Length],
+            Images = new Image[labels.Length],
+            Labels = new TMP_Text[labels.Length],
+        };
+        var tabHeight = SiliconAlleyTheme.Height.Control - 6f; // inside the 3px track padding
+        for (var i = 0; i < labels.Length; i++)
+        {
+            var tab = new GameObject("Tab", typeof(RectTransform));
+            tab.transform.SetParent(go.transform, false);
+            var image = tab.AddComponent<Image>();
+            ApplyPill(image, tabHeight);
+            var button = tab.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.colors = SiliconAlleyTheme.Interaction;
+            var index = i; // per-tab copy for the click closure
+            button.onClick.AddListener(() => onSelect(allowDeselect && bar.Selected == index ? -1 : index));
+            tab.AddComponent<SiliconAlleyHoverScale>().Gate = button;
+
+            var label = MakeText(tab.transform, "Label", SiliconAlleyTheme.Sizes.Button, TextAnchor.MiddleCenter, FontStyle.Bold);
+            label.text = labels[i];
+            Stretch(label.rectTransform);
+
+            bar.Buttons[i] = button;
+            bar.Images[i] = image;
+            bar.Labels[i] = label;
+        }
+        SetTabSelected(bar, -1);
+        return bar;
+    }
+
+    // Recolour the bar to the selected index (-1 = none). Idempotent — call from Refresh each tick.
+    public static void SetTabSelected(TabBar bar, int index)
+    {
+        bar.Selected = index;
+        var off = SiliconAlleyTheme.Slate;
+        off.a = 0.45f; // near-transparent on the Elevated track so the active pill pops
+        for (var i = 0; i < bar.Images.Length; i++)
+        {
+            bar.Images[i].color = i == index ? SiliconAlleyTheme.Accent : off;
+            bar.Labels[i].color = i == index ? SiliconAlleyTheme.Text : SiliconAlleyTheme.TextMuted;
+        }
+    }
 }
 
 // ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame
