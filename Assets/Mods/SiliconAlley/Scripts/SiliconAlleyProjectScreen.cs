@@ -393,7 +393,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _visible = true;
         _refresh = 1f;
         _wizardPage = 0; // always open the wizard at the first page
-        Refresh();
+        RefreshStructural(); // issue #147: first layout of the detail view
     }
 
     // Issue #127: open on the hub landing page.
@@ -404,7 +404,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _root.SetActive(true);
         _visible = true;
         _refresh = 1f;
-        Refresh();
+        RefreshStructural(); // issue #147: first layout of the hub
     }
 
     // Issue #127: a hub card's "Open" — switch to that studio's detail view in place.
@@ -414,14 +414,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (_studioKeys.Contains(key))
             _currentKey = key;
         _wizardPage = 0;
-        Refresh();
+        RefreshStructural(); // issue #147: hub → detail swaps the whole section set
     }
 
     // Issue #127: the header's "‹ Overview" — back to the hub in place.
     private void GoHub()
     {
         _hubMode = true;
-        Refresh();
+        RefreshStructural(); // issue #147: detail → hub swaps the whole section set
     }
 
     private void Close()
@@ -727,7 +727,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (reg == null)
             return;
         SiliconAlleyMilestones.TryResolve(_currentKey, _msSlot, optionIndex, reg);
-        Refresh(); // reflect the resolution (or the expiry) immediately
+        RefreshStructural(); // reflect the resolution (or the expiry) immediately — the card disappears (#147)
     }
 
     // Issue #113: the footer "Abandon project" button. Hidden when the studio is Idle (there is nothing to
@@ -738,6 +738,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (_abandonButton == null)
             return;
         _abandonButton.gameObject.SetActive(!idle);
+    }
+
+    // Issue #147: the STRUCTURE path — for every click/navigation that swaps view modes, wizard pages,
+    // stages, or whole sections (anything that adds/removes/reflows blocks of content), where the window
+    // must resize the same frame. The 1 Hz tick and value-only clicks use plain Refresh() (the VALUE
+    // path), which never forces a synchronous layout pass.
+    private void RefreshStructural()
+    {
+        Refresh();
     }
 
     // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
@@ -2042,7 +2051,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (_wizardPage > 0)
             _wizardPage--;
-        Refresh();
+        RefreshStructural(); // issue #147: a page swap re-lays the wizard out
     }
 
     private void OnWizardNext()
@@ -2050,14 +2059,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         RebuildVisiblePages();
         if (_visiblePages.Count == 0)
         {
-            Refresh();
+            RefreshStructural();
             return;
         }
         if (_wizardPage >= _visiblePages.Count - 1)
             SiliconAlleyState.BeginDevelopment(_currentKey); // issue #88: Summary confirm = Start development
         else
             _wizardPage++;
-        Refresh();
+        RefreshStructural(); // issue #147: page swap (or the Summary confirm's stage change)
     }
 
     // Issue #26: toggle the feature shown in this Features-page slot for the current business type. The slot
@@ -2067,7 +2076,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var feats = SiliconAlleyFeatures.FeaturesFor(_ctxBusinessType?.businessTypeName);
         if (slot >= 0 && slot < feats.Length)
             SiliconAlleyState.ToggleFeature(_currentKey, feats[slot].Bit);
-        Refresh();
+        RefreshStructural(); // issue #147: dep-coverage cards + weight rows appear/disappear with the bit
     }
 
     // Issue #37: toggle the platform shown in this OS-page slot for the current business type (same slot→bit
@@ -2099,7 +2108,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         else if (SiliconAlleyMoney.TrySpend(_ctxReg, t.BuildCost,        // Licensed → Build & Own (charge R&D)
             t.NameKey.GetLocalization(), "siliconalley:transaction_tools"))
             SiliconAlleyState.SetToolOwned(_currentKey, t.Bit);          // owned now (usedToolsMask stays set)
-        Refresh();
+        RefreshStructural(); // issue #147: the card's chip count changes between states (1 ↔ 3)
     }
 
     // Issue #84: cycle this product-dependency slot (#83 build-or-buy). Off → License Vendor A → License
@@ -2142,7 +2151,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             else
                 SiliconAlleyState.ClearDependency(_currentKey, type, d.Bit);    // can't afford → back to Off
         }
-        Refresh();
+        RefreshStructural(); // issue #147: the card's chip count changes between states (1 ↔ 3)
     }
 
     private void OnToggleOvertime()
@@ -2165,7 +2174,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         SiliconAlleyState.StartProject(_currentKey);
         SiliconAlleyState.ClearLastShip(_currentKey);
-        Refresh();
+        RefreshStructural(); // issue #147: Idle → Design swaps the section set
     }
 
     // Issue #113: abandon the in-flight project — the permanent escape hatch out of any stage/wizard dead
@@ -2185,7 +2194,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             {
                 SiliconAlleyState.AbandonProject(_currentKey);
                 _wizardPage = 0; // the next project opens its wizard at the first page
-                Refresh();
+                RefreshStructural(); // issue #147: the stage drops to Idle — whole section set changes
             });
     }
 
@@ -2193,7 +2202,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OnSendToTesting()
     {
         SiliconAlleyState.SendToTesting(_currentKey);
-        Refresh();
+        RefreshStructural(); // issue #147: Development → Testing swaps the section set
     }
 
     // Issue #88: queue a post-launch update for the live catalog. The simulator credits the support patch on
@@ -2276,7 +2285,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SiliconAlleyPublishers.OfferFor(pub, reg.businessTypeName, MarketPrice(businessType), rep,
             out var days, out var payout, out _, out _);
         SiliconAlleyState.SignDeal(_currentKey, publisherIndex, TimeHelper.CurrentDay + days, payout);
-        Refresh();
+        RefreshStructural(); // issue #147: the offer cards give way to the active-deal card
     }
 
     private void CycleStudio(int delta)
@@ -2287,7 +2296,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         idx = (idx + delta + _studioKeys.Count) % _studioKeys.Count;
         _currentKey = _studioKeys[idx];
         _wizardPage = 0; // each studio opens its wizard at the first page
-        Refresh();
+        RefreshStructural(); // issue #147: a whole-detail swap
     }
 
     // ---- helpers (formatting lives in SiliconAlleyFormat — issue #144) -----------------------------
