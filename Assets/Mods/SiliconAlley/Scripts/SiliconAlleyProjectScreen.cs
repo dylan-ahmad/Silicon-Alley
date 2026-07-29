@@ -299,6 +299,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private readonly List<BuildingRegistration> _studioRegs = new List<BuildingRegistration>();
     private readonly List<SiliconAlleyStudioCard> _hubCards = new List<SiliconAlleyStudioCard>();
     private readonly List<SiliconAlleyServerGroupCard> _hubServerCards = new List<SiliconAlleyServerGroupCard>();
+    // Issue #148: the per-tick attention pre-pass (index-aligned with _studioRegs) + the sorted binding
+    // order — pooled card slot s is BOUND to studio _hubOrder[s]; nothing ever moves siblings (#147).
+    private readonly List<SiliconAlleyAttention.Info> _hubInfos = new List<SiliconAlleyAttention.Info>();
+    private readonly List<int> _hubOrder = new List<int>();
 
     private void Awake()
     {
@@ -653,11 +657,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             "siliconalley:dash_empty",
             "siliconalley:dash_registration_failed").GetLocalization();
         _hubEmptyText.gameObject.SetActive(count == 0);
+
+        // Issue #148 pre-pass: ONE attention/totals computation per studio, BEFORE any card binds — the
+        // triage strip renders above the cards and must show this tick's figures, not last tick's.
+        _hubInfos.Clear();
         for (var i = 0; i < count; i++)
+            _hubInfos.Add(SiliconAlleyAttention.Compute(_studioRegs[i], _studioKeys[i]));
+
+        // Sorted BINDING order (#147: pooled slots never move — slot s is simply bound to the studio that
+        // sorts s-th): Danger, then Warn, then quiet; stable by original index within each tier. When a
+        // severity flips mid-hover the card under the cursor re-binds to a different studio — accepted:
+        // the click delegate reads the card's CURRENT bind, so a click always opens what the card shows.
+        _hubOrder.Clear();
+        for (var lvl = (int)SiliconAlleyAttention.Level.Danger; lvl >= (int)SiliconAlleyAttention.Level.None; lvl--)
+            for (var i = 0; i < count; i++)
+                if ((int)_hubInfos[i].Level == lvl)
+                    _hubOrder.Add(i);
+
+        for (var slot = 0; slot < count; slot++)
         {
-            var card = EnsureHubCard(i);
+            var i = _hubOrder[slot];
+            var card = EnsureHubCard(slot);
             card.Root.SetActive(true);
-            card.Fill(_studioRegs[i], _studioKeys[i]);
+            card.Fill(_studioRegs[i], _studioKeys[i], _hubInfos[i]);
         }
         for (var i = count; i < _hubCards.Count; i++)
             _hubCards[i].Root.SetActive(false);

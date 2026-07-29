@@ -81,6 +81,101 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
     }
 }
 
+// Issue #148 (epic #142): ONE attention/totals computation per studio per tick. RefreshHub's pre-pass
+// fills an Info per studio; the triage strip, the needs-action-first sort AND each card's badge all
+// consume the same result — the three can never disagree. Severity: Danger = a decision is open or a
+// deadline is ≤3 days away/overdue; Warn = parked ready work (release/update). Theme note (#143): Warn
+// is caution-only and Danger is normally destructive-only — issue #148 explicitly sanctions this
+// attention badge as the exception. Presentation only: Compute's single write is the NoteBusinessType
+// cache note the detail view's Refresh also makes.
+public static class SiliconAlleyAttention
+{
+    public enum Level { None = 0, Warn = 1, Danger = 2 }
+
+    public struct Info
+    {
+        public Level Level;
+        public string ReasonKey;   // locale key of the WINNING reason; null when quiet
+        public string ReasonArg;   // pre-formatted {days} arg (DaysLeft shape), or null
+        public bool Idle;          // stage == Idle — the card's quiet-compact rules reuse it
+        // Totals fodder, so the strip needs no second pass over the studios:
+        public float SupportValue; // SupportPerDayValue(reg, key)
+        public int Installed;      // GetInstalledBase(key)
+        public int ServerCount;    // itemInstances filtered by IsServerInstance
+    }
+
+    // ONE deadline threshold for contract AND publisher deal: ≤3 days, matching the detail view's amber
+    // "urgent" tint. The simulator's DealWarnDays=2 TOAST fires later by design — a toast interrupts,
+    // the hub badge is ambient — so do not "align" the two.
+    public const int DeadlineWarnDays = 3;
+
+    public static Info Compute(BuildingRegistration reg, string key)
+    {
+        var info = default(Info);
+        var businessType = BusinessTypeHelper.GetData(reg);
+        // NoteBusinessType FIRST — EffectiveProjectSize and the milestone windows are feature-aware
+        // (mirrors the detail view's Refresh ordering).
+        SiliconAlleyState.NoteBusinessType(key, businessType?.businessTypeName);
+        var size = SiliconAlleyState.EffectiveProjectSize(key);
+        var rawProgress = SiliconAlleyState.GetProgress(key);
+        var stage = SiliconAlleyState.GetStage(key);
+        info.Idle = stage == SiliconAlleyState.ProjectStage.Idle;
+
+        // Danger tier — first found wins within the tier (decision > contract > deal; the detail view
+        // surfaces whatever the badge doesn't).
+        if (!info.Idle && SiliconAlleyMilestones.TryGetPending(key, stage, rawProgress, size, out _, out _))
+            Escalate(ref info, Level.Danger, "siliconalley:dash_attn_decision", null);
+        if (SiliconAlleyState.HasContract(key))
+        {
+            var daysLeft = SiliconAlleyState.GetContractDeadlineDay(key) - TimeHelper.CurrentDay;
+            if (daysLeft <= DeadlineWarnDays) // includes overdue (negative ⇒ DaysLeft renders "due now")
+                Escalate(ref info, Level.Danger, "siliconalley:dash_attn_contract", DaysLeft(daysLeft));
+        }
+        if (SiliconAlleyState.HasDeal(key))
+        {
+            var daysLeft = SiliconAlleyState.GetDealDeadlineDay(key) - TimeHelper.CurrentDay;
+            if (daysLeft <= DeadlineWarnDays)
+                Escalate(ref info, Level.Danger, "siliconalley:dash_attn_deal", DaysLeft(daysLeft));
+        }
+
+        // Warn tier. "Ready" counts only Development/Testing parks — a Design park is the wizard's flow,
+        // not a release decision (matches the dev-done / ready-to-release toasts).
+        var releaseStage = stage == SiliconAlleyState.ProjectStage.Development
+            || stage == SiliconAlleyState.ProjectStage.Testing;
+        if (releaseStage && !SiliconAlleyState.IsReleaseRequested(key)
+            && rawProgress >= SiliconAlleyState.StageCeiling(stage, size))
+            Escalate(ref info, Level.Warn, "siliconalley:dash_attn_ready", null);
+        if (SiliconAlleyOfficeSimulator.IsUpdateDue(key) && !SiliconAlleyState.IsUpdateRequested(key))
+            Escalate(ref info, Level.Warn, "siliconalley:dash_attn_update", null);
+
+        // Totals fodder (server count WITHOUT ServerCountsByRole — that one allocates a dictionary and
+        // prunes state; this is a pure filtered count).
+        info.SupportValue = SupportPerDayValue(reg, key);
+        info.Installed = SiliconAlleyState.GetInstalledBase(key);
+        if (reg.itemInstances != null)
+            foreach (var pair in reg.itemInstances)
+                if (SiliconAlleyOfficeSimulator.IsServerInstance(pair.Value))
+                    info.ServerCount++;
+        return info;
+    }
+
+    // The badge/chip text for an Info; null when quiet (SetBadge hides on null).
+    public static string ReasonText(in Info info) =>
+        info.ReasonKey == null ? null
+        : info.ReasonArg == null ? info.ReasonKey.GetLocalization()
+        : Compose(info.ReasonKey, ("days", info.ReasonArg));
+
+    // Keep the higher severity; within a tier the FIRST reason wins (call order = priority).
+    private static void Escalate(ref Info info, Level level, string reasonKey, string arg)
+    {
+        if (level <= info.Level)
+            return;
+        info.Level = level;
+        info.ReasonKey = reasonKey;
+        info.ReasonArg = arg;
+    }
+}
+
 // Issue #59 (now hosted by the #127 hub): one pooled card per player-owned studio — type icon + name + a
 // colour-coded demand-trend pill, a stage progress bar, the key stats at a glance, and an "Open" deep-link
 // into that studio's detail view. Build() runs once; Fill() re-reads live state each refresh tick.
@@ -91,6 +186,7 @@ sealed class SiliconAlleyStudioCard
     private string _typeName; // issue #146: the bound type, so the trend tooltip reads live demand
     private Image _typeIcon;
     private TMP_Text _name;
+    private SiliconAlleyUI.Badge _attnBadge; // issue #148: the needs-you badge (Danger/Warn; hidden when quiet)
     private Image _trendChip;
     private TMP_Text _trendLabel;
     private TMP_Text _phaseText;
@@ -108,7 +204,8 @@ sealed class SiliconAlleyStudioCard
         header.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false; // so the pill hugs, not stretches
         c._typeIcon = MakeIcon(header.transform, null, 26f, SiliconAlleyTheme.Text);
         c._name = MakeText(header.transform, "Name", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
-        c._name.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack so the pill is pushed right
+        c._name.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack so the pills are pushed right
+        c._attnBadge = MakeBadge(header.transform, SiliconAlleyTheme.Danger, SiliconAlleyTheme.Text); // issue #148
         c._trendChip = MakeChip(header.transform, SiliconAlleyTheme.Ok, SiliconAlleyTheme.Text, out c._trendLabel);
         // Issue #146: hovering the ▲/▼ pill explains what the demand trend means (live-evaluated at 1 Hz).
         SiliconAlleyTooltip.Attach(c._trendChip, () => c.TrendTip());
@@ -148,10 +245,13 @@ sealed class SiliconAlleyStudioCard
             ("dir", (rising ? "siliconalley:ui_trend_rising" : "siliconalley:ui_trend_falling").GetLocalization()));
     }
 
-    public void Fill(BuildingRegistration reg, string key)
+    public void Fill(BuildingRegistration reg, string key, in SiliconAlleyAttention.Info attn)
     {
         _key = key;
         _typeName = reg.businessTypeName; // issue #146: bind the trend tooltip to this studio's category
+        // Issue #148: the needs-you badge — same Info the strip and the sort consumed, so they agree.
+        SetBadge(_attnBadge, SiliconAlleyAttention.ReasonText(attn),
+            attn.Level == SiliconAlleyAttention.Level.Danger ? SiliconAlleyTheme.Danger : SiliconAlleyTheme.Warn);
         var businessType = BusinessTypeHelper.GetData(reg);
         // Note the type so EffectiveProjectSize is feature-aware (mirrors the project screen's Refresh).
         SiliconAlleyState.NoteBusinessType(key, businessType?.businessTypeName);
