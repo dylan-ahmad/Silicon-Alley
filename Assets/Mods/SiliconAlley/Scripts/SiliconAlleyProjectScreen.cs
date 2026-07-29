@@ -795,12 +795,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _ctxProgress = rawProgress;
         _ctxPerHour = perHour;
 
-        // Hide every page up front; the active one (or the recap) is shown below.
-        foreach (var page in _wizardPages)
-            page.Root.SetActive(false);
-
         if (!SiliconAlleyState.CanEditConcept(key))
         {
+            foreach (var page in _wizardPages) // the recap replaces the flow: every page hides
+                page.Root.SetActive(false);
             _stepIndicator.SetActive(false);
             _wizardNavRow.SetActive(false);
             _wizardRecap.SetActive(true);
@@ -813,10 +811,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _stepIndicator.SetActive(true);
         RebuildVisiblePages();
         if (_visiblePages.Count == 0)
+        {
+            foreach (var page in _wizardPages)
+                page.Root.SetActive(false);
             return;
+        }
         _wizardPage = Mathf.Clamp(_wizardPage, 0, _visiblePages.Count - 1);
         var current = _visiblePages[_wizardPage];
-        current.Root.SetActive(true);
+        // Issue #147: compute the target page FIRST and hide only the OTHERS — the active page must never
+        // see a same-frame off/on. The old hide-all-then-reshow bounced the whole visible subtree through
+        // OnDisable/OnEnable every 1 Hz tick (all its Graphics re-dirtied, hover scales reset, two layout
+        // dirties per second). Iterating _wizardPages (not _visiblePages) still hides a page whose
+        // IsPresent flipped false.
+        foreach (var page in _wizardPages)
+            if (page.Root != current.Root)
+                page.Root.SetActive(false);
+        if (!current.Root.activeSelf)
+            current.Root.SetActive(true);
         current.Refresh();
         UpdateStepIndicator(current);
         if (current.Root != _lastShownPage) // only real page changes animate (not the 1s same-page refresh)
