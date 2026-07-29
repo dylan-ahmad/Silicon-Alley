@@ -293,6 +293,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // through — no separate dashboard window anymore.
     private bool _hubMode;
     private GameObject _hubSection, _hubGridHost;
+    private SiliconAlleyHubStrip _hubStrip; // issue #148: the triage strip above the grid
     private TMP_Text _hubEmptyText;
     private GameObject _studioRow, _phaseRow; // header rows hidden while the hub shows
     private Button _overviewButton;
@@ -665,6 +666,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _hubInfos.Clear();
         for (var i = 0; i < count; i++)
             _hubInfos.Add(SiliconAlleyAttention.Compute(_studioRegs[i], _studioKeys[i]));
+
+        // Issue #148: the strip consumes the same pre-pass the sort and badges use — it cannot disagree.
+        _hubStrip.Root.SetActive(count > 0); // with 0 studios the empty text carries the message alone
+        if (count > 0)
+            _hubStrip.Fill(_studioRegs, _studioKeys, _hubInfos);
 
         // Sorted BINDING order (#147: pooled slots never move — slot s is simply bound to the studio that
         // sorts s-th): Danger, then Warn, then quiet; stable by original index within each tier. When a
@@ -2510,6 +2516,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // ---- Hub landing page (issue #127): the old F8 dashboard content, hosted as this screen's first
         // page — studio cards + the Servers section. Hidden whenever a studio's detail view shows.
         _hubSection = MakeSection(root);
+        // Issue #148: the triage strip first — "who needs me?" answered before any card is read.
+        _hubStrip = SiliconAlleyHubStrip.Build(_hubSection.transform, OpenDetailFromHub);
         _hubEmptyText = MakeText(_hubSection.transform, "HubEmpty", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
         // Issue #148: rows of two half-width cells (studio card + its server group) replace the old
         // single-column card list AND the disconnected Servers block below it.

@@ -176,6 +176,125 @@ public static class SiliconAlleyAttention
     }
 }
 
+// Issue #148: the hub's triage strip — "N studios need you" + one clickable chip per needing studio +
+// the aggregate totals line. Built once; Fill runs each tick from the SAME Info list the sort and the
+// card badges consume (RefreshHub's pre-pass), so the strip can never disagree with the cards. The
+// totals sum the pre-pass floats and format ONCE via the shared table (#144/#148 SupportPerDayValue).
+sealed class SiliconAlleyHubStrip
+{
+    public GameObject Root;
+    private TMP_Text _headline;
+    private GameObject _chipsRow;
+    private readonly List<Chip> _chips = new List<Chip>(); // grow-only pool of clickable pills
+    private TMP_Text _totals;
+    private TMP_Text _serversHint;
+    private Action<string> _onOpen;
+
+    private sealed class Chip
+    {
+        public GameObject Root;
+        public Image Image;
+        public TMP_Text Label;
+        public string Key; // the CURRENT bind — the click delegate reads it at click time
+    }
+
+    public static SiliconAlleyHubStrip Build(Transform parent, Action<string> onOpen)
+    {
+        var s = new SiliconAlleyHubStrip { _onOpen = onOpen };
+        var panel = MakeCardPanel(parent, "HubStrip");
+        s.Root = panel;
+        var t = panel.transform;
+        s._headline = MakeText(t, "Headline", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft, FontStyle.Bold);
+        s._headline.color = SiliconAlleyTheme.Header;
+        s._chipsRow = MakeRow(t, SiliconAlleyTheme.Space.Small, 26);
+        s._chipsRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false; // chips hug left
+        s._totals = MakeText(t, "Totals", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        s._totals.color = SiliconAlleyTheme.TextMuted;
+        // The old Servers block's onboarding hint, relocated (#148 deleted that block): shown only while
+        // no studio owns a server at all.
+        s._serversHint = MakeText(t, "ServersHint", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        s._serversHint.color = SiliconAlleyTheme.TextMuted;
+        s._serversHint.text = "siliconalley:dash_servers_hint".GetLocalization();
+        return s;
+    }
+
+    public void Fill(List<BuildingRegistration> regs, List<string> keys, List<SiliconAlleyAttention.Info> infos)
+    {
+        var count = keys.Count;
+        var needing = 0;
+        var support = 0f;
+        var installed = 0;
+        var servers = 0;
+        for (var i = 0; i < count; i++)
+        {
+            var inf = infos[i];
+            if (inf.Level != SiliconAlleyAttention.Level.None)
+                needing++;
+            support += inf.SupportValue; // floats summed, Money() ONCE below — matches the card figures
+            installed += inf.Installed;
+            servers += inf.ServerCount;
+        }
+
+        _headline.text = needing == 0
+            ? "siliconalley:dash_strip_quiet".GetLocalization()
+            : needing == 1
+                ? "siliconalley:dash_strip_needs_one".GetLocalization()
+                : Compose("siliconalley:dash_strip_needs", ("n", needing.ToString(CultureInfo.InvariantCulture)));
+
+        // One clickable chip per needing studio, Danger tier first — the same order the grid sorts by.
+        var c = 0;
+        for (var lvl = (int)SiliconAlleyAttention.Level.Danger; lvl >= (int)SiliconAlleyAttention.Level.Warn; lvl--)
+            for (var i = 0; i < count; i++)
+            {
+                if ((int)infos[i].Level != lvl)
+                    continue;
+                var chip = EnsureChip(c++);
+                chip.Root.SetActive(true);
+                chip.Key = keys[i];
+                chip.Image.color = lvl == (int)SiliconAlleyAttention.Level.Danger
+                    ? SiliconAlleyTheme.Danger : SiliconAlleyTheme.Warn;
+                chip.Label.text = Compose("siliconalley:dash_strip_chip",
+                    ("studio", regs[i].GetDisplayName()),
+                    ("reason", SiliconAlleyAttention.ReasonText(infos[i])));
+            }
+        for (; c < _chips.Count; c++)
+            _chips[c].Root.SetActive(false);
+        _chipsRow.SetActive(needing > 0);
+
+        var upkeep = SiliconAlleyOfficeSimulator.ServerUpkeepPerDay(servers);
+        _totals.text = Compose("siliconalley:dash_strip_totals",
+            ("studios", count.ToString(CultureInfo.InvariantCulture)),
+            ("support", Money(support) + "/day"),
+            ("installed", installed.ToString("N0", CultureInfo.InvariantCulture)),
+            ("servers", servers.ToString(CultureInfo.InvariantCulture)),
+            ("upkeep", Money(upkeep) + "/day"));
+        _serversHint.gameObject.SetActive(servers == 0);
+    }
+
+    // A chip = a MakeChip pill made clickable (the MakeCardItem recipe at pill scale). Built once,
+    // re-bound each Fill; chips squash to the pill's 44px floor + ellipsis under pressure (accepted at
+    // realistic studio counts — the cards below carry the full story).
+    private Chip EnsureChip(int index)
+    {
+        while (index >= _chips.Count)
+        {
+            var chip = new Chip();
+            var img = MakeChip(_chipsRow.transform, SiliconAlleyTheme.Danger, SiliconAlleyTheme.Text, out var label);
+            img.raycastTarget = true; // MakeChip defaults off — this pill IS a button
+            var btn = img.gameObject.AddComponent<Button>();
+            btn.targetGraphic = img;
+            btn.colors = SiliconAlleyTheme.Interaction;
+            btn.onClick.AddListener(() => _onOpen?.Invoke(chip.Key));
+            img.gameObject.AddComponent<SiliconAlleyHoverScale>().Gate = btn;
+            chip.Root = img.gameObject;
+            chip.Image = img;
+            chip.Label = label;
+            _chips.Add(chip);
+        }
+        return _chips[index];
+    }
+}
+
 // Issue #148: one grid CELL = a studio card + that studio's server group card stacked in a half-width
 // column of a MakeColumns row. Cells are built at pool-grow time ONLY (#147: the value path never
 // re-parents); the cell at slot s is BOUND each tick to whichever studio sorts s-th. The stacked
