@@ -523,13 +523,13 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["product"] = string.IsNullOrWhiteSpace(productName) ? ProductDisplayName(businessType) : productName,
             // Issue #24: the version that just shipped (v1 = debut, v2+ = sequel).
             ["version"] = "v" + version.ToString(CultureInfo.InvariantCulture),
-            ["quality"] = Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%",
-            ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
+            ["quality"] = SiliconAlleyFormat.Pct(quality),
+            ["payout"] = SiliconAlleyFormat.Money(payout),
             // Show why the payout is what it is: reputation lifts it, neighborhood competition trims it.
             ["repmult"] = reputationFactor.ToString("F2", CultureInfo.InvariantCulture),
             ["marketmult"] = marketFactor.ToString("F2", CultureInfo.InvariantCulture),
             // Issue #20: the critical-reception score (0..10) the release earned.
-            ["review"] = review.ToString("F1", CultureInfo.InvariantCulture),
+            ["review"] = SiliconAlleyFormat.Review(review),
         };
         Notifications.Show(NotificationType.Success, "siliconalley:notify_projectcomplete", data, 6f, key,
             () => SiliconAlleyProjectScreen.Open(key));
@@ -628,7 +628,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["business"] = buildingRegistration.GetDisplayName(),
             ["product"] = ProductDisplayName(key, businessType),
             ["catalog"] = catalog.ToString(CultureInfo.InvariantCulture),
-            ["revenue"] = "$" + Mathf.RoundToInt(revenue).ToString("N0", CultureInfo.InvariantCulture),
+            ["revenue"] = SiliconAlleyFormat.Money(revenue),
         };
         Notifications.Show(NotificationType.Info, "siliconalley:notify_patch", data, 5f, key + ":patch",
             () => SiliconAlleyProjectScreen.Open(key));
@@ -642,7 +642,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         {
             ["business"] = buildingRegistration.GetDisplayName(),
             ["publisher"] = PublisherName(publisherIndex),
-            ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
+            ["payout"] = SiliconAlleyFormat.Money(payout),
         };
         Notifications.Show(NotificationType.Success, "siliconalley:notify_dealdone", data, 6f, key + ":dealdone",
             () => SiliconAlleyProjectScreen.Open(key));
@@ -665,7 +665,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         {
             ["business"] = buildingRegistration.GetDisplayName(),
             ["publisher"] = PublisherName(publisherIndex),
-            ["days"] = daysLeft.ToString(CultureInfo.InvariantCulture),
+            ["days"] = SiliconAlleyFormat.DaysLeft(daysLeft),
         };
         Notifications.Show(NotificationType.Warning, "siliconalley:notify_dealwarn", data, 5f, key + ":dealwarn",
             () => SiliconAlleyProjectScreen.Open(key));
@@ -716,7 +716,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         var data = new Dictionary<string, string>
         {
             ["business"] = buildingRegistration.GetDisplayName(),
-            ["payout"] = "$" + Mathf.RoundToInt(payout).ToString("N0", CultureInfo.InvariantCulture),
+            ["payout"] = SiliconAlleyFormat.Money(payout),
         };
         Notifications.Show(NotificationType.Success, "siliconalley:notify_contractdone", data, 6f, key + ":contractdone",
             () => SiliconAlleyProjectScreen.Open(key));

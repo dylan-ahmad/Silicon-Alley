@@ -273,7 +273,7 @@ public class SiliconAlleyClientDialog : Dialog
             {
                 ["studio"] = name,
                 ["days"] = offer.DeadlineDays.ToString(CultureInfo.InvariantCulture),
-                ["payout"] = "$" + Mathf.RoundToInt(offer.Payout).ToString("N0", CultureInfo.InvariantCulture),
+                ["payout"] = SiliconAlleyFormat.Money(offer.Payout),
             }),
             Template = DialogEntry.TemplateType.Text,
             ConfirmTextOverride = "siliconalley:client_contract_accept_for".Localize(new Dictionary<string, string>
@@ -311,7 +311,7 @@ public class SiliconAlleyClientDialog : Dialog
             {
                 ["studio"] = name,
                 ["days"] = offer.DeadlineDays.ToString(CultureInfo.InvariantCulture),
-                ["payout"] = "$" + Mathf.RoundToInt(offer.Payout).ToString("N0", CultureInfo.InvariantCulture),
+                ["payout"] = SiliconAlleyFormat.Money(offer.Payout),
             }),
             Template = DialogEntry.TemplateType.Text,
             OnCancel = DialogController.current.FinishDialog,

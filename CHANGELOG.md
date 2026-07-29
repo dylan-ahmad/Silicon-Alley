@@ -5,7 +5,22 @@ All notable changes to **Silicon Alley** are recorded here. The version is the m
 version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Release
 (see `.github/workflows/auto-tag.yml`). Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
-## [0.5.0] — 2026-07-29
+## [Unreleased]
+
+### Fixed
+- **The hub and the detail view now show the same support-$/day** (#144, epic #142). The detail view's
+  ship report used a private support-income formatter that forgot the market-demand multiplier the hub
+  card applies, so the two screens disagreed for the same studio at the same moment. Every screen now
+  routes through the one `SiliconAlleyFormat` table (the detail $/day figure changes: it is now
+  demand-scaled, matching what the simulator actually credits).
+
+### Changed
+- **One format table** (#144): all user-visible number shapes are normalized — multiplication is always
+  `×` (never `x`), reviews are always `7.4/10`, percentages always carry their own `%` (locale strings
+  no longer append it), money always formats as `$1,234` / `-$1,234`, and the server-economy line uses
+  `·` separators like everywhere else. ETAs split by meaning: throughput *estimates* keep the tilde
+  (`~2d 6h`) while exact calendar deadlines (contract due, publisher deadlines, patch timer) are bare
+  (`14d`). The hub's demand trend pill now shows the multiplier shape too (`▲ ×1.12`). Presentation only.
 
 The gameplay-loop release (epic #121): the long empty middle of every project now asks real questions,
 shipping finally pays like the headline act, the numbers that always steered your launch are on screen,
