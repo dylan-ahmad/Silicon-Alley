@@ -27,7 +27,7 @@ and rasterized to 128px (the mod tints them to the theme). Credit by author:
   checklist, sparkles, spring, share, stack, database, window, control-tower, palette, smartphone,
   public-speaker, bank, shopping-cart, pencil-ruler, speedometer, round-star, check-mark, coins,
   receive-money, save-arrow, expand, plug, podium, megaphone, compact-disc, briefcase, brick-wall,
-  cloud-download, gamepad, server-rack, factory-arm, radio-tower._
+  cloud-download, gamepad, server-rack, factory-arm, radio-tower, plain-arrow._
 - **Skoll** (game-icons.net) — _siren, combination-lock, sound-waves, pc._
 - **Sbed** (game-icons.net) — _wrench._
 
@@ -40,6 +40,9 @@ rows, the eight milestone decision events, the four publishers, the nine product
 three server roles — plus `stat_components` (lorc/cubes) and `stat_fit` (lorc/on-target), which replace
 the borrowed category placeholders on the wizard summary. Authored via `tools/generate-icons.ps1` from
 `tools/icon-manifest.txt` (the reproducible pipeline this issue introduced).
+
+UI component glyphs (issue #146): `ui_check` (delapouite/check-mark — the checkbox tick) and
+`ui_chevron_down` (delapouite/plain-arrow — the collapsible-section chevron), same pipeline.
 
 All of the above are available at game-icons.net under CC BY 3.0.
 
@@ -120,6 +123,8 @@ All of the above are available at game-icons.net under CC BY 3.0.
 | `server_role_infrastructure` | delapouite/server-rack |
 | `server_role_backend` | delapouite/factory-arm |
 | `server_role_hosting` | delapouite/radio-tower |
+| `ui_check` | delapouite/check-mark |
+| `ui_chevron_down` | delapouite/plain-arrow |
 
 </details>
 

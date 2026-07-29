@@ -41,3 +41,7 @@ dep_game_onlinesdk lorc/linked-rings
 server_role_infrastructure delapouite/server-rack
 server_role_backend delapouite/factory-arm
 server_role_hosting delapouite/radio-tower
+
+# UI component glyphs (#146: checkbox tick + collapsible chevron)
+ui_check delapouite/check-mark
+ui_chevron_down delapouite/plain-arrow

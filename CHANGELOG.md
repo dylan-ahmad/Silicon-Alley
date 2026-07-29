@@ -8,6 +8,22 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 ## [Unreleased]
 
 ### Added
+- **UI component kit** (#146, epic #142). The window finally gets a **scrollbar** — themed, overlaying
+  the right padding, alpha-fading out when the content fits (hysteresis over the live overflow, so the
+  per-second refresh can't flicker it). A **tooltip system** on the mod's own canvas (0.1 s hover
+  delay, cursor-following, edge-flipping/clamping; opt-in per graphic — first tip: the hub card's
+  demand-trend pill explains its ▲/▼ and multiplier). New primitives with live call sites everywhere:
+  **tabs/segmented control** (the wizard scope picker), a real **checkbox/toggle** (Overtime, Ad Spend,
+  and the features/platforms picker cards — the 30% colour-lerp "selected" tint and its badge are
+  gone), a **collapsible section** (Release history now folds behind its header, default collapsed),
+  a standalone **badge** (the history review pill), a **before › after delta readout** (the ship
+  report shows the review vs the previous release, sign-coloured), a **disabled-reason line** (an
+  unaffordable milestone option now says "You have $2,400 of $6,000" instead of greying silently), and
+  a **segmented distribution bar** (the wizard's demand page draws market-wants vs your-allocation as
+  two colour-legended charts instead of stacked mini progress-bars). **Abandon project** is a real
+  in-canvas confirm dialog now — scrim blocks everything behind it, the confirm button is red, and
+  Esc/backdrop-click cancels (Esc closes the dialog first, the screen second). Two new icons
+  (`ui_check`, `ui_chevron_down`) via the #145 pipeline. Presentation only — no save surface.
 - **The icon pack is complete — no more empty gutters** (#145, epic #142). Twenty-nine new
   game-icons.net concept icons (CC BY 3.0, credited in `CREDITS.md`) fill every stem the UI requests
   but never had art: the ETA / reputation / installed-base stat rows, all eight milestone decision

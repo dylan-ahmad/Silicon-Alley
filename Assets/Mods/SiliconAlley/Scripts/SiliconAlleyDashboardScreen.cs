@@ -88,6 +88,7 @@ sealed class SiliconAlleyStudioCard
 {
     public GameObject Root;
     private string _key;
+    private string _typeName; // issue #146: the bound type, so the trend tooltip reads live demand
     private Image _typeIcon;
     private TMP_Text _name;
     private Image _trendChip;
@@ -109,6 +110,8 @@ sealed class SiliconAlleyStudioCard
         c._name = MakeText(header.transform, "Name", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
         c._name.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack so the pill is pushed right
         c._trendChip = MakeChip(header.transform, SiliconAlleyTheme.Ok, SiliconAlleyTheme.Text, out c._trendLabel);
+        // Issue #146: hovering the ▲/▼ pill explains what the demand trend means (live-evaluated at 1 Hz).
+        SiliconAlleyTooltip.Attach(c._trendChip, () => c.TrendTip());
 
         // Phase line + a phase-progress bar.
         c._phaseText = MakeText(t, "Phase", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
@@ -133,9 +136,22 @@ sealed class SiliconAlleyStudioCard
         return c;
     }
 
+    // Issue #146: the trend pill's tooltip — why the arrow points where it does and what demand scales.
+    private string TrendTip()
+    {
+        if (string.IsNullOrEmpty(_typeName))
+            return null; // not bound to a studio yet — no tooltip
+        var day = TimeHelper.CurrentDay;
+        var rising = SiliconAlleyMarket.IsRising(_typeName, day);
+        return Compose("siliconalley:tip_demand_trend",
+            ("demand", Demand(SiliconAlleyMarket.DemandFactor(_typeName, day))),
+            ("dir", (rising ? "siliconalley:ui_trend_rising" : "siliconalley:ui_trend_falling").GetLocalization()));
+    }
+
     public void Fill(BuildingRegistration reg, string key)
     {
         _key = key;
+        _typeName = reg.businessTypeName; // issue #146: bind the trend tooltip to this studio's category
         var businessType = BusinessTypeHelper.GetData(reg);
         // Note the type so EffectiveProjectSize is feature-aware (mirrors the project screen's Refresh).
         SiliconAlleyState.NoteBusinessType(key, businessType?.businessTypeName);

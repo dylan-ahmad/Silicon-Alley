@@ -119,8 +119,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Concept page
     private GameObject _conceptPage;
     private TMP_Text _designQualityText, _leadText, _etaText, _conceptNameText;
-    private readonly Image[] _scopeImages = new Image[3];
-    private readonly Button[] _scopeButtons = new Button[3];
+    private SiliconAlleyUI.TabBar _scopeTabs; // issue #146: the scope picker as a real segmented control
     private TMP_InputField _productNameInput;
     private Slider _focusSlider;
     // Summary page (placeholder rows today; sub-issues fill them in)
@@ -165,6 +164,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private TMP_Text _allocHint, _targetingReadout;
     private WeightRow[] _weightRows;
     private DemandRow[] _demandRows;
+    // Issue #146: the demand chart — market-wants vs your-allocation as two segmented distribution bars.
+    private SiliconAlleyUI.SegmentedBar _demandBar, _allocBar;
 
     // A pooled per-feature allocation row: [icon] name … slider … %. The slider sets the feature weight (#85).
     private sealed class WeightRow
@@ -175,13 +176,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         public Slider Slider;
     }
 
-    // A pooled per-aspect demand row: name + "wants/you" label, then a demand bar and the player's allocation bar.
+    // Issue #146: a pooled per-aspect LEGEND row for the demand chart — [colour swatch] name … "wants/you".
+    // (The old shape — two stacked mini progress-bars per aspect — became the two segmented bars above it.)
     private sealed class DemandRow
     {
         public GameObject Root;
+        public Image Swatch;
         public TMP_Text Name, Lbl;
-        public SiliconAlleyUI.ProgressBar Demand, Alloc;
     }
+
+    // Issue #146: per-aspect chart colours, index-aligned with the aspect catalog and repeated when a type
+    // ever grows past them. Amber is deliberately absent (caution-only, #143); Info gets its first consumer.
+    private static readonly Color[] AspectColors =
+        { SiliconAlleyTheme.Accent, SiliconAlleyTheme.Ok, SiliconAlleyTheme.Info };
     // Read-only recap shown once the concept is locked (no longer editable)
     private GameObject _wizardRecap;
     private TMP_Text _recapText, _recapStatusText;
@@ -193,17 +200,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _idleSection;
     private TMP_Text _idleStatusText, _startLabel;
     private Button _startButton;
-    // Footer "Abandon project" escape hatch (issue #113). Shown in any active stage; two-click confirm, and
-    // because the screen re-refreshes every second the armed state has to live in a field, not in the UI.
+    // Footer "Abandon project" escape hatch (issue #113). Shown in any active stage. #146 moved the old
+    // two-click arm into the in-canvas confirm modal — Danger styling lives on the modal's confirm button.
     private Button _abandonButton;
-    private TMP_Text _abandonLabel;
-    private Image _abandonImage;
-    private bool _abandonArmed;
     // Development section (issue #60: card + build-progress bar + stat rows)
     private SiliconAlleyUI.ProgressBar _devBuildBar;
     private SiliconAlleyUI.StatRow _devThroughput, _devBuild, _devEta;
-    private TMP_Text _overtimeLabel;
-    private Image _overtimeImage;
+    private SiliconAlleyUI.ToggleRow _overtimeToggle; // issue #146: checkbox row (was a recoloured button)
     // Issue #88: the Development push controls — Send to testing (when the build is done) + Release now (anytime)
     private TMP_Text _devStatusText, _toTestLabel, _devReleaseLabel;
     private Button _toTestButton, _devReleaseButton;
@@ -219,8 +222,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Marketing section (issue #21): shown pre-release (Design→Testing); cash-funded awareness campaign.
     private GameObject _marketingSection;
     private SiliconAlleyUI.StatRow _mktAwareness, _mktHype, _mktSynergy; // #29 synergy row hidden when no agency
-    private TMP_Text _adSpendLabel;
-    private Image _adSpendImage;
+    private SiliconAlleyUI.ToggleRow _adSpendToggle; // issue #146: checkbox row (was a recoloured button)
     // Issue #130: the live Press Build timing line + the projected-review rows with the quality-gate readout.
     private TMP_Text _mktTimingText;
     private SiliconAlleyUI.StatRow _devForecast, _testForecast;
@@ -238,6 +240,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Release section (transient ship report; issue #60: review + freshness bars + stat rows)
     private SiliconAlleyUI.ProgressBar _relReviewBar, _relFreshBar;
     private SiliconAlleyUI.StatRow _relProduct, _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
+    // Issue #146: review vs the previous release as a before › after delta (hidden on a debut).
+    private GameObject _relReviewDeltaRow;
+    private SiliconAlleyUI.DeltaReadout _relReviewDelta;
     // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
@@ -249,13 +254,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private readonly List<HistoryRow> _historyRows = new List<HistoryRow>();
     private const int HistoryMaxRows = 8;
 
-    // A pooled release-history row: [name vN … review chip], a meta caption, and (newest row only) the
+    // A pooled release-history row: [name vN … review badge], a meta caption, and (newest row only) the
     // recorded multiplier breakdown.
     private sealed class HistoryRow
     {
         public GameObject Root;
-        public TMP_Text Title, Meta, Mults, ReviewLabel;
-        public Image ReviewChip;
+        public TMP_Text Title, Meta, Mults;
+        public SiliconAlleyUI.Badge Review; // issue #146: the standalone-badge API (was a loose MakeChip)
     }
 
     // Issue #129: the #126 contract staff-split dial (contract-first ‹ … › product-first) + its readout.
@@ -270,6 +275,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private TMP_Text _milestoneTitle, _milestoneDesc, _milestoneCountdown, _msOptASummary, _msOptBSummary;
     private Button _msOptAButton, _msOptBButton;
     private TMP_Text _msOptALabel, _msOptBLabel;
+    private TMP_Text _msOptAReason, _msOptBReason; // issue #146: why a paid option is greyed ("You have $X of $Y")
     private int _msSlot = -1; // the slot the card currently shows (what the buttons resolve)
     // Issue #127 (epic #121): hub mode — the old F8 dashboard's content (studio cards + Servers) is this
     // screen's LANDING page. F9/F8 open the hub; a card's "Open" (or a toast deep-link) switches to that
@@ -328,7 +334,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (Input.GetKeyDown(ToggleKey))
             Toggle();
         else if (_visible && Input.GetKeyDown(KeyCode.Escape))
-            Close();
+        {
+            // Issue #146: an open confirm modal consumes Esc (cancel); only the NEXT press closes the
+            // screen. (The game's own GameManager also sees this Esc — pre-existing, harmless.)
+            if (!SiliconAlleyModal.TryHandleEscape())
+                Close();
+        }
 
         if (_visible)
         {
@@ -381,7 +392,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _visible = true;
         _refresh = 1f;
         _wizardPage = 0; // always open the wizard at the first page
-        _abandonArmed = false; // issue #113: never re-open with Abandon still armed
         Refresh();
     }
 
@@ -393,7 +403,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _root.SetActive(true);
         _visible = true;
         _refresh = 1f;
-        _abandonArmed = false;
         Refresh();
     }
 
@@ -404,7 +413,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (_studioKeys.Contains(key))
             _currentKey = key;
         _wizardPage = 0;
-        _abandonArmed = false;
         Refresh();
     }
 
@@ -412,14 +420,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void GoHub()
     {
         _hubMode = true;
-        _abandonArmed = false;
         Refresh();
     }
 
     private void Close()
     {
         _visible = false;
-        _abandonArmed = false; // issue #113: closing cancels a pending Abandon confirm
+        SiliconAlleyModal.CloseAll(); // issue #146: closing the screen never strands an open confirm
         if (_root != null)
             _root.SetActive(false);
     }
@@ -690,18 +697,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SetIconSprite(_milestoneIcon, SiliconAlleyTheme.IconFor("ms_" + evt.Id)); // drop-in art; null-graceful
         _milestoneTitle.text = evt.TitleKey.GetLocalization();
         _milestoneDesc.text = evt.DescKey.GetLocalization();
-        FillMilestoneOption(_msOptAButton, _msOptALabel, _msOptASummary, evt.OptionA, reg);
-        FillMilestoneOption(_msOptBButton, _msOptBLabel, _msOptBSummary, evt.OptionB, reg);
+        FillMilestoneOption(_msOptAButton, _msOptALabel, _msOptASummary, _msOptAReason, evt.OptionA, reg);
+        FillMilestoneOption(_msOptBButton, _msOptBLabel, _msOptBSummary, _msOptBReason, evt.OptionB, reg);
         _milestoneCountdown.text = Compose("siliconalley:ms_countdown",
             ("pct", Pct(SiliconAlleyMilestones.CloseProgress(slot, size) / Mathf.Max(1f, size))));
     }
 
-    private static void FillMilestoneOption(Button button, TMP_Text label, TMP_Text summary,
+    private static void FillMilestoneOption(Button button, TMP_Text label, TMP_Text summary, TMP_Text reason,
         SiliconAlleyMilestones.MilestoneOption option, BuildingRegistration reg)
     {
         label.text = option.LabelKey.GetLocalization();
         summary.text = option.SummaryKey.GetLocalization();
-        button.interactable = option.Cost <= 0f || SiliconAlleyMoney.CanAfford(reg, option.Cost);
+        // Issue #146: a greyed paid option now SAYS why — the exact shortfall — instead of staying silent.
+        var affordable = option.Cost <= 0f || SiliconAlleyMoney.CanAfford(reg, option.Cost);
+        SetDisabledReason(button, reason, affordable,
+            affordable ? null : Compose("siliconalley:ui_disabled_funds",
+                ("have", Money(SaveGameManager.Current.Money)),
+                ("need", Money(option.Cost))));
     }
 
     // Issue #128: resolve the shown slot with the clicked option. TryResolve re-validates the window (the
@@ -718,23 +730,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     }
 
     // Issue #113: the footer "Abandon project" button. Hidden when the studio is Idle (there is nothing to
-    // abandon, and the Idle card's "Start new project" is the right action). Two-click confirm because it
-    // destroys the current build: the first press arms it (red — destructive, #143) and the second discards
-    // the project.
+    // abandon, and the Idle card's "Start new project" is the right action). #146: a plain Slate trigger —
+    // the destructive confirm (and its Danger styling) moved into the SiliconAlleyModal dialog.
     private void RefreshAbandon(bool idle)
     {
         if (_abandonButton == null)
             return;
         _abandonButton.gameObject.SetActive(!idle);
-        if (idle)
-        {
-            _abandonArmed = false;
-            return;
-        }
-        _abandonLabel.text = (_abandonArmed
-            ? "siliconalley:screen_abandon_confirm_btn"
-            : "siliconalley:screen_abandon_btn").GetLocalization();
-        _abandonImage.color = _abandonArmed ? SiliconAlleyTheme.Danger : SiliconAlleyTheme.Slate;
     }
 
     // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
@@ -856,25 +858,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         return new WeightRow { Root = row, Icon = icon, Label = label, Slider = slider, Pct = pct };
     }
 
-    // Issue #86: a per-aspect demand row — name + "wants/you" label, then a demand bar (Ok) over the player's
-    // allocation bar (Accent) so the player can visually match their mix to what the market wants.
-    private DemandRow BuildDemandRow(Transform parent)
+    // Issue #86 → #146: a per-aspect legend row under the demand chart — the swatch ties the name to its
+    // segment colour in both bars; the label keeps the exact wants/you percentages.
+    private DemandRow BuildDemandRow(Transform parent, int index)
     {
-        var box = MakeSection(parent);
-        var top = MakeRow(box.transform, 6f, 20);
-        var hlg = top.GetComponent<HorizontalLayoutGroup>();
+        var row = MakeRow(parent, 6f, 20);
+        var hlg = row.GetComponent<HorizontalLayoutGroup>();
         hlg.childForceExpandWidth = false;
         hlg.childAlignment = TextAnchor.MiddleLeft;
-        var name = MakeText(top.transform, "AName", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Bold);
+        var swatch = MakeImage(row.transform, "Swatch", AspectColors[index % AspectColors.Length]);
+        swatch.raycastTarget = false;
+        ApplyPill(swatch, 10f);
+        var sle = swatch.gameObject.AddComponent<LayoutElement>();
+        sle.minWidth = sle.preferredWidth = 10f;
+        sle.minHeight = sle.preferredHeight = 10f;
+        sle.flexibleWidth = 0f;
+        var name = MakeText(row.transform, "AName", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Bold);
         name.GetComponent<LayoutElement>().flexibleWidth = 1f;
-        var lbl = MakeText(top.transform, "ALbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        var lbl = MakeText(row.transform, "ALbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         lbl.alignment = TextAlignmentOptions.Right;
         lbl.color = SiliconAlleyTheme.TextMuted;
         lbl.enableWordWrapping = false;
         FixWidth(lbl, 150f);
-        var demand = MakeProgressBar(box.transform, 8f);
-        var alloc = MakeProgressBar(box.transform, 8f);
-        return new DemandRow { Root = box, Name = name, Lbl = lbl, Demand = demand, Alloc = alloc };
+        return new DemandRow { Root = row, Swatch = swatch, Name = name, Lbl = lbl };
     }
 
     // Issue #86: the per-feature % sliders. Show a row per SELECTED feature; set each slider from the stored
@@ -926,6 +932,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var mask = SiliconAlleyState.GetFeatureMask(key);
         var demand = SiliconAlleyAspects.DemandProfile(type, day);
         var alloc = SiliconAlleyAspects.AllocationProfile(type, mask, weights);
+        // Issue #146: the market's wanted mix vs the player's allocation, one segmented bar each; the
+        // legend rows below tie names to segment colours and keep the exact percentages.
+        SetSegments(_demandBar, demand, AspectColors);
+        SetSegments(_allocBar, alloc, AspectColors);
         for (var i = 0; i < _demandRows.Length; i++)
         {
             var row = _demandRows[i];
@@ -939,8 +949,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             row.Lbl.text = Compose("siliconalley:wiz_demand_row",
                 ("wants", Pct(wants)),
                 ("you", Pct(you)));
-            SetProgress(row.Demand, wants, SiliconAlleyTheme.Ok);
-            SetProgress(row.Alloc, you, SiliconAlleyTheme.Accent);
         }
         var market = SiliconAlleyAspects.MarketFitFactor(mask, weights, type, day);
         var quality = SiliconAlleyAspects.QualityFitBonus(mask, weights, type, day);
@@ -1068,8 +1076,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _etaText.text = Compose("siliconalley:screen_designeta", ("eta", Eta(remaining, _ctxPerHour)));
 
         var currentKind = SiliconAlleyState.GetProjectType(key);
-        for (var i = 0; i < 3; i++)
-            _scopeImages[i].color = ScopeKinds[i] == currentKind ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+        SetTabSelected(_scopeTabs, Array.IndexOf(ScopeKinds, currentKind)); // issue #146: state-driven tab tint
 
         _suppress = true; // setting the value must not write back through OnFocusChanged
         _focusSlider.value = SiliconAlleyState.GetDesignFocus(key);
@@ -1098,8 +1105,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetCardChips(c, // #57: cost/benefit chips
                 Compose("siliconalley:wiz_chip_size", ("v", Pct(f.SizeCost))),
                 Compose("siliconalley:wiz_chip_ceiling", ("v", Pct(f.QualityContribution))));
-            c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
-            SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
+            SetCardChecked(c, selected); // issue #146: the checkbox IS the state — no tint, no "Selected" badge
+            SetCardBadge(c, null, SiliconAlleyTheme.Accent);
         }
         _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
@@ -1148,8 +1155,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetCardChips(c, // #57: cost/benefit chips
                 Compose("siliconalley:wiz_chip_reach", ("v", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture))),
                 Compose("siliconalley:wiz_chip_size", ("v", Pct(p.ScopeCost))));
-            c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
-            SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
+            SetCardChecked(c, selected); // issue #146: the checkbox IS the state — no tint, no "Selected" badge
+            SetCardBadge(c, null, SiliconAlleyTheme.Accent);
         }
         _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
             ("market", PlatformMarketText(key, type)),
@@ -1583,6 +1590,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private static readonly Func<float, string> FmtPct = Pct;
     private static readonly Func<float, string> FmtMoney = Money;
     private static readonly Func<float, string> FmtReview = Review;
+    // Issue #146: a SIGNED review-point delta ("+0.6" / "-1.2") for the ship report's delta readout.
+    private static readonly Func<float, string> FmtSignedReview = v =>
+        (v >= 0f ? "+" : "") + v.ToString("F1", CultureInfo.InvariantCulture);
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
     private void RefreshRecap(string key)
@@ -1613,10 +1623,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SetStat(_devEta, "stat_eta", "siliconalley:screen_dev_lbl_eta", Eta(remaining, perHour), SiliconAlleyTheme.Text);
         RefreshForecast(reg, businessType, key, _devForecast, _devForecastMults); // issue #130
 
-        var on = SiliconAlleyState.IsOvertime(key);
-        _overtimeLabel.text = Compose("siliconalley:screen_overtime",
-            ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()));
-        _overtimeImage.color = on ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+        // Issue #146: a real checkbox — the tick IS the state (no more "Overtime: ON" + colour lerp).
+        SetToggle(_overtimeToggle, SiliconAlleyState.IsOvertime(key));
 
         // Issue #88: the player pushes the build forward. "Send to testing" appears once Development has filled
         // (parked at its ceiling); "Release now" is available any moment (an early ship reviews worse).
@@ -1715,6 +1723,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var review01 = Mathf.Clamp01(report.Review / 10f);
         SetProgress(_relReviewBar, review01,
             report.Review >= 7f ? SiliconAlleyTheme.Ok : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
+        // Issue #146: how this release reviewed against the previous one. The newest history row IS this
+        // ship (appended in OnProjectCompleted), so the previous release sits at Count - 2.
+        var releases = SiliconAlleyState.GetReleaseHistory(key);
+        var hasPrev = releases.Count >= 2;
+        _relReviewDeltaRow.SetActive(hasPrev);
+        if (hasPrev)
+        {
+            var prev = releases[releases.Count - 2].Review;
+            SetDelta(_relReviewDelta, Review(prev), Review(report.Review), report.Review - prev, FmtSignedReview);
+        }
         SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Mathf.Clamp01(report.Quality), FmtPct, SiliconAlleyTheme.Text);
         SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue",
             Compose("siliconalley:screen_rel_val_revenue",
@@ -1806,8 +1824,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var header = MakeRow(t, 8f, 26);
         header.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
         r.Title = MakeText(header.transform, "Title", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft, FontStyle.Bold);
-        r.Title.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the review chip to the right edge
-        r.ReviewChip = MakeChip(header.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.Text, out r.ReviewLabel);
+        r.Title.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the review badge to the right edge
+        r.Review = MakeBadge(header.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.Text); // issue #146
         r.Meta = MakeText(t, "Meta", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         r.Meta.color = SiliconAlleyTheme.TextMuted;
         r.Mults = MakeText(t, "Mults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
@@ -1821,9 +1839,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var name = string.IsNullOrWhiteSpace(rec.ProductName) ? ProductName(businessType) : rec.ProductName;
         row.Title.text = name + " v" + rec.Version.ToString(CultureInfo.InvariantCulture);
         // The same grading the ship report's review bar uses (>=7 good, >=4 fine, else rough).
-        row.ReviewChip.color = rec.Review >= 7f ? SiliconAlleyTheme.Ok
-            : rec.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn;
-        row.ReviewLabel.text = Review(rec.Review);
+        SetBadge(row.Review, Review(rec.Review), rec.Review >= 7f ? SiliconAlleyTheme.Ok
+            : rec.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
         var publisher = SiliconAlleyPublishers.TryGetById(rec.Publisher, out var pub)
             ? pub.NameKey.GetLocalization()
             : "—";
@@ -1875,11 +1892,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _pressBuildButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.PressBuildCost);
         _hypeButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.HypeCost);
 
-        var on = SiliconAlleyState.IsAdSpend(key);
-        _adSpendLabel.text = Compose("siliconalley:screen_mkt_adspend",
-            ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()),
+        // Issue #146: checkbox row — the label re-states the hourly cost, the tick is the state.
+        _adSpendToggle.Label.text = Compose("siliconalley:toggle_adspend",
             ("cost", Money(SiliconAlleyState.AdSpendCostPerHour)));
-        _adSpendImage.color = on ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+        SetToggle(_adSpendToggle, SiliconAlleyState.IsAdSpend(key));
 
         // Issue #130: the Press Build timing line — the window the purchase handler always applied, live.
         var timing = SiliconAlleyState.PressBuildTiming(rawProgress, size);
@@ -1993,6 +2009,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         SiliconAlleyState.SetScope(_currentKey, kind);
         Refresh();
+    }
+
+    // Issue #146: a scope tab picked (single-select — the tab index maps straight onto ScopeKinds).
+    private void OnScopeTab(int index)
+    {
+        if (index >= 0 && index < ScopeKinds.Length)
+            OnScopeSelected(ScopeKinds[index]);
     }
 
     // Issue #38: pick the target audience segment for this product (single-select, like scope).
@@ -2148,21 +2171,25 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         Refresh();
     }
 
-    // Issue #113: abandon the in-flight project. Two-click confirm — the first press arms the button (the
-    // label + colour change), the second throws the build away and returns the studio to Idle, where the
-    // player starts fresh. The permanent escape hatch out of any stage/wizard dead end.
+    // Issue #113: abandon the in-flight project — the permanent escape hatch out of any stage/wizard dead
+    // end. #146: the old two-click arm is a real confirm modal now (scrim + Danger confirm; Esc/backdrop
+    // cancels); the body names the product being discarded. Confirming returns the studio to Idle.
     private void OnAbandonPressed()
     {
-        if (!_abandonArmed)
-        {
-            _abandonArmed = true;
-            Refresh();
+        var reg = FindRegistration(_currentKey);
+        if (reg == null)
             return;
-        }
-        _abandonArmed = false;
-        SiliconAlleyState.AbandonProject(_currentKey);
-        _wizardPage = 0; // the next project opens its wizard at the first page
-        Refresh();
+        SiliconAlleyModal.Confirm(_root.transform,
+            "siliconalley:modal_abandon_title".GetLocalization(),
+            Compose("siliconalley:modal_abandon_body",
+                ("product", DisplayProductName(_currentKey, BusinessTypeHelper.GetData(reg)))),
+            "siliconalley:modal_abandon_confirm".GetLocalization(),
+            () =>
+            {
+                SiliconAlleyState.AbandonProject(_currentKey);
+                _wizardPage = 0; // the next project opens its wizard at the first page
+                Refresh();
+            });
     }
 
     // Issue #88: push the finished build from Development into Testing/QA (available once Development is done).
@@ -2263,7 +2290,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         idx = (idx + delta + _studioKeys.Count) % _studioKeys.Count;
         _currentKey = _studioKeys[idx];
         _wizardPage = 0; // each studio opens its wizard at the first page
-        _abandonArmed = false; // issue #113: an armed Abandon must not carry over to another studio
         Refresh();
     }
 
@@ -2385,6 +2411,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var fitter = contentGo.AddComponent<ContentSizeFitter>();
         fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         scroll.content = _contentRt;
+        // Issue #146: the themed scrollbar — the affordance that tall content continues below the fold.
+        // Overlays the window's right padding (non-layout) and alpha-fades out when the content fits.
+        MakeScrollbar(scroll);
         var root = contentGo.transform;
 
         // Title row: title (flexible) + [‹ Overview] (issue #127: back to the hub; hidden on it) + [X] close.
@@ -2441,16 +2470,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // Concept page: today's scope + focus controls, read-only product name and baseline readouts.
         _conceptPage = MakeSection(_wizardSection.transform);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_scope");
-        var scopeRow = MakeRow(_conceptPage.transform);
+        // Issue #146: the scope picker is a real segmented control (was 3 hand-recoloured MakeButtons).
         var scopeKeys = new[] { "siliconalley:projecttype_quick", "siliconalley:projecttype_standard", "siliconalley:projecttype_ambitious" };
-        for (var i = 0; i < 3; i++)
-        {
-            var kind = ScopeKinds[i];
-            var btn = MakeButton(scopeRow.transform, scopeKeys[i].GetLocalization(), () => OnScopeSelected(kind));
-            _scopeButtons[i] = btn;
-            _scopeImages[i] = btn.GetComponent<Image>();
-            SetButtonIcon(btn, SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
-        }
+        var scopeLabels = new string[scopeKeys.Length];
+        for (var i = 0; i < scopeKeys.Length; i++)
+            scopeLabels[i] = scopeKeys[i].GetLocalization();
+        _scopeTabs = MakeTabs(_conceptPage.transform, scopeLabels, OnScopeTab);
+        for (var i = 0; i < scopeKeys.Length; i++)
+            SetButtonIcon(_scopeTabs.Buttons[i], SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
         _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_product_name");
         _productNameInput = MakeInputField(_conceptPage.transform, "ProductNameInput",
@@ -2503,7 +2530,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         for (var i = 0; i < featureSlots; i++)
         {
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
-            _featureCards[i] = MakeCardItem(_featuresPage.transform, () => OnToggleFeature(slot));
+            _featureCards[i] = MakeCardItem(_featuresPage.transform, () => OnToggleFeature(slot), checkable: true); // #146: real checkbox
         }
         _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -2516,7 +2543,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         for (var i = 0; i < platformSlots; i++)
         {
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
-            _platformCards[i] = MakeCardItem(_platformsPage.transform, () => OnTogglePlatform(slot));
+            _platformCards[i] = MakeCardItem(_platformsPage.transform, () => OnTogglePlatform(slot), checkable: true); // #146: real checkbox
         }
         _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -2584,9 +2611,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         _demandPage = MakeSection(_wizardSection.transform);
         MakeHeader(_demandPage.transform, "siliconalley:wiz_demand_header");
+        // Issue #146: two distribution charts (market vs you) + a shared colour legend replace the old
+        // two-stacked-mini-bars-per-aspect layout — the segmented-bar primitive's live call site.
+        var demandBarLbl = MakeText(_demandPage.transform, "DemandBarLbl", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        demandBarLbl.color = SiliconAlleyTheme.TextMuted;
+        demandBarLbl.text = "siliconalley:wiz_demand_market_lbl".GetLocalization();
+        _demandBar = MakeSegmentedBar(_demandPage.transform, SiliconAlleyAspects.MaxCount);
+        var allocBarLbl = MakeText(_demandPage.transform, "AllocBarLbl", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        allocBarLbl.color = SiliconAlleyTheme.TextMuted;
+        allocBarLbl.text = "siliconalley:wiz_demand_you_lbl".GetLocalization();
+        _allocBar = MakeSegmentedBar(_demandPage.transform, SiliconAlleyAspects.MaxCount);
         _demandRows = new DemandRow[SiliconAlleyAspects.MaxCount];
         for (var i = 0; i < _demandRows.Length; i++)
-            _demandRows[i] = BuildDemandRow(_demandPage.transform);
+            _demandRows[i] = BuildDemandRow(_demandPage.transform, i);
         MakeDivider(_demandPage.transform);
         _targetingReadout = MakeText(_demandPage.transform, "TargetingReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -2668,9 +2705,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _devForecast = MakeStatRow(devCard.transform);
         _devForecastMults = MakeText(devCard.transform, "DevForecastMults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _devForecastMults.color = SiliconAlleyTheme.TextMuted;
-        var overtimeButton = MakeButton(devCard.transform, "", OnToggleOvertime);
-        _overtimeImage = overtimeButton.GetComponent<Image>();
-        _overtimeLabel = overtimeButton.GetComponentInChildren<TMP_Text>();
+        // Issue #146: the Overtime toggle as a real checkbox row (the label states the tradeoff once).
+        _overtimeToggle = MakeToggle(devCard.transform, "siliconalley:toggle_overtime".GetLocalization(), OnToggleOvertime);
         // Issue #88: the Development push controls — a status line + Send to testing / Release now buttons.
         _devStatusText = MakeText(devCard.transform, "DevStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _devStatusText.color = SiliconAlleyTheme.TextMuted;
@@ -2712,10 +2748,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _milestoneDesc.color = SiliconAlleyTheme.TextMuted;
         _msOptAButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(0), primary: true);
         _msOptALabel = _msOptAButton.GetComponentInChildren<TMP_Text>();
+        _msOptAReason = MakeDisabledReason(msCard.transform); // issue #146: the affordability shortfall
         _msOptASummary = MakeText(msCard.transform, "MsOptASum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _msOptASummary.color = SiliconAlleyTheme.TextMuted;
         _msOptBButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(1));
         _msOptBLabel = _msOptBButton.GetComponentInChildren<TMP_Text>();
+        _msOptBReason = MakeDisabledReason(msCard.transform); // issue #146
         _msOptBSummary = MakeText(msCard.transform, "MsOptBSum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _msOptBSummary.color = SiliconAlleyTheme.TextMuted;
         _milestoneCountdown = MakeText(msCard.transform, "MsCountdown", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
@@ -2746,9 +2784,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _pressBuildLabel = _pressBuildButton.GetComponentInChildren<TMP_Text>();
         _hypeButton = MakeButton(mktCard.transform, "", OnHype);
         _hypeLabel = _hypeButton.GetComponentInChildren<TMP_Text>();
-        var adSpendButton = MakeButton(mktCard.transform, "", OnToggleAdSpend);
-        _adSpendImage = adSpendButton.GetComponent<Image>();
-        _adSpendLabel = adSpendButton.GetComponentInChildren<TMP_Text>();
+        // Issue #146: Ad Spend as a checkbox row; the label is set per refresh (it carries the hourly cost).
+        _adSpendToggle = MakeToggle(mktCard.transform, "", OnToggleAdSpend);
 
         // ---- Publisher section (issue #17/#22/#23; issue #60: offer cards + active-deal card) ----
         _publisherSection = MakeSection(root);
@@ -2777,6 +2814,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _relProduct = MakeStatRow(relCard.transform);
         _relReview = MakeStatRow(relCard.transform);
         _relReviewBar = MakeProgressBar(relCard.transform);
+        // Issue #146: "vs previous release   6.8/10 › 7.4/10 (+0.6)" — the delta-readout primitive's
+        // first live call site. The whole row hides on a debut (nothing to compare against).
+        _relReviewDeltaRow = MakeRow(relCard.transform, 8f, 24);
+        _relReviewDeltaRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        var relDeltaLbl = MakeText(_relReviewDeltaRow.transform, "DeltaLbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        relDeltaLbl.color = SiliconAlleyTheme.TextMuted;
+        relDeltaLbl.text = "siliconalley:rel_review_delta_lbl".GetLocalization();
+        relDeltaLbl.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the readout to the right edge
+        _relReviewDelta = MakeDeltaReadout(_relReviewDeltaRow.transform);
         _relQuality = MakeStatRow(relCard.transform);
         _relRevenue = MakeStatRow(relCard.transform);
         _relRep = MakeStatRow(relCard.transform);
@@ -2788,8 +2834,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // ---- Release history (issue #129): the studio's persistent catalog, newest first ----
         _historySection = MakeSection(root);
         MakeDivider(_historySection.transform);
-        MakeHeader(_historySection.transform, "siliconalley:screen_history_header");
-        _historyHost = MakeSection(_historySection.transform);
+        // Issue #146: the archive folds behind its header, default collapsed — it's pure history (up to 8
+        // cards ≈ 700px of scroll) and the fold reclaims that for the sections that need action. ClampHeight
+        // as the toggle callback resizes the window on the click instead of on the next 1 Hz tick.
+        var historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
+            startExpanded: false, onToggled: ClampHeight);
+        _historyHost = historyFold.Content;
 
         // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
         _contractSection = MakeSection(root);
@@ -2813,10 +2863,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeDivider(root);
         var footer = MakeRow(root, 10f, 40);
         // Issue #113: the Abandon escape hatch — reachable from every active stage, so no wizard/stage state
-        // can ever trap a studio again. Hidden while Idle (nothing to abandon); see RefreshAbandon.
-        _abandonButton = MakeButton(footer.transform, "", OnAbandonPressed);
-        _abandonLabel = _abandonButton.GetComponentInChildren<TMP_Text>();
-        _abandonImage = _abandonButton.GetComponent<Image>();
+        // can ever trap a studio again. Hidden while Idle (nothing to abandon); see RefreshAbandon. #146:
+        // the label is static now — the confirm (and its Danger red) lives in the modal, not on the button.
+        _abandonButton = MakeButton(footer.transform, "siliconalley:screen_abandon_btn".GetLocalization(), OnAbandonPressed);
         MakeButton(footer.transform, "siliconalley:screen_close".GetLocalization(), Close);
 
         _root.SetActive(false);

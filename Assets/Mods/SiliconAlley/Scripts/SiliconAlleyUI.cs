@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using Localizor;
 using TMPro;
 using UnityEngine;
@@ -243,9 +244,12 @@ public static class SiliconAlleyUI
         public TMP_Text[] ChipLabels = null!;
         public Image Badge = null!;
         public TMP_Text BadgeLabel = null!;
+        // #146: present only on checkable cards (multi-select pickers) — driven via SetCardChecked.
+        public Image? CheckBox;
+        public SiliconAlleyCheckPop? Check;
     }
 
-    public static CardItem MakeCardItem(Transform parent, UnityAction onClick, int chipCapacity = 3)
+    public static CardItem MakeCardItem(Transform parent, UnityAction onClick, int chipCapacity = 3, bool checkable = false)
     {
         var go = new GameObject("CardItem", typeof(RectTransform));
         go.transform.SetParent(parent, false);
@@ -275,6 +279,15 @@ public static class SiliconAlleyUI
         var le = go.AddComponent<LayoutElement>();
         le.minHeight = SiliconAlleyTheme.Height.Card;
         le.flexibleWidth = 1f;
+
+        // #146: a real checkbox slot for multi-select picker cards — replaces the old 30% colour-lerp tint
+        // as the selection signal (the card face stays Card; SetCardChecked drives the tick).
+        if (checkable)
+        {
+            MakeCheckboxVisual(go.transform, out var box, out var check);
+            item.CheckBox = box;
+            item.Check = check;
+        }
 
         // Icon (left, fixed).
         item.Icon = MakeImage(go.transform, "Icon", SiliconAlleyTheme.Text);
@@ -370,6 +383,16 @@ public static class SiliconAlleyUI
             return;
         c.Badge.color = color;
         c.BadgeLabel.text = text;
+    }
+
+    // #146: tick/untick a checkable card. Selection reads from the checkbox, not a card tint, so the card
+    // face stays Card; idempotent (the pop animator no-ops at its target), safe on the 1 Hz Refresh. No-op
+    // on cards built without checkable: true.
+    public static void SetCardChecked(CardItem c, bool on)
+    {
+        if (c.CheckBox == null || c.Check == null)
+            return;
+        SetCheckVisual(c.CheckBox, c.Check, on);
     }
 
     // ---- Review primitives (issue #58). A rounded card panel with a vertical content layout + scannable
@@ -675,6 +698,497 @@ public static class SiliconAlleyUI
 
         return input;
     }
+
+    // ---- Scrollbar (#146). The missing "there is more below" affordance for the window's ScrollRect.
+    // Standard track/sliding-area/handle hierarchy styled like MakeSlider (capsule track + capsule handle
+    // via the pill sprite; flat fallback when absent). The bar OVERLAYS the window's right content padding
+    // as a non-layout child, so showing/hiding it never reflows the content — which is also why visibility
+    // stays Permanent on the ScrollRect: AutoHideAndExpandViewport resizes the viewport, exactly the
+    // per-second reflow flicker this bar must not add. Auto-hide is instead a pure CanvasGroup alpha fade
+    // driven by SiliconAlleyScrollbarAutoHide (hysteresis over the live overflow), never SetActive. ----
+
+    public static Scrollbar MakeScrollbar(ScrollRect scroll, float width = 8f)
+    {
+        var go = new GameObject("Scrollbar", typeof(RectTransform));
+        go.transform.SetParent(scroll.transform, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = new Vector2(1f, 0f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        // Inset from the right edge, clear of the panel's rounded corners top + bottom.
+        var corner = (float)SiliconAlleyTheme.Radius.Panel;
+        rt.offsetMin = new Vector2(-5f - width, corner);
+        rt.offsetMax = new Vector2(-5f, -corner);
+
+        var track = go.AddComponent<Image>();
+        track.color = SiliconAlleyTheme.Elevated;
+        ApplyPill(track, width);
+
+        var slidingArea = new GameObject("Sliding Area", typeof(RectTransform));
+        slidingArea.transform.SetParent(go.transform, false);
+        Stretch((RectTransform)slidingArea.transform);
+
+        var handle = MakeImage(slidingArea.transform, "Handle", SiliconAlleyTheme.TextMuted);
+        ApplyPill(handle, width);
+        Stretch(handle.rectTransform);
+
+        var bar = go.AddComponent<Scrollbar>();
+        bar.handleRect = handle.rectTransform;
+        bar.targetGraphic = handle;
+        bar.colors = SiliconAlleyTheme.Interaction;
+        bar.direction = Scrollbar.Direction.BottomToTop;
+
+        // From here the ScrollRect drives the value + handle size each frame (layout-inert: only the
+        // scrollbar's own internal rects move, never anything a LayoutGroup measures).
+        scroll.verticalScrollbar = bar;
+        scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+
+        var group = go.AddComponent<CanvasGroup>();
+        group.alpha = 0f; // hidden until content actually overflows
+        group.blocksRaycasts = false;
+        group.interactable = false;
+        var autoHide = go.AddComponent<SiliconAlleyScrollbarAutoHide>();
+        autoHide.Scroll = scroll;
+        autoHide.Group = group;
+        return bar;
+    }
+
+    // ---- Tabs / segmented control (#146). A capsule track holding N pill tabs; single-select, with an
+    // optional click-the-active-tab-to-clear mode (allowDeselect — the server-role selector's semantics,
+    // migrating in #148). Clicks only report the chosen index through onSelect; the screen writes state and
+    // its Refresh re-asserts the visuals via SetTabSelected (the write-state-then-Refresh flow every control
+    // here follows), so the 1 Hz tick keeps tabs honest for free. Tab children are named Label/Icon exactly
+    // like MakeButton's, so SetButtonIcon works on a tab button unchanged. ----
+
+    public sealed class TabBar
+    {
+        public GameObject Root = null!;
+        public Button[] Buttons = null!;
+        public Image[] Images = null!;
+        public TMP_Text[] Labels = null!;
+        public int Selected = -1; // last index passed to SetTabSelected (-1 = none)
+    }
+
+    public static TabBar MakeTabs(Transform parent, string[] labels, Action<int> onSelect, bool allowDeselect = false)
+    {
+        var go = new GameObject("Tabs", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var track = go.AddComponent<Image>();
+        track.color = SiliconAlleyTheme.Elevated;
+        ApplyPill(track, SiliconAlleyTheme.Height.Control);
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.padding = new RectOffset(3, 3, 3, 3);
+        h.spacing = 4f;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = true; // tabs share the width equally
+        h.childForceExpandHeight = true;
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = SiliconAlleyTheme.Height.Control;
+        le.flexibleWidth = 1f;
+
+        var bar = new TabBar
+        {
+            Root = go,
+            Buttons = new Button[labels.Length],
+            Images = new Image[labels.Length],
+            Labels = new TMP_Text[labels.Length],
+        };
+        var tabHeight = SiliconAlleyTheme.Height.Control - 6f; // inside the 3px track padding
+        for (var i = 0; i < labels.Length; i++)
+        {
+            var tab = new GameObject("Tab", typeof(RectTransform));
+            tab.transform.SetParent(go.transform, false);
+            var image = tab.AddComponent<Image>();
+            ApplyPill(image, tabHeight);
+            var button = tab.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.colors = SiliconAlleyTheme.Interaction;
+            var index = i; // per-tab copy for the click closure
+            button.onClick.AddListener(() => onSelect(allowDeselect && bar.Selected == index ? -1 : index));
+            tab.AddComponent<SiliconAlleyHoverScale>().Gate = button;
+
+            var label = MakeText(tab.transform, "Label", SiliconAlleyTheme.Sizes.Button, TextAnchor.MiddleCenter, FontStyle.Bold);
+            label.text = labels[i];
+            Stretch(label.rectTransform);
+
+            bar.Buttons[i] = button;
+            bar.Images[i] = image;
+            bar.Labels[i] = label;
+        }
+        SetTabSelected(bar, -1);
+        return bar;
+    }
+
+    // Recolour the bar to the selected index (-1 = none). Idempotent — call from Refresh each tick.
+    public static void SetTabSelected(TabBar bar, int index)
+    {
+        bar.Selected = index;
+        var off = SiliconAlleyTheme.Slate;
+        off.a = 0.45f; // near-transparent on the Elevated track so the active pill pops
+        for (var i = 0; i < bar.Images.Length; i++)
+        {
+            bar.Images[i].color = i == index ? SiliconAlleyTheme.Accent : off;
+            bar.Labels[i].color = i == index ? SiliconAlleyTheme.Text : SiliconAlleyTheme.TextMuted;
+        }
+    }
+
+    // ---- Toggle / checkbox (#146). A real box-and-tick instead of the ON/OFF label + colour-lerp buttons.
+    // The box is the #143 outline sprite (a solid Elevated well as the flat fallback); the tick is an accent
+    // fill + the optional ui_check glyph, popped in by SiliconAlleyCheckPop (scale + alpha, unscaled,
+    // layout-inert inside the fixed-size box). State lives in SiliconAlleyState as before — clicks report
+    // through the handler and the screen's Refresh re-asserts visuals via SetToggle/SetCardChecked. ----
+
+    public sealed class ToggleRow
+    {
+        public GameObject Root = null!;
+        public Button Button = null!;
+        public Image Box = null!;
+        public SiliconAlleyCheckPop Check = null!;
+        public TMP_Text Label = null!;
+    }
+
+    public static ToggleRow MakeToggle(Transform parent, string label, UnityAction onToggled)
+    {
+        var go = new GameObject("Toggle", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var surface = go.AddComponent<Image>();
+        surface.color = new Color(0f, 0f, 0f, 0f); // invisible, but the WHOLE row catches the click
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.padding = new RectOffset(SiliconAlleyTheme.Space.Tight, SiliconAlleyTheme.Space.Tight, 0, 0);
+        h.spacing = SiliconAlleyTheme.Space.Medium;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleLeft;
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = (int)SiliconAlleyTheme.Height.Row;
+        le.flexibleWidth = 1f;
+
+        MakeCheckboxVisual(go.transform, out var box, out var check);
+
+        var button = go.AddComponent<Button>();
+        button.targetGraphic = box; // hover/press tint lands on the box frame (the row surface is invisible)
+        button.colors = SiliconAlleyTheme.Interaction;
+        if (onToggled != null)
+            button.onClick.AddListener(onToggled);
+        go.AddComponent<SiliconAlleyHoverScale>().Gate = button;
+
+        var text = MakeText(go.transform, "Label", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        text.text = label;
+        text.GetComponent<LayoutElement>().flexibleWidth = 1f;
+
+        var row = new ToggleRow { Root = go, Button = button, Box = box, Check = check, Label = text };
+        SetToggle(row, false);
+        return row;
+    }
+
+    // Re-assert a toggle's visual state. Idempotent — call from Refresh each tick.
+    public static void SetToggle(ToggleRow t, bool on) => SetCheckVisual(t.Box, t.Check, on);
+
+    // The shared 22×22 box + tick visual behind MakeToggle and checkable CardItems. Box frame = outline
+    // sprite (solid Elevated well when the bundle predates it); tick = accent fill + the ui_check glyph
+    // (glyph hidden when the icon isn't bundled — the fill alone still reads as checked).
+    private static void MakeCheckboxVisual(Transform parent, out Image box, out SiliconAlleyCheckPop check)
+    {
+        box = MakeImage(parent, "CheckBox", SiliconAlleyTheme.TextMuted);
+        box.raycastTarget = false;
+        if (SiliconAlleyTheme.OutlineSprite != null)
+        {
+            box.sprite = SiliconAlleyTheme.OutlineSprite;
+            box.type = Image.Type.Sliced;
+        }
+        var le = box.gameObject.AddComponent<LayoutElement>();
+        le.minWidth = le.preferredWidth = 22f;
+        le.minHeight = le.preferredHeight = 22f;
+        le.flexibleWidth = 0f;
+
+        var checkGo = new GameObject("Check", typeof(RectTransform));
+        checkGo.transform.SetParent(box.transform, false);
+        Stretch((RectTransform)checkGo.transform);
+        var group = checkGo.AddComponent<CanvasGroup>();
+        group.blocksRaycasts = false;
+        group.alpha = 0f; // start unticked — no flash before the first SetToggle/SetCardChecked lands
+        checkGo.transform.localScale = Vector3.zero;
+
+        var fill = MakeImage(checkGo.transform, "Fill", SiliconAlleyTheme.Accent);
+        fill.raycastTarget = false;
+        Stretch(fill.rectTransform);
+        fill.rectTransform.offsetMin = new Vector2(4f, 4f);
+        fill.rectTransform.offsetMax = new Vector2(-4f, -4f);
+
+        var glyph = MakeImage(checkGo.transform, "Glyph", SiliconAlleyTheme.Text);
+        glyph.preserveAspect = true;
+        glyph.raycastTarget = false;
+        Stretch(glyph.rectTransform);
+        glyph.rectTransform.offsetMin = new Vector2(3f, 3f);
+        glyph.rectTransform.offsetMax = new Vector2(-3f, -3f);
+        SetIconSprite(glyph, SiliconAlleyTheme.IconFor("ui_check"));
+
+        check = checkGo.AddComponent<SiliconAlleyCheckPop>();
+        check.Group = group;
+    }
+
+    // Frame colour + tick for either checkbox host: accent frame when on; muted outline (or the flat
+    // fallback's solid well, left at its build colour) when off.
+    private static void SetCheckVisual(Image box, SiliconAlleyCheckPop check, bool on)
+    {
+        box.color = on ? SiliconAlleyTheme.Accent
+            : box.sprite != null ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Elevated;
+        check.Set(on);
+    }
+
+    // ---- Collapsible section (#146). A header row (title + chevron, whole row clickable) over a content
+    // section the caller fills. The reveal follows the layout-animation rule to the letter: expanding
+    // SNAPS the height (one SetActive → one layout rebuild on the click) and animates ALPHA only via
+    // SiliconAlleyFadeIn; collapsing hides instantly. The chevron rotates (layout-inert) and is hidden
+    // gracefully when the ui_chevron_down icon isn't bundled — the header stays fully usable text-only.
+    // The expanded flag is plain UI state the 1 Hz Refresh never writes, so it can't fight the player. ----
+
+    public sealed class Collapsible
+    {
+        public GameObject Root = null!;
+        public Button Header = null!;
+        public TMP_Text Title = null!;
+        public Image Chevron = null!;
+        public GameObject Content = null!; // parent your rows/cards here
+        public SiliconAlleyFadeIn Fade = null!;
+        public bool Expanded;
+    }
+
+    public static Collapsible MakeCollapsible(Transform parent, string titleKey, bool startExpanded = true, Action? onToggled = null)
+    {
+        var root = MakeSection(parent);
+        root.name = "Collapsible";
+
+        var headerGo = new GameObject("Header", typeof(RectTransform));
+        headerGo.transform.SetParent(root.transform, false);
+        var surface = headerGo.AddComponent<Image>();
+        surface.color = new Color(0f, 0f, 0f, 0f); // invisible, but the whole header row catches the click
+        var h = headerGo.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = SiliconAlleyTheme.Space.Base;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleLeft;
+        headerGo.AddComponent<LayoutElement>().minHeight = 28f;
+
+        var title = MakeText(headerGo.transform, "Title", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft, FontStyle.Bold);
+        title.color = SiliconAlleyTheme.Header;
+        title.text = titleKey.GetLocalization();
+        title.GetComponent<LayoutElement>().flexibleWidth = 1f;
+
+        var chevron = MakeIcon(headerGo.transform, SiliconAlleyTheme.IconFor("ui_chevron_down"), 18f, SiliconAlleyTheme.TextMuted);
+
+        var button = headerGo.AddComponent<Button>();
+        button.transition = Selectable.Transition.None; // feedback comes from the hover scale + the chevron flip
+        headerGo.AddComponent<SiliconAlleyHoverScale>().Gate = button;
+
+        var content = MakeSection(root.transform);
+        content.name = "Content";
+        var fade = content.AddComponent<SiliconAlleyFadeIn>();
+
+        var c = new Collapsible
+        {
+            Root = root,
+            Header = button,
+            Title = title,
+            Chevron = chevron,
+            Content = content,
+            Fade = fade,
+        };
+        button.onClick.AddListener(() =>
+        {
+            SetCollapsibleExpanded(c, !c.Expanded);
+            onToggled?.Invoke(); // e.g. the screen's ClampHeight, so the window resizes on the click, not a second later
+        });
+        // Initial state without the reveal fade (a freshly built screen shouldn't animate).
+        c.Expanded = startExpanded;
+        content.SetActive(startExpanded);
+        chevron.rectTransform.localEulerAngles = new Vector3(0f, 0f, startExpanded ? 180f : 0f);
+        return c;
+    }
+
+    // Expand/collapse programmatically. Height snaps; only the alpha of the revealed content animates.
+    public static void SetCollapsibleExpanded(Collapsible c, bool expanded)
+    {
+        var was = c.Content.activeSelf;
+        c.Expanded = expanded;
+        c.Content.SetActive(expanded);
+        if (expanded && !was)
+            c.Fade.Play();
+        // Down = "click to reveal below", up = "click to fold away" — rotation is layout-inert.
+        c.Chevron.rectTransform.localEulerAngles = new Vector3(0f, 0f, expanded ? 180f : 0f);
+    }
+
+    // ---- Standalone badge (#146). The CardItem state badge's semantics (SetCardBadge's hide-on-empty),
+    // freed from the card: a named state pill any row can host. A thin wrapper over MakeChip — which the
+    // loose call sites (trend pill, server-count chips, history review chip) already used ad hoc — giving
+    // that pattern a refresh-friendly API. ----
+
+    public sealed class Badge
+    {
+        public Image Root = null!;
+        public TMP_Text Label = null!;
+    }
+
+    public static Badge MakeBadge(Transform parent, Color bg, Color fg)
+    {
+        var root = MakeChip(parent, bg, fg, out var label);
+        return new Badge { Root = root, Label = label };
+    }
+
+    // Set the badge's text + background colour; hide it entirely on null/empty (mirrors SetCardBadge).
+    public static void SetBadge(Badge b, string? text, Color bg)
+    {
+        var on = !string.IsNullOrEmpty(text);
+        b.Root.gameObject.SetActive(on);
+        if (!on)
+            return;
+        b.Root.color = bg;
+        b.Label.text = text;
+    }
+
+    // ---- Delta readout + disabled-reason line (#146). Two small "explain the number" primitives the
+    // hub/detail/wizard tickets (#147–#150) consume: a before › after comparison with a signed, coloured
+    // delta, and a caption that says WHY a button is disabled instead of leaving it silently grey. ----
+
+    public sealed class DeltaReadout
+    {
+        public GameObject Root = null!;
+        public TMP_Text Before = null!;
+        public TMP_Text After = null!;
+        public TMP_Text Delta = null!;
+    }
+
+    // "before › after (+delta)" — before muted, after bold, delta colour-coded by sign. The separator is
+    // the codebase's proven "›" glyph (the wizard nav's), not "→", which the game font may lack.
+    public static DeltaReadout MakeDeltaReadout(Transform parent)
+    {
+        var go = new GameObject("DeltaReadout", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = SiliconAlleyTheme.Space.Small;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleLeft;
+        go.AddComponent<LayoutElement>().minHeight = 24f;
+
+        var before = MakeText(go.transform, "Before", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        before.color = SiliconAlleyTheme.TextMuted;
+        var arrow = MakeText(go.transform, "Arrow", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleCenter);
+        arrow.color = SiliconAlleyTheme.TextMuted;
+        arrow.text = "›";
+        var after = MakeText(go.transform, "After", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft, FontStyle.Bold);
+        var delta = MakeText(go.transform, "Delta", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Bold);
+
+        return new DeltaReadout { Root = go, Before = before, After = after, Delta = delta };
+    }
+
+    // Fill the readout. `format` renders the SIGNED delta (e.g. SignedPct, or a "+0.6" lambda); colour
+    // follows the established sign precedent — Ok positive / Warn negative / TextMuted zero (Danger stays
+    // destructive-only, #143).
+    public static void SetDelta(DeltaReadout d, string before, string after, float delta, Func<float, string> format)
+    {
+        d.Before.text = before;
+        d.After.text = after;
+        d.Delta.text = "(" + format(delta) + ")";
+        d.Delta.color = Mathf.Approximately(delta, 0f) ? SiliconAlleyTheme.TextMuted
+            : delta > 0f ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn;
+    }
+
+    // A muted-amber caption explaining WHY its control is disabled ("You have $2,400 of $6,000"); hidden
+    // whenever the control is usable. Build it right under the button it explains.
+    public static TMP_Text MakeDisabledReason(Transform parent)
+    {
+        var text = MakeText(parent, "DisabledReason", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        text.color = SiliconAlleyTheme.Warn; // caution, not danger — nothing destructive about "can't afford"
+        text.gameObject.SetActive(false);
+        return text;
+    }
+
+    // Gate the button AND surface the reason in one call: enabled hides the line, disabled shows it with
+    // the caller's explanation. Idempotent — call from Refresh each tick.
+    public static void SetDisabledReason(Button button, TMP_Text reason, bool enabled, string? reasonText)
+    {
+        button.interactable = enabled;
+        var show = !enabled && !string.IsNullOrEmpty(reasonText);
+        reason.gameObject.SetActive(show);
+        if (show)
+            reason.text = reasonText;
+    }
+
+    // ---- Segmented bar (#146, stretch). One track, N coloured segments spanning cumulative fractions —
+    // a distribution chart, replacing "a stack of progress bars" as the poor-man's version. The issue
+    // sketched this as fillAmount-based; deliberate deviation: Image.fillAmount needs Type.Filled, which
+    // is exactly what #143 abandoned because it distorts the sliced pill caps (see MakeProgressBar's
+    // comment) — segments span anchorMin.x..anchorMax.x bands on the pill track instead, equally
+    // layout-inert. Values snap: the profiles this draws move on a days-scale clock, not per frame. ----
+
+    public sealed class SegmentedBar
+    {
+        public GameObject Root = null!;
+        public Image Track = null!;
+        public Image[] Segments = null!;
+    }
+
+    public static SegmentedBar MakeSegmentedBar(Transform parent, int capacity, float height = SiliconAlleyTheme.Height.Bar)
+    {
+        var go = new GameObject("SegmentedBar", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = le.preferredHeight = height;
+        le.flexibleWidth = 1f;
+
+        var track = MakeImage(go.transform, "Track", SiliconAlleyTheme.Elevated);
+        track.raycastTarget = false;
+        ApplyPill(track, height);
+        Stretch(track.rectTransform);
+
+        var segments = new Image[capacity];
+        for (var i = 0; i < capacity; i++)
+        {
+            var seg = MakeImage(go.transform, "Segment", SiliconAlleyTheme.Accent);
+            seg.raycastTarget = false;
+            ApplyPill(seg, height);
+            Stretch(seg.rectTransform);
+            seg.enabled = false; // hidden until SetSegments hands it a share
+            segments[i] = seg;
+        }
+        return new SegmentedBar { Root = go, Track = track, Segments = segments };
+    }
+
+    // Fill the bar: fractions normalize over their sum (an all-zero set leaves the bare track) and lay out
+    // left→right as cumulative anchor bands, coloured by index (colours repeat when fewer than segments).
+    // Slivers under ~2% are hidden rather than rendered as crushed pill caps (the AnimatedFill floor rule).
+    public static void SetSegments(SegmentedBar bar, IList<float> fractions, IList<Color> colors)
+    {
+        var total = 0f;
+        if (fractions != null)
+            for (var i = 0; i < fractions.Count; i++)
+                total += Mathf.Max(0f, fractions[i]);
+        var x = 0f;
+        for (var i = 0; i < bar.Segments.Length; i++)
+        {
+            var seg = bar.Segments[i];
+            var frac = fractions != null && i < fractions.Count && total > 0f
+                ? Mathf.Max(0f, fractions[i]) / total
+                : 0f;
+            if (frac < 0.02f)
+            {
+                seg.enabled = false;
+                x += frac;
+                continue;
+            }
+            seg.enabled = true;
+            if (colors != null && colors.Count > 0)
+                seg.color = colors[i % colors.Count];
+            var rt = seg.rectTransform;
+            rt.anchorMin = new Vector2(x, 0f);
+            x += frac;
+            rt.anchorMax = new Vector2(x, 1f);
+            rt.offsetMin = rt.offsetMax = Vector2.zero;
+        }
+    }
 }
 
 // ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame
@@ -799,5 +1313,140 @@ public sealed class SiliconAlleyAnimatedNumber : MonoBehaviour
         }
         _current = Mathf.Lerp(_current, _target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
         _text.text = _format(_current);
+    }
+}
+
+// ---- Issue #146: component-kit MonoBehaviours. Same conventions as the #61 set above: self-contained,
+// manual unscaled-dt exponential lerps, and only alpha/localScale/anchor writes — never a layout input. ----
+
+// #146: fades the window scrollbar in only while the content actually overflows the viewport. The check is
+// hysteretic (show above 4px of overflow, hide below 1px; in between keep the current state) so the 1 Hz
+// ClampHeight re-measure — which can jitter the content height by a pixel or two — can never flip the bar
+// on and off (the "no flicker" acceptance criterion). Visibility is a CanvasGroup ALPHA fade, never
+// SetActive, so neither direction triggers a layout rebuild.
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyScrollbarAutoHide : MonoBehaviour
+{
+    public ScrollRect? Scroll;
+    public CanvasGroup? Group;
+
+    private const float ShowAbove = 4f; // px of overflow that reveal the bar
+    private const float HideBelow = 1f; // px of overflow that dismiss it
+    private const float Speed = 14f;
+
+    private float _target; // 0 or 1
+
+    private void Update()
+    {
+        if (Scroll == null || Group == null || Scroll.content == null || Scroll.viewport == null)
+            return;
+        var overflow = Scroll.content.rect.height - Scroll.viewport.rect.height;
+        if (overflow > ShowAbove)
+            _target = 1f;
+        else if (overflow < HideBelow)
+            _target = 0f;
+
+        var a = Group.alpha;
+        if (Mathf.Abs(a - _target) < 0.005f)
+        {
+            if (!Mathf.Approximately(a, _target))
+                Group.alpha = _target;
+        }
+        else
+        {
+            Group.alpha = Mathf.Lerp(a, _target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        }
+        // A faded-out bar must not eat clicks/drags along the window edge.
+        var visible = _target > 0.5f;
+        Group.blocksRaycasts = visible;
+        Group.interactable = visible;
+    }
+}
+
+// #146: a one-shot CanvasGroup fade-in (alpha 0 → 1). Play() (re)starts it. Used where content SNAPS into
+// place (SetActive / reposition) and only the alpha animates — the collapsible reveal and the tooltip
+// panel — per the #56 layout-safety rule (alpha never feeds a LayoutGroup).
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyFadeIn : MonoBehaviour
+{
+    private const float Speed = 10f;
+
+    private CanvasGroup? _group;
+    private bool _playing;
+
+    public void Play()
+    {
+        if (_group == null)
+        {
+            _group = GetComponent<CanvasGroup>();
+            if (_group == null)
+                _group = gameObject.AddComponent<CanvasGroup>();
+        }
+        _group.alpha = 0f;
+        _playing = true;
+    }
+
+    private void Update()
+    {
+        if (!_playing || _group == null)
+            return;
+        var a = Mathf.Lerp(_group.alpha, 1f, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        if (a >= 0.995f)
+        {
+            a = 1f;
+            _playing = false;
+        }
+        _group.alpha = a;
+    }
+}
+
+// #146: the checkbox tick's pop — localScale + CanvasGroup alpha toward on/off, unscaled, layout-inert
+// (the tick is a non-layout child inside the fixed-size box). Set() is idempotent so the 1 Hz Refresh can
+// re-assert state every tick; the FIRST Set snaps, so a freshly shown control doesn't replay the pop.
+// Group is wired by the builder (not looked up in Awake) so Set works before the host ever activates.
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyCheckPop : MonoBehaviour
+{
+    public CanvasGroup? Group;
+
+    private const float Speed = 14f;
+
+    private float _target = -1f; // -1 = never set
+    private float _t;
+
+    public void Set(bool on)
+    {
+        var target = on ? 1f : 0f;
+        if (_target < 0f)
+        {
+            _target = _t = target;
+            Apply(target);
+            return;
+        }
+        _target = target;
+    }
+
+    private void Update()
+    {
+        if (_target < 0f)
+            return;
+        if (Mathf.Abs(_t - _target) < 0.005f)
+        {
+            if (!Mathf.Approximately(_t, _target))
+            {
+                _t = _target;
+                Apply(_t);
+            }
+            return;
+        }
+        _t = Mathf.Lerp(_t, _target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        Apply(_t);
+    }
+
+    private void Apply(float t)
+    {
+        transform.localScale = new Vector3(t, t, 1f);
+        if (Group != null)
+            Group.alpha = t;
     }
 }
