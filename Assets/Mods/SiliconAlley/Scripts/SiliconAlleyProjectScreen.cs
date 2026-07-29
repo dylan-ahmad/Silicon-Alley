@@ -350,6 +350,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 _refresh = 1f;
                 Refresh();
             }
+            FollowContentHeight(); // #147: value-path window sizing — never forces a layout pass
         }
 
         // Issue #56: advance the page-transition tween (fade + scale-pop). Layout-safe — alpha/scale never
@@ -495,8 +496,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _idleSection.SetActive(false);
             _contractSection.SetActive(false);
             RefreshAbandon(true); // issue #113: no resolvable studio ⇒ nothing to abandon
-            ClampHeight();
-            return;
+            return; // #147: the section hides are picked up by FollowContentHeight a frame later
         }
 
         var businessType = BusinessTypeHelper.GetData(reg);
@@ -608,8 +608,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Issue #113: the Abandon escape hatch — offered in every active stage, hidden while Idle.
         RefreshAbandon(idle);
-
-        ClampHeight();
+        // #147: no layout clamp here — the value path never forces a rebuild. Structure changes reach
+        // RebuildLayout via RefreshStructural (clicks) or FollowContentHeight (sim-driven flips).
     }
 
     // Issue #127: the hub landing page — studio cards + the Servers section (the old F8 dashboard content),
@@ -652,7 +652,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _hubCards[i].Root.SetActive(false);
 
         RefreshHubServers(count);
-        ClampHeight();
+        // #147: no layout clamp here — see Refresh()'s tail note.
     }
 
     private SiliconAlleyStudioCard EnsureHubCard(int index)
@@ -743,22 +743,45 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Issue #147: the STRUCTURE path — for every click/navigation that swaps view modes, wizard pages,
     // stages, or whole sections (anything that adds/removes/reflows blocks of content), where the window
     // must resize the same frame. The 1 Hz tick and value-only clicks use plain Refresh() (the VALUE
-    // path), which never forces a synchronous layout pass.
+    // path), which never forces a synchronous layout pass — FollowContentHeight picks up whatever the
+    // engine's own end-of-frame layout produces.
     private void RefreshStructural()
     {
         Refresh();
+        RebuildLayout();
     }
 
-    // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
-    // Issue #147: the width is constant now (no more Design-stage wide mode), so the force-update only
-    // still matters on the very first pass, before the viewport/content rects have ever been laid out.
-    private void ClampHeight()
+    // Issue #147: the ONE forced-synchronous layout rebuild, run only on real structure changes (never
+    // the 1 Hz tick — that was the old per-second "breathing"). Captures and restores the scroll offset
+    // across the rebuild: the content pivot is top, so anchoredPosition.y IS the pixel scroll offset,
+    // and the Clamped ScrollRect re-clamps any overshoot in its LateUpdate — shrinking content lands at
+    // the nearest valid offset instead of jumping to a stale one.
+    private void RebuildLayout()
     {
         if (_contentRt == null || _windowRt == null)
             return;
+        var scrollY = _contentRt.anchoredPosition.y;
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(_contentRt);
         _windowRt.sizeDelta = new Vector2(WindowWidth, Mathf.Min(_contentRt.rect.height, MaxHeight));
+        _contentRt.anchoredPosition = new Vector2(_contentRt.anchoredPosition.x, scrollY);
+    }
+
+    // Issue #147: the VALUE path's window sizing. Reads the content height Unity's own end-of-frame
+    // layout produced LAST frame and follows it — no ForceUpdateCanvases, no ForceRebuildLayoutImmediate,
+    // ever. Catches every sim-driven section flip (ship report appearing, a milestone window opening or
+    // expiring, update-due, a contract landing) one frame late, which is invisible; the epsilon keeps
+    // steady-state writes at zero (inside the scrollbar auto-hide's 4px/1px hysteresis), and the constant
+    // width means content height can't feed back into itself — no oscillation.
+    private const float HeightFollowEpsilon = 1f;
+
+    private void FollowContentHeight()
+    {
+        if (_windowRt == null || _contentRt == null)
+            return;
+        var target = Mathf.Min(_contentRt.rect.height, MaxHeight);
+        if (Mathf.Abs(_windowRt.sizeDelta.y - target) > HeightFollowEpsilon)
+            _windowRt.sizeDelta = new Vector2(WindowWidth, target);
     }
 
     // Issue #35: drive the Design-phase wizard. While the concept is editable, show one page at a time with
@@ -2845,10 +2868,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _historySection = MakeSection(root);
         MakeDivider(_historySection.transform);
         // Issue #146: the archive folds behind its header, default collapsed — it's pure history (up to 8
-        // cards ≈ 700px of scroll) and the fold reclaims that for the sections that need action. ClampHeight
-        // as the toggle callback resizes the window on the click instead of on the next 1 Hz tick.
+        // cards ≈ 700px of scroll) and the fold reclaims that for the sections that need action. The
+        // RebuildLayout toggle callback (#147) resizes the window on the click instead of a frame later.
         var historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
-            startExpanded: false, onToggled: ClampHeight);
+            startExpanded: false, onToggled: RebuildLayout);
         _historyHost = historyFold.Content;
 
         // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----

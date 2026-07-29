@@ -998,7 +998,7 @@ public static class SiliconAlleyUI
         button.onClick.AddListener(() =>
         {
             SetCollapsibleExpanded(c, !c.Expanded);
-            onToggled?.Invoke(); // e.g. the screen's ClampHeight, so the window resizes on the click, not a second later
+            onToggled?.Invoke(); // e.g. the screen's RebuildLayout, so the window resizes on the click, not a frame later
         });
         // Initial state without the reveal fade (a freshly built screen shouldn't animate).
         c.Expanded = startExpanded;
@@ -1321,7 +1321,7 @@ public sealed class SiliconAlleyAnimatedNumber : MonoBehaviour
 
 // #146: fades the window scrollbar in only while the content actually overflows the viewport. The check is
 // hysteretic (show above 4px of overflow, hide below 1px; in between keep the current state) so the 1 Hz
-// ClampHeight re-measure — which can jitter the content height by a pixel or two — can never flip the bar
+// height-follow re-measure — which can jitter the content height by a pixel or two — can never flip the bar
 // on and off (the "no flicker" acceptance criterion). Visibility is a CanvasGroup ALPHA fade, never
 // SetActive, so neither direction triggers a layout rebuild.
 [DisallowMultipleComponent]
