@@ -685,7 +685,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private SiliconAlleyServerGroupCard EnsureHubServerCard(int index)
     {
         while (index >= _hubServerCards.Count)
-            _hubServerCards.Add(SiliconAlleyServerGroupCard.Build(_hubServersHost.transform, Refresh));
+            _hubServerCards.Add(SiliconAlleyServerGroupCard.Build(_hubServersHost.transform)); // #147: role clicks repaint in place
         return _hubServerCards[index];
     }
 
