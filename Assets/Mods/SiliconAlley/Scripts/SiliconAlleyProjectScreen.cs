@@ -62,8 +62,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     public static readonly KeyCode[] KeyChoices =
         { KeyCode.F9, KeyCode.F10, KeyCode.F11, KeyCode.F12, KeyCode.Tab, KeyCode.BackQuote };
 
-    private const float WindowWidth = 620f;
-    private const float WizardWidth = 1060f; // issue #81: the Design-stage wizard goes Software-Inc-scale wide
+    // Issue #147: ONE window width. The old 620/1060 split teleported the window 440px (and re-centred
+    // it) whenever a studio entered/left the Design stage; every screen now lays out for this width.
+    private const float WindowWidth = 940f;
     private const float MaxHeight = 940f; // window caps here (at the 1080 reference) and scrolls beyond
 
     private static readonly int[] ScopeKinds =
@@ -740,19 +741,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     }
 
     // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
-    // Issue #81: the window goes wide in the Design stage (the Software-Inc-scale wizard) and stays compact
-    // for every other stage. Set the width FIRST and force a layout pass so the Content (anchored to stretch
-    // with the viewport) reflows at the new width before we measure its height.
+    // Issue #147: the width is constant now (no more Design-stage wide mode), so the force-update only
+    // still matters on the very first pass, before the viewport/content rects have ever been laid out.
     private void ClampHeight()
     {
         if (_contentRt == null || _windowRt == null)
             return;
-        var wide = !_hubMode && _currentKey != null && SiliconAlleyState.GetStage(_currentKey) == SiliconAlleyState.ProjectStage.Design;
-        var width = wide ? WizardWidth : WindowWidth;
-        _windowRt.sizeDelta = new Vector2(width, _windowRt.sizeDelta.y);
-        Canvas.ForceUpdateCanvases(); // propagate the new window width down to the viewport + content rects
+        Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(_contentRt);
-        _windowRt.sizeDelta = new Vector2(width, Mathf.Min(_contentRt.rect.height, MaxHeight));
+        _windowRt.sizeDelta = new Vector2(WindowWidth, Mathf.Min(_contentRt.rect.height, MaxHeight));
     }
 
     // Issue #35: drive the Design-phase wizard. While the concept is editable, show one page at a time with
@@ -2370,13 +2367,17 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         backdropButton.transition = Selectable.Transition.None;
         backdropButton.onClick.AddListener(Close);
 
-        // Window: fixed-width panel, centred, height clamped each Refresh; hosts a vertical ScrollRect so
-        // tall content (e.g. the ship report + Design stacked) scrolls instead of overflowing the screen.
+        // Window: fixed-width panel; hosts a vertical ScrollRect so tall content (e.g. the ship report +
+        // Design stacked) scrolls instead of overflowing the screen. Issue #147: the pivot sits at the TOP
+        // centre, so height changes grow the window DOWNWARD from a fixed top edge instead of moving both
+        // edges (the old per-second "breathing"); the default position puts a full-height (MaxHeight)
+        // window vertically centred on screen.
         var window = MakePanel(_root.transform, "Window");
         _windowRt = window.rectTransform;
         _windowRt.anchorMin = _windowRt.anchorMax = new Vector2(0.5f, 0.5f);
+        _windowRt.pivot = new Vector2(0.5f, 1f);
         _windowRt.sizeDelta = new Vector2(WindowWidth, 600f);
-        _windowRt.anchoredPosition = Vector2.zero;
+        _windowRt.anchoredPosition = new Vector2(0f, MaxHeight * 0.5f);
         var scroll = window.gameObject.AddComponent<ScrollRect>();
         scroll.horizontal = false;
         scroll.vertical = true;
