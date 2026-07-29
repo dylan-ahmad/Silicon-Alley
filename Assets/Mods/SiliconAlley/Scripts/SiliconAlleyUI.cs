@@ -1015,6 +1015,34 @@ public static class SiliconAlleyUI
         // Down = "click to reveal below", up = "click to fold away" — rotation is layout-inert.
         c.Chevron.rectTransform.localEulerAngles = new Vector3(0f, 0f, expanded ? 180f : 0f);
     }
+
+    // ---- Standalone badge (#146). The CardItem state badge's semantics (SetCardBadge's hide-on-empty),
+    // freed from the card: a named state pill any row can host. A thin wrapper over MakeChip — which the
+    // loose call sites (trend pill, server-count chips, history review chip) already used ad hoc — giving
+    // that pattern a refresh-friendly API. ----
+
+    public sealed class Badge
+    {
+        public Image Root = null!;
+        public TMP_Text Label = null!;
+    }
+
+    public static Badge MakeBadge(Transform parent, Color bg, Color fg)
+    {
+        var root = MakeChip(parent, bg, fg, out var label);
+        return new Badge { Root = root, Label = label };
+    }
+
+    // Set the badge's text + background colour; hide it entirely on null/empty (mirrors SetCardBadge).
+    public static void SetBadge(Badge b, string? text, Color bg)
+    {
+        var on = !string.IsNullOrEmpty(text);
+        b.Root.gameObject.SetActive(on);
+        if (!on)
+            return;
+        b.Root.color = bg;
+        b.Label.text = text;
+    }
 }
 
 // ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame

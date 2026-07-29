@@ -246,13 +246,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private readonly List<HistoryRow> _historyRows = new List<HistoryRow>();
     private const int HistoryMaxRows = 8;
 
-    // A pooled release-history row: [name vN … review chip], a meta caption, and (newest row only) the
+    // A pooled release-history row: [name vN … review badge], a meta caption, and (newest row only) the
     // recorded multiplier breakdown.
     private sealed class HistoryRow
     {
         public GameObject Root;
-        public TMP_Text Title, Meta, Mults, ReviewLabel;
-        public Image ReviewChip;
+        public TMP_Text Title, Meta, Mults;
+        public SiliconAlleyUI.Badge Review; // issue #146: the standalone-badge API (was a loose MakeChip)
     }
 
     // Issue #129: the #126 contract staff-split dial (contract-first ‹ … › product-first) + its readout.
@@ -1800,8 +1800,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var header = MakeRow(t, 8f, 26);
         header.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
         r.Title = MakeText(header.transform, "Title", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft, FontStyle.Bold);
-        r.Title.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the review chip to the right edge
-        r.ReviewChip = MakeChip(header.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.Text, out r.ReviewLabel);
+        r.Title.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the review badge to the right edge
+        r.Review = MakeBadge(header.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.Text); // issue #146
         r.Meta = MakeText(t, "Meta", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         r.Meta.color = SiliconAlleyTheme.TextMuted;
         r.Mults = MakeText(t, "Mults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
@@ -1815,9 +1815,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var name = string.IsNullOrWhiteSpace(rec.ProductName) ? ProductName(businessType) : rec.ProductName;
         row.Title.text = name + " v" + rec.Version.ToString(CultureInfo.InvariantCulture);
         // The same grading the ship report's review bar uses (>=7 good, >=4 fine, else rough).
-        row.ReviewChip.color = rec.Review >= 7f ? SiliconAlleyTheme.Ok
-            : rec.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn;
-        row.ReviewLabel.text = Review(rec.Review);
+        SetBadge(row.Review, Review(rec.Review), rec.Review >= 7f ? SiliconAlleyTheme.Ok
+            : rec.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
         var publisher = SiliconAlleyPublishers.TryGetById(rec.Publisher, out var pub)
             ? pub.NameKey.GetLocalization()
             : "—";
