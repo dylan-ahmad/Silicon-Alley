@@ -5,19 +5,50 @@ using Helpers;
 using Localizor;
 using UnityEngine;
 
-// Issue #59: the shared per-studio status formatters, extracted so the phone dialog
-// (SiliconAlleyClientDialog) and the new card dashboard (SiliconAlleyDashboardScreen) format the same
-// numbers identically — instead of a third near-duplicate copy. Presentation only: these read live state
-// and return display strings, they never write state. All float formatting uses InvariantCulture (the dev
-// machine is nl-NL; see CLAUDE.md).
+// Issue #59 (+ #144): THE format table — every user-visible number shape lives here, so the hub, the
+// detail view, the phone dialog and the toasts format the same value identically instead of drifting
+// apart in private copies (#144 fixed exactly such a drift: a demand-less SupportPerDay clone).
+// Conventions: the formatter owns a standalone value's suffix/glyph ("%", "/10", "d", "/day", "×");
+// "~" marks throughput ESTIMATES only (Eta) — exact calendar-day countdowns (DaysLeft/PatchEta) are
+// bare "Nd"; the visual list separator is "·" (locale-side). Presentation only: these read live state
+// and return display strings, they never write state. All float formatting uses InvariantCulture (the
+// dev machine is nl-NL; see CLAUDE.md).
 public static class SiliconAlleyFormat
 {
-    // "$N,NNN" — a rounded money string.
-    public static string Money(float amount) =>
-        "$" + Mathf.RoundToInt(amount).ToString("N0", CultureInfo.InvariantCulture);
+    // "$1,234" / "-$1,234" — a rounded money string. Rounds FIRST, then signs, so -0.4f is "$0", not "-$0".
+    public static string Money(float amount)
+    {
+        var rounded = Mathf.RoundToInt(amount);
+        return rounded < 0
+            ? "-$" + (-rounded).ToString("N0", CultureInfo.InvariantCulture)
+            : "$" + rounded.ToString("N0", CultureInfo.InvariantCulture);
+    }
 
-    // Remaining progress / current hourly throughput, as a short "~Nd Nh". perHour is this hour's live
-    // staffing, so an unstaffed studio reports "needs staff" rather than an infinite ETA; "due now" at <= 0.
+    // A 0..1 fraction as "42%".
+    public static string Pct(float fraction01) =>
+        Mathf.RoundToInt(Mathf.Clamp01(fraction01) * 100f).ToString(CultureInfo.InvariantCulture) + "%";
+
+    // A signed 0..1 fraction delta as "+3%" / "-2%" / "0%". Not clamped — deltas may legitimately exceed ±1.
+    public static string SignedPct(float fraction)
+    {
+        var rounded = Mathf.RoundToInt(fraction * 100f);
+        return (rounded > 0 ? "+" : "") + rounded.ToString(CultureInfo.InvariantCulture) + "%";
+    }
+
+    // The phase-weighted average quality (0..1) as a percentage, or "—" before any quality has accrued (< 0).
+    public static string Quality(float quality) =>
+        quality < 0f ? "—" : Pct(quality);
+
+    // A 0..10 review score as "7.4/10".
+    public static string Review(float review) =>
+        review.ToString("F1", CultureInfo.InvariantCulture) + "/10";
+
+    // A market-demand multiplier as "×1.12".
+    public static string Demand(float factor) =>
+        "×" + factor.ToString("F2", CultureInfo.InvariantCulture);
+
+    // Remaining progress / current hourly throughput, as a short "~Nd Nh" ESTIMATE. perHour is this hour's
+    // live staffing, so an unstaffed studio reports "needs staff" rather than an infinite ETA; "due now" at <= 0.
     public static string Eta(float remaining, float perHour)
     {
         if (perHour <= 0f)
@@ -32,12 +63,13 @@ public static class SiliconAlleyFormat
             : "~" + rest.ToString(CultureInfo.InvariantCulture) + "h";
     }
 
-    // The phase-weighted average quality (0..1) as a percentage, or "—" before any quality has accrued (< 0).
-    public static string Quality(float quality)
+    // An EXACT calendar-day countdown as a bare "Nd" ("0d" on the last day); "due now" once it lapses.
+    // No "~" — deadlines are exact, unlike the throughput estimate Eta.
+    public static string DaysLeft(int days)
     {
-        if (quality < 0f)
-            return "—";
-        return Mathf.RoundToInt(Mathf.Clamp01(quality) * 100f).ToString(CultureInfo.InvariantCulture) + "%";
+        if (days < 0)
+            return "siliconalley:client_eta_due".GetLocalization();
+        return days.ToString(CultureInfo.InvariantCulture) + "d";
     }
 
     // Estimated recurring support income per day = installed base x product market price x support rate x
@@ -67,8 +99,8 @@ public static class SiliconAlleyFormat
         if (SiliconAlleyState.GetInstalledBase(key) <= 0)
             return "—";
         var daysUntil = SiliconAlleyOfficeSimulator.PatchIntervalDays - (TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key));
-        if (daysUntil <= 0)
-            return "siliconalley:client_eta_due".GetLocalization();
-        return "~" + daysUntil.ToString(CultureInfo.InvariantCulture) + "d";
+        return daysUntil <= 0
+            ? "siliconalley:client_eta_due".GetLocalization()
+            : DaysLeft(daysUntil);
     }
 }
