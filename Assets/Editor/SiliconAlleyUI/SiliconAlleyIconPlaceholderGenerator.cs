@@ -18,7 +18,7 @@ public static class SiliconAlleyIconPlaceholderGenerator
     private const string BundleVariant = "unity3d";
     private const int Size = 128;
 
-    private enum Shape { Circle, RoundedSquare, Ring, Diamond, Triangle, Plus, Bars }
+    private enum Shape { Circle, RoundedSquare, Ring, Diamond, Triangle, Plus, Bars, Chevron, Star4, Pennant, Hexagon, Stack }
 
     // One distinct shape per concept category so placeholders are visually separable.
     private static readonly (string name, Shape shape)[] Categories =
@@ -30,6 +30,12 @@ public static class SiliconAlleyIconPlaceholderGenerator
         ("cat_phase", Shape.Triangle),
         ("cat_businesstype", Shape.Plus),
         ("cat_projecttype", Shape.Bars),
+        // Issue #145: the categories that used to fall through to null (empty gutters).
+        ("cat_stat", Shape.Chevron),
+        ("cat_ms", Shape.Star4),
+        ("cat_publisher", Shape.Pennant),
+        ("cat_dep", Shape.Hexagon),
+        ("cat_server", Shape.Stack),
     };
 
     [MenuItem("Big Ambitions/Silicon Alley/Generate Placeholder Icons")]
@@ -144,6 +150,41 @@ public static class SiliconAlleyIconPlaceholderGenerator
                         var baseY = c + r;
                         return y <= baseY && y >= baseY - barH;
                     }
+                }
+                return false;
+            }
+            case Shape.Chevron: // cat_stat (#145): an upward chevron band, "a reading on the move"
+            {
+                // Texture row 0 sits at the BOTTOM, so an upward-pointing chevron dips dy by |dx|.
+                var band = Mathf.Abs(dy - (0.8f * Mathf.Abs(dx) - 0.25f * r)) <= 0.20f * r;
+                return band && Mathf.Abs(dx) <= 0.95f * r;
+            }
+            case Shape.Star4: // cat_ms (#145): a four-point sparkle (astroid) — "a decision moment"
+                return Mathf.Sqrt(Mathf.Abs(dx)) + Mathf.Sqrt(Mathf.Abs(dy)) <= Mathf.Sqrt(r);
+            case Shape.Pennant: // cat_publisher (#145): a pole + tapering flag
+            {
+                if (dx >= -r && dx <= -0.72f * r && Mathf.Abs(dy) <= r)
+                    return true; // the pole
+                if (dx <= -0.72f * r || dx > r)
+                    return false;
+                var t = (dx + 0.72f * r) / (1.72f * r); // 0 at the pole, 1 at the flag tip
+                // Row 0 is the texture bottom, so +dy is visually UP — the flag flies from the pole top.
+                return Mathf.Abs(dy - 0.55f * r) <= 0.4f * r * (1f - t);
+            }
+            case Shape.Hexagon: // cat_dep (#145): a hex cell — "a component in the stack"
+                return 0.866f * Mathf.Abs(dx) + 0.5f * Mathf.Abs(dy) <= 0.866f * r
+                    && Mathf.Abs(dy) <= 0.866f * r;
+            case Shape.Stack: // cat_server (#145): three horizontal slabs — a rack silhouette
+            {
+                var slabH = 0.42f * r;
+                var gap = 0.18f * r;
+                if (Mathf.Abs(dx) > 0.95f * r)
+                    return false;
+                for (var i = 0; i < 3; i++)
+                {
+                    var y0 = c - 0.81f * r + i * (slabH + gap); // 3 slabs + 2 gaps = 1.62r, centred on c
+                    if (y >= y0 && y <= y0 + slabH)
+                        return true;
                 }
                 return false;
             }
