@@ -95,6 +95,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // Control references rebuilt once in Build().
     private TMP_Text _titleText, _studioText, _phaseText, _summaryText;
+    private TMP_Text _switcherText; // issue #149: the studio switcher's position readout ("2 / 5")
     private Image _typeIcon, _phaseIcon; // issue #55: current business-type + phase icons (next to studio name / phase)
     private GameObject _wizardSection, _developmentSection, _testingSection, _releaseSection;
     // ---- Design wizard (issue #35): a paged Concept → … → Summary flow shown during the Design phase.
@@ -238,21 +239,30 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private SiliconAlleyUI.StatRow _devForecast, _testForecast;
     private TMP_Text _devForecastMults, _testForecastMults;
     private Button _pressReleaseButton, _pressBuildButton, _hypeButton;
-    private TMP_Text _pressReleaseLabel, _pressBuildLabel, _hypeLabel;
+    // Issue #149: the campaign cells' cost chips + disabled-reason lines (the cost moved out of the
+    // button label into a chip; the description became a hover tooltip).
+    private TMP_Text _pressReleaseCostLabel, _pressBuildCostLabel, _hypeCostLabel;
+    private TMP_Text _pressReleaseReason, _pressBuildReason, _hypeReason;
     // Publisher section (issue #17/#22/#23): shown pre-release; sign a publishing deal or watch its countdown.
     // Issue #60: eligible publishers are offer cards; an active deal is a stat-row card with a ship bar.
     private GameObject _publisherSection;
     private TMP_Text _pubNoDealText;
     private SiliconAlleyUI.CardItem[] _publisherCards;
+    private GameObject[] _publisherOffers; // issue #149: per-publisher wrapper (read-only card + Sign button)
     private GameObject _pubDealCard;
     private SiliconAlleyUI.StatRow _pubDealPublisher, _pubDealDeadline, _pubDealShipEta, _pubDealBonus;
     private SiliconAlleyUI.ProgressBar _pubShipBar;
     // Release section (transient ship report; issue #60: review + freshness bars + stat rows)
     private SiliconAlleyUI.ProgressBar _relReviewBar, _relFreshBar;
-    private SiliconAlleyUI.StatRow _relProduct, _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
-    // Issue #146: review vs the previous release as a before › after delta (hidden on a debut).
-    private GameObject _relReviewDeltaRow;
-    private SiliconAlleyUI.DeltaReadout _relReviewDelta;
+    private SiliconAlleyUI.StatRow _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
+    // Issue #149: the hero line (product + version + review badge) and the 2-column stat grid's new cells.
+    private Image _relHeroIcon;
+    private TMP_Text _relHeroTitle, _relMults;
+    private SiliconAlleyUI.Badge _relReviewBadge;
+    private SiliconAlleyUI.StatRow _relInstalled, _relIpRep;
+    // Issue #146/#149: review and payout vs the previous release as before › after deltas (hidden on a debut).
+    private GameObject _relReviewDeltaRow, _relPayoutDeltaRow;
+    private SiliconAlleyUI.DeltaReadout _relReviewDelta, _relPayoutDelta;
     // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
@@ -261,6 +271,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // report (#122 record extras). Pooled rows, newest first; the newest row carries the multiplier
     // breakdown ("why did I earn this"), rendering "—" for pre-0.5.0 rows that never recorded it.
     private GameObject _historySection, _historyHost;
+    private SiliconAlleyUI.Collapsible _historyFold; // issue #149: the fold's Expanded flag = its session memory
     private readonly List<HistoryRow> _historyRows = new List<HistoryRow>();
     private const int HistoryMaxRows = 8;
 
@@ -492,6 +503,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _phaseRow.SetActive(true);
         _summaryText.gameObject.SetActive(true);
         _overviewButton.gameObject.SetActive(true);
+        // Issue #149: keep the studio list fresh on the DETAIL path too — the switcher's "N / M" would
+        // otherwise lie after a studio is bought or sold while the detail view sits open (only OpenFor and
+        // the hub refreshed it before). Same per-tick cost the hub has paid since #148.
+        PopulateStudios();
 
         var reg = FindRegistration(_currentKey);
         if (reg == null)
@@ -502,6 +517,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 "siliconalley:screen_registration_failed").GetLocalization();
             _phaseText.text = "";
             _summaryText.text = "";
+            RefreshSwitcher();
             _wizardSection.SetActive(false);
             _developmentSection.SetActive(false);
             _testingSection.SetActive(false);
@@ -532,9 +548,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var idle = stage == SiliconAlleyState.ProjectStage.Idle;
         var stageName = SiliconAlleyState.StageNameKey(stage).GetLocalization();
 
-        _titleText.text = Compose("siliconalley:screen_title", ("phase", stageName));
+        // Issue #149: the header is an identity band — the title names the STUDIO, the identity line the
+        // PRODUCT (+ version) with the switcher's position, and the meta line the stage with the ONE phase
+        // percentage. Nothing repeats anything else.
+        _titleText.text = reg.GetDisplayName();
         _studioText.text = Compose("siliconalley:screen_studio",
-            ("business", reg.GetDisplayName()), ("product", ProductDisplayName(key, businessType)));
+            ("product", ProductDisplayName(key, businessType)),
+            ("version", SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)));
+        RefreshSwitcher();
         // Issue #55: reflect the current business type + phase as icons next to their labels (none when idle).
         SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(businessType?.businessTypeName));
         SetIconSprite(_phaseIcon, idle ? null : SiliconAlleyTheme.IconFor(SiliconAlleyState.PhaseNameKey(phase)));
@@ -628,6 +649,22 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         RefreshAbandon(idle);
         // #147: no layout clamp here — the value path never forces a rebuild. Structure changes reach
         // RebuildLayout via RefreshStructural (clicks) or FollowContentHeight (sim-driven flips).
+    }
+
+    // Issue #149: the switcher's position readout — "2 / 5" instead of two positionless arrows. Same two
+    // expressions CycleStudio uses, with its IndexOf == -1 guard; blank when there is nothing to cycle.
+    private void RefreshSwitcher()
+    {
+        var count = _studioKeys.Count;
+        if (count <= 0)
+        {
+            _switcherText.text = "";
+            return;
+        }
+        var index = Mathf.Max(0, _studioKeys.IndexOf(_currentKey));
+        _switcherText.text = Compose("siliconalley:screen_switcher",
+            ("n", (index + 1).ToString(CultureInfo.InvariantCulture)),
+            ("m", count.ToString(CultureInfo.InvariantCulture)));
     }
 
     // Issue #127: the hub landing page — studio cards + the Servers section (the old F8 dashboard content),
@@ -1665,6 +1702,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Issue #146: a SIGNED review-point delta ("+0.6" / "-1.2") for the ship report's delta readout.
     private static readonly Func<float, string> FmtSignedReview = v =>
         (v >= 0f ? "+" : "") + v.ToString("F1", CultureInfo.InvariantCulture);
+    // Issue #149: the signed payout delta ("+$1,200"), from the shared format table.
+    private static readonly Func<float, string> FmtSignedMoney = SignedMoney;
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
     private void RefreshRecap(string key)
@@ -1683,7 +1722,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void RefreshDevelopment(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
     {
-        SetProgress(_devBuildBar, size > 0f ? Mathf.Clamp01(rawProgress / size) : 0f);
+        // Issue #149: the bar now visualises the SAME fraction the header states (progress within the
+        // current stage). It used to show whole-project progress, so the header said "62%" while the bar
+        // sat at a different place — two answers to one question. The stat row below keeps the absolute
+        // "{progress} / {size}" units, which is a different fact, not a third percentage.
+        SetProgress(_devBuildBar, SiliconAlleyState.PhaseProgressFraction(rawProgress, size));
         SetStat(_devBuild, "phase_development", "siliconalley:screen_dev_lbl_build",
             Compose("siliconalley:screen_dev_val_build",
                 ("progress", Mathf.RoundToInt(rawProgress).ToString(CultureInfo.InvariantCulture)),
@@ -1785,41 +1828,94 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
             ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
 
+    // Issue #149: one marketing-campaign cell — [short label][cost chip] with the old long label (price +
+    // what it does) as a hover tooltip, and a disabled-reason line underneath. The cost is a chip because
+    // a half-width button can't carry "Press Release ($1,500) — quick awareness bump" and stay readable.
+    // Returns the button; the caller keeps the chip label + reason line for the per-refresh writes.
+    private static Button MakeCampaignCell(Transform parent, string labelKey, string tipKey, float cost,
+        UnityAction onClick, out TMP_Text costLabel, out TMP_Text reason)
+    {
+        var cell = MakeSection(parent);
+        var row = MakeRow(cell.transform, SiliconAlleyTheme.Space.Small, 40);
+        row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        var button = MakeButton(row.transform, labelKey.GetLocalization(), onClick); // flexibleWidth 1: fills the cell
+        MakeChip(row.transform, SiliconAlleyTheme.Elevated, SiliconAlleyTheme.TextMuted, out costLabel);
+        // #146 tooltip: the description the button label used to carry (the existing long locale string,
+        // cost placeholder included) — the first tooltip on this screen.
+        SiliconAlleyTooltip.Attach(button.GetComponent<Image>(),
+            () => Compose(tipKey, ("cost", Money(cost))));
+        reason = MakeDisabledReason(cell.transform);
+        return button;
+    }
+
+    // Issue #149: a labelled "before › after" row — muted label on the left, the delta readout hugging the
+    // right edge. The ship report builds two (review, payout); both hide on a debut.
+    private static GameObject MakeDeltaRow(Transform parent, string labelKey, out SiliconAlleyUI.DeltaReadout readout)
+    {
+        var row = MakeRow(parent, 8f, 24);
+        row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        var label = MakeText(row.transform, "DeltaLbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        label.color = SiliconAlleyTheme.TextMuted;
+        label.text = labelKey.GetLocalization();
+        label.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the readout to the right edge
+        readout = MakeDeltaReadout(row.transform);
+        return row;
+    }
+
     private void RefreshRelease(BuildingRegistration reg, BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
-        SetStat(_relProduct, "stat_market", "siliconalley:screen_rel_lbl_product",
-            string.IsNullOrWhiteSpace(report.ProductName) ? ProductDisplayName(key, businessType) : report.ProductName,
-            SiliconAlleyTheme.Header);
-        // Issue #20/#60: lead with the critical-reception score + a 0..10 review bar (color-graded).
-        SetStatNum(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review", report.Review, FmtReview, SiliconAlleyTheme.Header);
-        var review01 = Mathf.Clamp01(report.Review / 10f);
-        SetProgress(_relReviewBar, review01,
-            report.Review >= 7f ? SiliconAlleyTheme.Ok : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
-        // Issue #146: how this release reviewed against the previous one. The newest history row IS this
-        // ship (appended in OnProjectCompleted), so the previous release sits at Count - 2.
+        // Issue #149: the hero line — what shipped, at which version, and how it reviewed.
+        var kind = SiliconAlleyState.GetProjectType(key);
+        SetIconSprite(_relHeroIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.ProjectTypeNameKey(kind)));
+        var shipped = string.IsNullOrWhiteSpace(report.ProductName)
+            ? ProductDisplayName(key, businessType)
+            : report.ProductName;
+        _relHeroTitle.text = Compose("siliconalley:screen_studio",
+            ("product", shipped),
+            ("version", SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)));
+        // The same ≥7 / ≥4 grading the review bar and the history rows use.
+        var grade = report.Review >= 7f ? SiliconAlleyTheme.Ok
+            : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn;
+        SetBadge(_relReviewBadge, Review(report.Review), grade);
+        SetProgress(_relReviewBar, Mathf.Clamp01(report.Review / 10f), grade);
+
+        // Issue #146/#149: review + payout against the previous release. The newest history row IS this ship
+        // (appended in OnProjectCompleted), so the previous release sits at Count - 2 and this one at Count - 1.
         var releases = SiliconAlleyState.GetReleaseHistory(key);
         var hasPrev = releases.Count >= 2;
         _relReviewDeltaRow.SetActive(hasPrev);
+        _relPayoutDeltaRow.SetActive(hasPrev);
         if (hasPrev)
         {
-            var prev = releases[releases.Count - 2].Review;
-            SetDelta(_relReviewDelta, Review(prev), Review(report.Review), report.Review - prev, FmtSignedReview);
+            var prev = releases[releases.Count - 2];
+            SetDelta(_relReviewDelta, Review(prev.Review), Review(report.Review),
+                report.Review - prev.Review, FmtSignedReview);
+            SetDelta(_relPayoutDelta, Money(prev.LaunchPayout), Money(report.Payout),
+                report.Payout - prev.LaunchPayout, FmtSignedMoney);
         }
-        SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Mathf.Clamp01(report.Quality), FmtPct, SiliconAlleyTheme.Text);
-        SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue",
-            Compose("siliconalley:screen_rel_val_revenue",
-                ("payout", Money(report.Payout)),
-                ("repmult", report.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
-                ("marketmult", report.MarketMult.ToString("F2", CultureInfo.InvariantCulture))),
-            SiliconAlleyTheme.Ok);
-        // Issue #24: the franchise's version + IP reputation alongside reputation and installed base.
-        SetStat(_relRep, "stat_market", "siliconalley:screen_rel_lbl_rep",
-            Compose("siliconalley:screen_rel_val_rep",
-                ("reputation", SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
-                ("iprep", SiliconAlleyState.GetIpReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
-                ("version", "v" + SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)),
-                ("base", SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture))),
-            SiliconAlleyTheme.Text);
+
+        // Issue #149: one fact per grid cell — this replaces the two crammed multi-number strings.
+        SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue", Money(report.Payout), SiliconAlleyTheme.Ok);
+        SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality",
+            Mathf.Clamp01(report.Quality), FmtPct, SiliconAlleyTheme.Text);
+        SetStatNum(_relInstalled, "stat_installed", "siliconalley:screen_rel_lbl_installed",
+            SiliconAlleyState.GetInstalledBase(key), FmtInt, SiliconAlleyTheme.Text);
+        SetStat(_relRep, "stat_reputation", "siliconalley:screen_rel_lbl_rep",
+            SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+        // Issue #24: the franchise's IP reputation — the sequel bar this release is judged against.
+        SetStat(_relIpRep, "stat_market", "siliconalley:screen_rel_lbl_iprep",
+            SiliconAlleyState.GetIpReputation(key).ToString("F2", CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+
+        // Issue #149: "why this payout" — the recorded multiplier breakdown, reusing the release-history
+        // strings (and its -1 "not recorded" sentinel guard for anything shipped before 0.5.0).
+        var recorded = releases.Count >= 1 ? releases[releases.Count - 1] : default;
+        _relMults.text = releases.Count >= 1 && recorded.RepMult >= 0f
+            ? Compose("siliconalley:screen_history_mults",
+                ("rep", recorded.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("market", recorded.MarketMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("demand", recorded.DemandMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("clean", Pct(recorded.Cleanliness)))
+            : "siliconalley:screen_history_mults_na".GetLocalization();
         // Issue #25/#60: support income + the current freshness as a thin bar (declines as the catalog ages).
         // Issue #144: the CANONICAL demand-aware SupportPerDay — the private demand-less copy this screen used
         // showed a different $/day than the hub card for the same studio at the same tick.
@@ -1956,13 +2052,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                     ("count", agencies.ToString(CultureInfo.InvariantCulture))),
                 SiliconAlleyTheme.Ok);
 
-        _pressReleaseLabel.text = Compose("siliconalley:screen_mkt_press_release", ("cost", Money(SiliconAlleyState.PressReleaseCost)));
-        _pressBuildLabel.text = Compose("siliconalley:screen_mkt_press_build", ("cost", Money(SiliconAlleyState.PressBuildCost)));
-        _hypeLabel.text = Compose("siliconalley:screen_mkt_hype", ("cost", Money(SiliconAlleyState.HypeCost)));
-
-        _pressReleaseButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.PressReleaseCost);
-        _pressBuildButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.PressBuildCost);
-        _hypeButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.HypeCost);
+        // Issue #149: the cost lives in each cell's chip now, and an unaffordable campaign SAYS what it
+        // needs instead of greying out silently (the #146 milestone pattern, same locale string).
+        FillCampaignCell(_pressReleaseButton, _pressReleaseCostLabel, _pressReleaseReason,
+            SiliconAlleyState.PressReleaseCost, reg);
+        FillCampaignCell(_pressBuildButton, _pressBuildCostLabel, _pressBuildReason,
+            SiliconAlleyState.PressBuildCost, reg);
+        FillCampaignCell(_hypeButton, _hypeCostLabel, _hypeReason,
+            SiliconAlleyState.HypeCost, reg);
 
         // Issue #146: checkbox row — the label re-states the hourly cost, the tick is the state.
         _adSpendToggle.Label.text = Compose("siliconalley:toggle_adspend",
@@ -1985,6 +2082,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 ("start", windowStart), ("end", windowEnd));
             _mktTimingText.color = SiliconAlleyTheme.TextMuted;
         }
+    }
+
+    // Issue #149: one campaign cell's per-refresh writes — the cost chip plus the affordability gate with
+    // its shortfall line. Mirrors FillMilestoneOption, reusing ui_disabled_funds ("You have {have} of {need}").
+    private static void FillCampaignCell(Button button, TMP_Text costLabel, TMP_Text reason, float cost,
+        BuildingRegistration reg)
+    {
+        costLabel.text = Money(cost);
+        var affordable = SiliconAlleyMoney.CanAfford(reg, cost);
+        SetDisabledReason(button, reason, affordable,
+            affordable ? null : Compose("siliconalley:ui_disabled_funds",
+                ("have", Money(SaveGameManager.Current.Money)),
+                ("need", Money(cost))));
     }
 
     // Issue #130: the projected review — the exact ship-block quality math (accrued capped by the design
@@ -2026,10 +2136,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (SiliconAlleyState.HasDeal(key))
         {
-            // Active deal: hide the offer cards + prompt, show the deal card with a ship-progress bar.
+            // Active deal: hide the offers + prompt, show the deal card with a ship-progress bar.
             _pubNoDealText.gameObject.SetActive(false);
-            for (int i = 0; i < _publisherCards.Length; i++)
-                _publisherCards[i].Root.SetActive(false);
+            for (int i = 0; i < _publisherOffers.Length; i++)
+                _publisherOffers[i].SetActive(false); // #149: the wrapper hides the card AND its Sign button
             _pubDealCard.SetActive(true);
 
             var pub = SiliconAlleyState.GetDealPublisher(key);
@@ -2059,7 +2169,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var c = _publisherCards[i];
             var pub = roster[i];
             var eligible = SiliconAlleyPublishers.IsEligible(pub, businessTypeName);
-            c.Root.SetActive(eligible);
+            _publisherOffers[i].SetActive(eligible);
             if (!eligible)
                 continue;
             var rep = SiliconAlleyState.GetPublisherRep(pub.Index);
@@ -2071,7 +2181,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 "+" + Money(payout),
                 DaysLeft(days),
                 Compose("siliconalley:screen_pub_chip_rep", ("rep", rep.ToString("F1", CultureInfo.InvariantCulture))));
-            SetCardBadge(c, "siliconalley:screen_pub_badge_sign".GetLocalization(), SiliconAlleyTheme.Accent);
+            // Issue #149: the badge states WHY this offer is worth more — a focus match pays above a
+            // generalist. (It used to read "Sign", which is now the button beneath the card.)
+            var focusMatch = pub.Focus != SiliconAlleyPublishers.PublisherFocus.Any;
+            SetCardBadge(c, (focusMatch
+                    ? "siliconalley:screen_pub_state_focus"
+                    : "siliconalley:screen_pub_state_generalist").GetLocalization(),
+                focusMatch ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Slate);
         }
     }
 
@@ -2493,25 +2609,45 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _drag.Window = _windowRt;
         _drag.ScaleSource = canvas;
         _drag.OnMoved = SaveWindowPosition;
+        // Issue #149: the title row names the STUDIO (it used to repeat the stage, which the meta row
+        // below already states — that was the header's duplication). The hub still writes dash_title here.
         _titleText = MakeText(titleRow.transform, "Title", SiliconAlleyTheme.Sizes.Title, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _titleText.enableWordWrapping = false;
+        _titleText.overflowMode = TextOverflowModes.Ellipsis;
         _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);
         FixWidth(_overviewButton, 120f);
         FixWidth(MakeButton(titleRow.transform, "X", Close), 34f);
 
-        // Studio selector: [<]  [type icon] name  [>]  (detail mode only — the hub hides this row, #127)
+        // Issue #149: the identity line — [type icon] product + version …… ‹ N / M › . The switcher finally
+        // says WHERE you are in the studio list instead of being two positionless arrows (detail only —
+        // the hub hides this row, #127).
         var studioRow = MakeRow(root);
         _studioRow = studioRow;
-        FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 44f);
-        _typeIcon = MakeIcon(studioRow.transform, null, 22f, SiliconAlleyTheme.Text); // issue #55: current business-type icon
-        _studioText = MakeText(studioRow.transform, "Studio", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleCenter);
-        FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 44f);
+        studioRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        _typeIcon = MakeIcon(studioRow.transform, null, 26f, SiliconAlleyTheme.Text); // issue #55: current business-type icon
+        _studioText = MakeText(studioRow.transform, "Studio", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _studioText.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack; the switcher hugs right
+        _studioText.enableWordWrapping = false;
+        _studioText.overflowMode = TextOverflowModes.Ellipsis;
+        FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 38f);
+        _switcherText = MakeText(studioRow.transform, "Switcher", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleCenter);
+        _switcherText.color = SiliconAlleyTheme.TextMuted;
+        FixWidth(_switcherText, 56f);
+        FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 38f);
 
-        // Phase indicator: [phase icon] phase + progress (issue #55 adds the icon).
+        // Issue #149: the meta line — [phase icon] stage + THE one phase % …… quality · ship ETA (muted).
+        // _summaryText moves in here so the header is three purposeful rows instead of four mixed ones.
         var phaseRow = MakeRow(root, 6f, 24);
         _phaseRow = phaseRow;
+        phaseRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
         _phaseIcon = MakeIcon(phaseRow.transform, null, 20f, SiliconAlleyTheme.Header);
         _phaseText = MakeText(phaseRow.transform, "Phase", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft);
-        _summaryText = MakeText(root, "Summary", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        _phaseText.enableWordWrapping = false;
+        _summaryText = MakeText(phaseRow.transform, "Summary", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _summaryText.color = SiliconAlleyTheme.TextMuted;
+        _summaryText.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        _summaryText.enableWordWrapping = false;
+        _summaryText.overflowMode = TextOverflowModes.Ellipsis;
 
         // ---- Hub landing page (issue #127): the old F8 dashboard content, hosted as this screen's first
         // page — studio cards + the Servers section. Hidden whenever a studio's detail view shows.
@@ -2523,6 +2659,70 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // single-column card list AND the disconnected Servers block below it.
         _hubGridHost = MakeSection(_hubSection.transform);
         _hubSection.SetActive(false);
+
+        // ==== Issue #149: THE DETAIL SECTIONS ARE ORDERED BY URGENCY, NOT BY HISTORY. ====
+        // Build order IS visual order here (nothing reads a sibling index), so this sequence is the
+        // whole feature: what can COST you if ignored comes first, steady-state context follows, and
+        // the archive is last behind a fold. The order is:
+        //   1 contract (a hard deadline + the staff dial)  2 milestone decision (a window that expires)
+        //   3 updates due (money waiting)                  4 the stage card (idle / wizard / dev / testing)
+        //   5 ship report  6 marketing  7 publisher        8 release history (collapsed)   9 footer
+        // Contract used to sit DEAD LAST below 8 history cards and the milestone card was buried behind
+        // the stage card. If you add a section, place it by urgency — do not append it at the end.
+        // (Marketing/publisher and the ship report are effectively mutually exclusive: the campaign
+        // blocks need a pre-release stage, and a ship returns the studio to Idle.)
+
+        // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
+        _contractSection = MakeSection(root);
+        MakeHeader(_contractSection.transform, "siliconalley:screen_contract_header");
+        var contractCard = MakeCardPanel(_contractSection.transform, "ContractCard");
+        _contractBar = MakeProgressBar(contractCard.transform);
+        _contractProgress = MakeStatRow(contractCard.transform);
+        _contractDue = MakeStatRow(contractCard.transform);
+        _contractPayout = MakeStatRow(contractCard.transform);
+        // Issue #129: the #126 staff-split dial. Left = all hands on the contract (the legacy divert),
+        // right = product first; the slider maps to contractFocus = 1 − value.
+        var cfRow = MakeRow(contractCard.transform, 10f, 28);
+        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_left".GetLocalization()), 92f);
+        _contractFocusSlider = MakeSlider(cfRow.transform);
+        _contractFocusSlider.onValueChanged.AddListener(OnContractFocusChanged);
+        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_right".GetLocalization()), 92f);
+        _contractFocusText = MakeText(contractCard.transform, "ContractFocusVal", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        _contractFocusText.color = SiliconAlleyTheme.TextMuted;
+
+        // ---- Milestone decision card (issue #128, epic #121): shown while a #123 milestone window is open
+        // in Development/Testing. Two option buttons with effect summaries + the auto-resolve countdown.
+        _milestoneSection = MakeSection(root);
+        MakeHeader(_milestoneSection.transform, "siliconalley:ms_header");
+        var msCard = MakeCardPanel(_milestoneSection.transform, "MilestoneCard");
+        var msTitleRow = MakeRow(msCard.transform, 8f, 28);
+        msTitleRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        _milestoneIcon = MakeIcon(msTitleRow.transform, null, 24f, SiliconAlleyTheme.Accent);
+        _milestoneTitle = MakeText(msTitleRow.transform, "MsTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _milestoneTitle.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        _milestoneDesc = MakeText(msCard.transform, "MsDesc", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        _milestoneDesc.color = SiliconAlleyTheme.TextMuted;
+        _msOptAButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(0), primary: true);
+        _msOptALabel = _msOptAButton.GetComponentInChildren<TMP_Text>();
+        _msOptAReason = MakeDisabledReason(msCard.transform); // issue #146: the affordability shortfall
+        _msOptASummary = MakeText(msCard.transform, "MsOptASum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _msOptASummary.color = SiliconAlleyTheme.TextMuted;
+        _msOptBButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(1));
+        _msOptBLabel = _msOptBButton.GetComponentInChildren<TMP_Text>();
+        _msOptBReason = MakeDisabledReason(msCard.transform); // issue #146
+        _msOptBSummary = MakeText(msCard.transform, "MsOptBSum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _msOptBSummary.color = SiliconAlleyTheme.TextMuted;
+        _milestoneCountdown = MakeText(msCard.transform, "MsCountdown", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _milestoneCountdown.color = SiliconAlleyTheme.TextMuted;
+
+        // ---- Updates section (issue #88: manual post-launch updates for the live catalog) ----
+        _updateSection = MakeSection(root);
+        MakeHeader(_updateSection.transform, "siliconalley:screen_update_header");
+        var updateCard = MakeCardPanel(_updateSection.transform, "UpdateCard");
+        _updateStatusText = MakeText(updateCard.transform, "UpdateStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        _updateStatusText.color = SiliconAlleyTheme.TextMuted;
+        _updateButton = MakeButton(updateCard.transform, "", OnReleaseUpdate, primary: true);
+        _updateLabel = _updateButton.GetComponentInChildren<TMP_Text>();
 
         // ---- Idle section (issue #88: no active project — start the next version) ----
         _idleSection = MakeSection(root);
@@ -2805,39 +3005,43 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _shipButton = MakeButton(testCard.transform, "", OnReleaseNow, primary: true);
         _shipLabel = _shipButton.GetComponentInChildren<TMP_Text>();
 
-        // ---- Milestone decision card (issue #128, epic #121): shown while a #123 milestone window is open
-        // in Development/Testing. Two option buttons with effect summaries + the auto-resolve countdown.
-        _milestoneSection = MakeSection(root);
-        MakeHeader(_milestoneSection.transform, "siliconalley:ms_header");
-        var msCard = MakeCardPanel(_milestoneSection.transform, "MilestoneCard");
-        var msTitleRow = MakeRow(msCard.transform, 8f, 28);
-        msTitleRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-        _milestoneIcon = MakeIcon(msTitleRow.transform, null, 24f, SiliconAlleyTheme.Accent);
-        _milestoneTitle = MakeText(msTitleRow.transform, "MsTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
-        _milestoneTitle.GetComponent<LayoutElement>().flexibleWidth = 1f;
-        _milestoneDesc = MakeText(msCard.transform, "MsDesc", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
-        _milestoneDesc.color = SiliconAlleyTheme.TextMuted;
-        _msOptAButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(0), primary: true);
-        _msOptALabel = _msOptAButton.GetComponentInChildren<TMP_Text>();
-        _msOptAReason = MakeDisabledReason(msCard.transform); // issue #146: the affordability shortfall
-        _msOptASummary = MakeText(msCard.transform, "MsOptASum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        _msOptASummary.color = SiliconAlleyTheme.TextMuted;
-        _msOptBButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(1));
-        _msOptBLabel = _msOptBButton.GetComponentInChildren<TMP_Text>();
-        _msOptBReason = MakeDisabledReason(msCard.transform); // issue #146
-        _msOptBSummary = MakeText(msCard.transform, "MsOptBSum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        _msOptBSummary.color = SiliconAlleyTheme.TextMuted;
-        _milestoneCountdown = MakeText(msCard.transform, "MsCountdown", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        _milestoneCountdown.color = SiliconAlleyTheme.TextMuted;
-
-        // ---- Updates section (issue #88: manual post-launch updates for the live catalog) ----
-        _updateSection = MakeSection(root);
-        MakeHeader(_updateSection.transform, "siliconalley:screen_update_header");
-        var updateCard = MakeCardPanel(_updateSection.transform, "UpdateCard");
-        _updateStatusText = MakeText(updateCard.transform, "UpdateStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
-        _updateStatusText.color = SiliconAlleyTheme.TextMuted;
-        _updateButton = MakeButton(updateCard.transform, "", OnReleaseUpdate, primary: true);
-        _updateLabel = _updateButton.GetComponentInChildren<TMP_Text>();
+        // ---- Release section (transient ship report; issue #60: review + freshness bars + stat rows) ----
+        _releaseSection = MakeSection(root);
+        MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
+        var relCard = MakeCardPanel(_releaseSection.transform, "RelCard");
+        // Issue #149: a hero line — [scope icon] product + version …… review badge — instead of burying the
+        // headline number in a stat row.
+        var relHero = MakeRow(relCard.transform, 10f, 32);
+        relHero.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        _relHeroIcon = MakeIcon(relHero.transform, null, 28f, SiliconAlleyTheme.Header);
+        _relHeroTitle = MakeText(relHero.transform, "RelHeroTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _relHeroTitle.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        _relHeroTitle.enableWordWrapping = false;
+        _relHeroTitle.overflowMode = TextOverflowModes.Ellipsis;
+        _relReviewBadge = MakeBadge(relHero.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.Text);
+        _relReviewBar = MakeProgressBar(relCard.transform);
+        // Issue #146/#149: the two numbers players actually compare across releases get before › after
+        // readouts — review and payout. Both rows hide on a debut (nothing to compare against).
+        _relReviewDeltaRow = MakeDeltaRow(relCard.transform, "siliconalley:rel_review_delta_lbl", out _relReviewDelta);
+        _relPayoutDeltaRow = MakeDeltaRow(relCard.transform, "siliconalley:rel_payout_delta_lbl", out _relPayoutDelta);
+        // Issue #149: the multi-number Revenue/Reputation strings become a 2-column stat grid — one fact
+        // per cell instead of three or four crammed into a wrapping right-aligned value.
+        var relGrid = MakeColumns(relCard.transform);
+        var relLeft = MakeSection(relGrid.transform);
+        var relRight = MakeSection(relGrid.transform);
+        _relRevenue = MakeStatRow(relLeft.transform);   // payout
+        _relQuality = MakeStatRow(relLeft.transform);
+        _relInstalled = MakeStatRow(relLeft.transform);
+        _relRep = MakeStatRow(relRight.transform);      // reputation
+        _relIpRep = MakeStatRow(relRight.transform);
+        _relSupport = MakeStatRow(relRight.transform);
+        // Issue #149: "why this payout" — the same breakdown line (and the same pre-0.5.0 fallback) the
+        // release-history rows already render, read from this ship's own history record.
+        _relMults = MakeText(relCard.transform, "RelMults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _relMults.color = SiliconAlleyTheme.TextMuted;
+        _relFreshBar = MakeProgressBar(relCard.transform, 6f);
+        _relPatch = MakeStatRow(relCard.transform);
+        MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);
 
         // ---- Marketing section (issue #21; issue #60 card restyle) ----
         _marketingSection = MakeSection(root);
@@ -2846,29 +3050,53 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _mktAwareness = MakeStatRow(mktCard.transform);
         _mktHype = MakeStatRow(mktCard.transform);
         _mktSynergy = MakeStatRow(mktCard.transform); // #29: hidden when no marketing agency operated
-        _pressReleaseButton = MakeButton(mktCard.transform, "", OnPressRelease);
-        _pressReleaseLabel = _pressReleaseButton.GetComponentInChildren<TMP_Text>();
-        _pressBuildButton = MakeButton(mktCard.transform, "", OnPressBuild);
-        // Issue #130: the Press Build timing window, finally visible (a live line under its button).
-        _mktTimingText = MakeText(mktCard.transform, "MktTiming", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        // Issue #149: the four campaign controls were four stacked full-width buttons whose labels carried
+        // the price AND a description, and which greyed out silently when you couldn't pay. They are now a
+        // 2×2 grid of compact cells: [short label][cost chip] with the description on a hover tooltip and a
+        // disabled-reason line stating the exact shortfall.
+        var mktGrid = MakeColumns(mktCard.transform);
+        var mktLeft = MakeSection(mktGrid.transform);
+        var mktRight = MakeSection(mktGrid.transform);
+        _pressReleaseButton = MakeCampaignCell(mktLeft.transform, "siliconalley:screen_mkt_btn_press_release",
+            "siliconalley:screen_mkt_press_release", SiliconAlleyState.PressReleaseCost, OnPressRelease,
+            out _pressReleaseCostLabel, out _pressReleaseReason);
+        _hypeButton = MakeCampaignCell(mktLeft.transform, "siliconalley:screen_mkt_btn_hype",
+            "siliconalley:screen_mkt_hype", SiliconAlleyState.HypeCost, OnHype,
+            out _hypeCostLabel, out _hypeReason);
+        _pressBuildButton = MakeCampaignCell(mktRight.transform, "siliconalley:screen_mkt_btn_press_build",
+            "siliconalley:screen_mkt_press_build", SiliconAlleyState.PressBuildCost, OnPressBuild,
+            out _pressBuildCostLabel, out _pressBuildReason);
+        // Issue #130: the Press Build timing window — it belongs in that button's own cell.
+        _mktTimingText = MakeText(mktRight.transform, "MktTiming", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _mktTimingText.color = SiliconAlleyTheme.TextMuted;
-        _pressBuildLabel = _pressBuildButton.GetComponentInChildren<TMP_Text>();
-        _hypeButton = MakeButton(mktCard.transform, "", OnHype);
-        _hypeLabel = _hypeButton.GetComponentInChildren<TMP_Text>();
         // Issue #146: Ad Spend as a checkbox row; the label is set per refresh (it carries the hourly cost).
-        _adSpendToggle = MakeToggle(mktCard.transform, "", OnToggleAdSpend);
+        // It is never disabled — the simulator switches it off itself when the money runs out — so it needs
+        // no reason line.
+        _adSpendToggle = MakeToggle(mktRight.transform, "", OnToggleAdSpend);
 
         // ---- Publisher section (issue #17/#22/#23; issue #60: offer cards + active-deal card) ----
         _publisherSection = MakeSection(root);
         MakeHeader(_publisherSection.transform, "siliconalley:screen_pub_header");
         _pubNoDealText = MakeText(_publisherSection.transform, "PubNoDeal", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _pubNoDealText.color = SiliconAlleyTheme.TextMuted;
+        // Issue #149: an offer is a READ-ONLY card plus a real Sign button. The card used to be the click
+        // target with "Sign" sitting in its BADGE slot — the only action-verb badge in the mod, while every
+        // other badge names a state. Now the badge names the state (focus match vs generalist) and the
+        // action is an actual button, so there is exactly one thing to press.
         var roster = SiliconAlleyPublishers.Roster;
         _publisherCards = new SiliconAlleyUI.CardItem[roster.Length];
+        _publisherOffers = new GameObject[roster.Length];
         for (int i = 0; i < roster.Length; i++)
         {
             var index = i; // capture a stable copy for the click closure
-            _publisherCards[i] = MakeCardItem(_publisherSection.transform, () => OnSignDeal(index));
+            var offer = MakeSection(_publisherSection.transform);
+            _publisherOffers[i] = offer;
+            _publisherCards[i] = MakeCardItem(offer.transform, null); // read-only: the button is the affordance
+            var signRow = MakeRow(offer.transform, SiliconAlleyTheme.Space.Small, 34);
+            signRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            MakeSpacer(signRow.transform); // right-align the button
+            FixWidth(MakeButton(signRow.transform, "siliconalley:screen_pub_badge_sign".GetLocalization(),
+                () => OnSignDeal(index), primary: true), 110f);
         }
         // Active-deal card (shown instead of the offers once a deal is signed): ship-progress bar + terms.
         _pubDealCard = MakeCardPanel(_publisherSection.transform, "PubDealCard");
@@ -2878,57 +3106,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _pubDealShipEta = MakeStatRow(_pubDealCard.transform);
         _pubDealBonus = MakeStatRow(_pubDealCard.transform);
 
-        // ---- Release section (transient ship report; issue #60: review + freshness bars + stat rows) ----
-        _releaseSection = MakeSection(root);
-        MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
-        var relCard = MakeCardPanel(_releaseSection.transform, "RelCard");
-        _relProduct = MakeStatRow(relCard.transform);
-        _relReview = MakeStatRow(relCard.transform);
-        _relReviewBar = MakeProgressBar(relCard.transform);
-        // Issue #146: "vs previous release   6.8/10 › 7.4/10 (+0.6)" — the delta-readout primitive's
-        // first live call site. The whole row hides on a debut (nothing to compare against).
-        _relReviewDeltaRow = MakeRow(relCard.transform, 8f, 24);
-        _relReviewDeltaRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-        var relDeltaLbl = MakeText(_relReviewDeltaRow.transform, "DeltaLbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        relDeltaLbl.color = SiliconAlleyTheme.TextMuted;
-        relDeltaLbl.text = "siliconalley:rel_review_delta_lbl".GetLocalization();
-        relDeltaLbl.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the readout to the right edge
-        _relReviewDelta = MakeDeltaReadout(_relReviewDeltaRow.transform);
-        _relQuality = MakeStatRow(relCard.transform);
-        _relRevenue = MakeStatRow(relCard.transform);
-        _relRep = MakeStatRow(relCard.transform);
-        _relSupport = MakeStatRow(relCard.transform);
-        _relFreshBar = MakeProgressBar(relCard.transform, 6f);
-        _relPatch = MakeStatRow(relCard.transform);
-        MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);
-
         // ---- Release history (issue #129): the studio's persistent catalog, newest first ----
         _historySection = MakeSection(root);
         MakeDivider(_historySection.transform);
         // Issue #146: the archive folds behind its header, default collapsed — it's pure history (up to 8
         // cards ≈ 700px of scroll) and the fold reclaims that for the sections that need action. The
         // RebuildLayout toggle callback (#147) resizes the window on the click instead of a frame later.
-        var historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
+        // #149: keep the fold itself, not just its content host — its Expanded flag IS the session memory
+        // (SetCollapsibleExpanded has one call site, the header click; nothing in Refresh touches
+        // Content.activeSelf, and hiding _historySection leaves the child's flag intact), so the fold
+        // survives ticks, hub↔detail round-trips and studio switches with no extra machinery.
+        _historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
             startExpanded: false, onToggled: RebuildLayout);
-        _historyHost = historyFold.Content;
-
-        // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
-        _contractSection = MakeSection(root);
-        MakeHeader(_contractSection.transform, "siliconalley:screen_contract_header");
-        var contractCard = MakeCardPanel(_contractSection.transform, "ContractCard");
-        _contractBar = MakeProgressBar(contractCard.transform);
-        _contractProgress = MakeStatRow(contractCard.transform);
-        _contractDue = MakeStatRow(contractCard.transform);
-        _contractPayout = MakeStatRow(contractCard.transform);
-        // Issue #129: the #126 staff-split dial. Left = all hands on the contract (the legacy divert),
-        // right = product first; the slider maps to contractFocus = 1 − value.
-        var cfRow = MakeRow(contractCard.transform, 10f, 28);
-        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_left".GetLocalization()), 92f);
-        _contractFocusSlider = MakeSlider(cfRow.transform);
-        _contractFocusSlider.onValueChanged.AddListener(OnContractFocusChanged);
-        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_right".GetLocalization()), 92f);
-        _contractFocusText = MakeText(contractCard.transform, "ContractFocusVal", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
-        _contractFocusText.color = SiliconAlleyTheme.TextMuted;
+        _historyHost = _historyFold.Content;
 
         // ---- Footer (common) ----
         MakeDivider(root);
