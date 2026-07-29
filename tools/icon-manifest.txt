@@ -1,0 +1,43 @@
+# Silicon Alley icon manifest (issue #145) — consumed by tools/generate-icons.ps1
+# Format: <stem> <author>/<name>   (game-icons.net via github.com/game-icons/icons, CC BY 3.0)
+# The stem becomes Assets/Mods/SiliconAlley/UI/Icons/<stem>.png (white-on-transparent, 128px).
+# Swapping an icon = edit its row, rerun with -Force -Only <stem>, update CREDITS.md.
+
+# Stats (StatRow gutters)
+stat_eta lorc/hourglass
+stat_reputation lorc/laurels
+stat_installed delapouite/save-arrow
+stat_components lorc/cubes
+stat_fit lorc/on-target
+
+# Milestone decision events (#123 catalog ids)
+ms_scope_creep delapouite/expand
+ms_middleware delapouite/plug
+ms_tech_debt lorc/cracked-disc
+ms_conference delapouite/podium
+ms_beta_call delapouite/megaphone
+ms_crunch_qa lorc/scarab-beetle
+ms_go_gold delapouite/compact-disc
+ms_dayone_patch lorc/sticking-plaster
+
+# Publisher roster (#17/#22 ordinals 0-3)
+publisher_indielabel lorc/rocket-flight
+publisher_pixelforge lorc/anvil
+publisher_officeworks delapouite/briefcase
+publisher_sentinel lorc/guarded-tower
+
+# Product dependencies (#83 catalog)
+dep_office_osruntime lorc/circuitry
+dep_office_appframework delapouite/brick-wall
+dep_office_cloudbackend delapouite/cloud-download
+dep_security_hardenedos lorc/locked-fortress
+dep_security_crypto lorc/key
+dep_security_threatintel lorc/radar-dish
+dep_game_runtimeos delapouite/gamepad
+dep_game_framework lorc/gear-hammer
+dep_game_onlinesdk lorc/linked-rings
+
+# Server role buttons (#103/#104)
+server_role_infrastructure delapouite/server-rack
+server_role_backend delapouite/factory-arm
+server_role_hosting delapouite/radio-tower
