@@ -271,6 +271,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // report (#122 record extras). Pooled rows, newest first; the newest row carries the multiplier
     // breakdown ("why did I earn this"), rendering "—" for pre-0.5.0 rows that never recorded it.
     private GameObject _historySection, _historyHost;
+    private SiliconAlleyUI.Collapsible _historyFold; // issue #149: the fold's Expanded flag = its session memory
     private readonly List<HistoryRow> _historyRows = new List<HistoryRow>();
     private const int HistoryMaxRows = 8;
 
@@ -3111,9 +3112,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // Issue #146: the archive folds behind its header, default collapsed — it's pure history (up to 8
         // cards ≈ 700px of scroll) and the fold reclaims that for the sections that need action. The
         // RebuildLayout toggle callback (#147) resizes the window on the click instead of a frame later.
-        var historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
+        // #149: keep the fold itself, not just its content host — its Expanded flag IS the session memory
+        // (SetCollapsibleExpanded has one call site, the header click; nothing in Refresh touches
+        // Content.activeSelf, and hiding _historySection leaves the child's flag intact), so the fold
+        // survives ticks, hub↔detail round-trips and studio switches with no extra machinery.
+        _historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
             startExpanded: false, onToggled: RebuildLayout);
-        _historyHost = historyFold.Content;
+        _historyHost = _historyFold.Content;
 
         // ---- Footer (common) ----
         MakeDivider(root);

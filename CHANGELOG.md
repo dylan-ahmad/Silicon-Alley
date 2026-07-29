@@ -8,6 +8,20 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 ## [Unreleased]
 
 ### Added
+- **Detail view: urgency first, and a header that says each thing once** (#149, epic #142). The studio
+  detail sections are **ordered by what can cost you**: the **contract** (hard deadline + staff dial) and
+  an **open milestone decision** and a **due update** now sit at the top — the contract used to be dead
+  last, below up to eight release-history cards — followed by the stage card, the ship report, marketing,
+  publisher, and the collapsed release-history fold. The **header is one identity band**: the studio name,
+  then the product **with its version** and a switcher that finally says **where you are ("2 / 5")**, then
+  the stage with the phase percentage stated **exactly once** (the title row used to repeat the stage, and
+  the development bar used to show a different percentage than the header). The **ship report** is a stat
+  grid — a hero line with a graded review badge, one number per cell instead of two crammed multi-number
+  strings, **before → after readouts for review and payout** against the previous release, and the same
+  "why this payout" breakdown the history rows show. **Marketing** is a compact 2×2 grid with cost chips,
+  hover descriptions and, at last, a line saying *why* a button is disabled ("You have $2,400 of $6,000").
+  **Publisher badges mean state again** (Focus match / Generalist) and **Sign is a real button**.
+  Presentation only — no save surface.
 - **Hub redesign: the overview finally answers "who needs me?"** (#148, epic #142). A **triage strip**
   tops the hub: "N studios need you" with one clickable badge per needing studio — open **milestone
   decision**, **contract/publisher deadline** within 3 days, **ready to release**, **update due** —
