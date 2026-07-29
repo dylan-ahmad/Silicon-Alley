@@ -292,15 +292,17 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // studio's detail view, and the header's "‹ Overview" button returns. One menu entry point, clicked
     // through — no separate dashboard window anymore.
     private bool _hubMode;
-    private GameObject _hubSection, _hubCardsHost, _hubServersBlock, _hubServersHost;
-    private TMP_Text _hubEmptyText, _hubServersEmpty;
+    private GameObject _hubSection, _hubGridHost;
+    private TMP_Text _hubEmptyText;
     private GameObject _studioRow, _phaseRow; // header rows hidden while the hub shows
     private Button _overviewButton;
     private readonly List<BuildingRegistration> _studioRegs = new List<BuildingRegistration>();
-    private readonly List<SiliconAlleyStudioCard> _hubCards = new List<SiliconAlleyStudioCard>();
-    private readonly List<SiliconAlleyServerGroupCard> _hubServerCards = new List<SiliconAlleyServerGroupCard>();
+    // Issue #148: the 2-column grid — rows of MakeColumns, each holding two cells (studio card + its
+    // server group). Grow-only pools, built at grow time only (#147: the value path never re-parents).
+    private readonly List<GameObject> _hubRows = new List<GameObject>();
+    private readonly List<SiliconAlleyHubCell> _hubCells = new List<SiliconAlleyHubCell>();
     // Issue #148: the per-tick attention pre-pass (index-aligned with _studioRegs) + the sorted binding
-    // order — pooled card slot s is BOUND to studio _hubOrder[s]; nothing ever moves siblings (#147).
+    // order — pooled cell slot s is BOUND to studio _hubOrder[s]; nothing ever moves siblings (#147).
     private readonly List<SiliconAlleyAttention.Info> _hubInfos = new List<SiliconAlleyAttention.Info>();
     private readonly List<int> _hubOrder = new List<int>();
 
@@ -677,49 +679,40 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         for (var slot = 0; slot < count; slot++)
         {
             var i = _hubOrder[slot];
-            var card = EnsureHubCard(slot);
-            card.Root.SetActive(true);
-            card.Fill(_studioRegs[i], _studioKeys[i], _hubInfos[i]);
+            var cell = EnsureHubCell(slot);
+            cell.Root.SetActive(true);
+            cell.Fill(_studioRegs[i], _studioKeys[i], _hubInfos[i]);
         }
-        for (var i = count; i < _hubCards.Count; i++)
-            _hubCards[i].Root.SetActive(false);
-
-        RefreshHubServers(count);
+        // Odd count: the partner cell in the half-used row stays ACTIVE but empty — MakeColumns
+        // force-expands children, so hiding it would stretch the lone card to full width.
+        var cellsInUse = count;
+        if (count % 2 == 1)
+        {
+            var filler = EnsureHubCell(count);
+            filler.Root.SetActive(true);
+            filler.Hide();
+            cellsInUse = count + 1;
+        }
+        for (var slot = cellsInUse; slot < _hubCells.Count; slot++)
+            _hubCells[slot].Root.SetActive(false);
+        var rowsInUse = (cellsInUse + 1) / 2;
+        for (var r = 0; r < _hubRows.Count; r++)
+            _hubRows[r].SetActive(r < rowsInUse); // whole unused rows hide — no empty gutters
         // #147: no layout clamp here — see Refresh()'s tail note.
     }
 
-    private SiliconAlleyStudioCard EnsureHubCard(int index)
+    // Issue #148: grow-only cell pool — every even growth adds a MakeColumns row; a cell holds the studio
+    // card + its server group stacked. Growth happens on the value path exactly as the old EnsureHubCard's
+    // did: a one-time build whose height FollowContentHeight picks up a frame later (#147).
+    private SiliconAlleyHubCell EnsureHubCell(int index)
     {
-        while (index >= _hubCards.Count)
-            _hubCards.Add(SiliconAlleyStudioCard.Build(_hubCardsHost.transform, OpenDetailFromHub));
-        return _hubCards[index];
-    }
-
-    // Issue #104 (hub-hosted): per-studio server role assignment. The group pool is index-aligned with the
-    // studio pool; a card self-hides when its studio owns no servers, and the empty hint shows when all do.
-    private void RefreshHubServers(int count)
-    {
-        _hubServersBlock.SetActive(count > 0);
-        if (count == 0)
-            return;
-        var totalServers = 0;
-        for (var i = 0; i < count; i++)
+        while (index >= _hubCells.Count)
         {
-            var group = EnsureHubServerCard(i);
-            var n = group.Fill(_studioRegs[i], _studioKeys[i]);
-            group.Root.SetActive(n > 0);
-            totalServers += n;
+            if (_hubCells.Count % 2 == 0)
+                _hubRows.Add(MakeColumns(_hubGridHost.transform)); // Space.Gutter → two ~437px columns
+            _hubCells.Add(SiliconAlleyHubCell.Build(_hubRows[_hubCells.Count / 2].transform, OpenDetailFromHub));
         }
-        for (var i = count; i < _hubServerCards.Count; i++)
-            _hubServerCards[i].Root.SetActive(false);
-        _hubServersEmpty.gameObject.SetActive(totalServers == 0);
-    }
-
-    private SiliconAlleyServerGroupCard EnsureHubServerCard(int index)
-    {
-        while (index >= _hubServerCards.Count)
-            _hubServerCards.Add(SiliconAlleyServerGroupCard.Build(_hubServersHost.transform)); // #147: role clicks repaint in place
-        return _hubServerCards[index];
+        return _hubCells[index];
     }
 
     // Issue #128: fill the decision card from the pending milestone's deterministic event. Paid options show
@@ -2518,15 +2511,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // page — studio cards + the Servers section. Hidden whenever a studio's detail view shows.
         _hubSection = MakeSection(root);
         _hubEmptyText = MakeText(_hubSection.transform, "HubEmpty", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
-        _hubCardsHost = MakeSection(_hubSection.transform);
-        _hubServersBlock = MakeSection(_hubSection.transform);
-        MakeDivider(_hubServersBlock.transform);
-        MakeHeader(_hubServersBlock.transform, "siliconalley:dash_servers_header");
-        _hubServersEmpty = MakeText(_hubServersBlock.transform, "ServersEmpty",
-            SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        _hubServersEmpty.color = SiliconAlleyTheme.TextMuted;
-        _hubServersEmpty.text = "siliconalley:dash_servers_hint".GetLocalization();
-        _hubServersHost = MakeSection(_hubServersBlock.transform);
+        // Issue #148: rows of two half-width cells (studio card + its server group) replace the old
+        // single-column card list AND the disconnected Servers block below it.
+        _hubGridHost = MakeSection(_hubSection.transform);
         _hubSection.SetActive(false);
 
         // ---- Idle section (issue #88: no active project — start the next version) ----

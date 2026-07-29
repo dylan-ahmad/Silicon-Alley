@@ -176,6 +176,45 @@ public static class SiliconAlleyAttention
     }
 }
 
+// Issue #148: one grid CELL = a studio card + that studio's server group card stacked in a half-width
+// column of a MakeColumns row. Cells are built at pool-grow time ONLY (#147: the value path never
+// re-parents); the cell at slot s is BOUND each tick to whichever studio sorts s-th. The stacked
+// placement (group directly under its studio, same column) IS the visible studio↔servers link the
+// acceptance asks for — the old disconnected Servers block below the cards is gone.
+sealed class SiliconAlleyHubCell
+{
+    public GameObject Root; // the half-width column inside a MakeColumns row
+    public SiliconAlleyStudioCard Studio;
+    public SiliconAlleyServerGroupCard Servers;
+
+    public static SiliconAlleyHubCell Build(Transform columnsRow, Action<string> onOpen)
+    {
+        var c = new SiliconAlleyHubCell();
+        c.Root = MakeSection(columnsRow);
+        c.Studio = SiliconAlleyStudioCard.Build(c.Root.transform, onOpen);
+        c.Servers = SiliconAlleyServerGroupCard.Build(c.Root.transform);
+        return c;
+    }
+
+    public void Fill(BuildingRegistration reg, string key, in SiliconAlleyAttention.Info attn)
+    {
+        Studio.Root.SetActive(true);
+        Studio.Fill(reg, key, attn);
+        Servers.Root.SetActive(attn.ServerCount > 0); // a serverless studio has no group card at all
+        if (attn.ServerCount > 0)
+            Servers.Fill(reg, key);
+    }
+
+    // Empty this cell but leave Root's active state to the caller: the odd-count FILLER cell must stay
+    // ACTIVE (empty) — MakeColumns force-expands children, so a row with one active child would stretch
+    // the lone card to full width.
+    public void Hide()
+    {
+        Studio.Root.SetActive(false);
+        Servers.Root.SetActive(false);
+    }
+}
+
 // Issue #59 (now hosted by the #127 hub): one pooled card per player-owned studio — type icon + name +
 // attention badge + a colour-coded demand-trend pill, the product being built, a stage progress bar and
 // the key stats at a glance. #148: the WHOLE card is the deep-link into the studio's detail view.
@@ -351,8 +390,6 @@ sealed class SiliconAlleyServerGroupCard
     public GameObject Root;
     private string _key;                 // issue #147: cached bind so a role click can repaint in place
     private BuildingRegistration _reg;
-    private Image _typeIcon;
-    private TMP_Text _name;
     private TMP_Text _chipTotal, _chipInfra, _chipBackend, _chipHosting, _chipUnassigned;
     private TMP_Text _economy;
     private GameObject _rowsHost;
@@ -365,12 +402,12 @@ sealed class SiliconAlleyServerGroupCard
         var card = MakeCardPanel(parent, "ServerGroupCard");
         var t = card.transform;
 
-        // Header: [type icon] studio name (grows to fill).
-        var header = MakeRow(t, 8f, 28);
-        header.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-        c._typeIcon = MakeIcon(header.transform, null, 24f, SiliconAlleyTheme.Text);
-        c._name = MakeText(header.transform, "Name", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
-        c._name.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        // Issue #148: the group sits directly UNDER its studio's card in the same grid cell — repeating
+        // the type icon + studio name here would be exactly the duplicated-info smell the issue bans, so
+        // a muted "Servers" caption is the only header.
+        var caption = MakeText(t, "ServersCaption", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        caption.color = SiliconAlleyTheme.TextMuted;
+        caption.text = "siliconalley:dash_servers_header".GetLocalization();
 
         // Counts summary: five chips (built once, text re-set each tick). Reuses MakeChip per the issue.
         var chips = MakeRow(t, 6f, 24);
@@ -396,8 +433,6 @@ sealed class SiliconAlleyServerGroupCard
     {
         _key = key;  // issue #147: cache the bind — RefreshRolesInPlace repaints without arguments
         _reg = reg;
-        SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(reg.businessTypeName));
-        _name.text = reg.GetDisplayName();
 
         // Stable "Server N" numbering: sort the ids (Dictionary iteration order is not guaranteed).
         _ids.Clear();
@@ -508,6 +543,14 @@ sealed class SiliconAlleyServerGroupCard
             "siliconalley:server_role_backend",
             "siliconalley:server_role_hosting"
         };
+        // Issue #148: BUTTON labels only — at the 437px grid column each role button gets ~107px, which
+        // "Infrastructure" cannot fit beside its icon. RoleKeys keeps driving the icons + semantics.
+        private static readonly string[] ShortRoleKeys =
+        {
+            "siliconalley:server_role_infrastructure_short",
+            "siliconalley:server_role_backend_short",
+            "siliconalley:server_role_hosting_short"
+        };
 
         public static ServerRow Build(Transform parent, Action onChanged)
         {
@@ -521,10 +564,10 @@ sealed class SiliconAlleyServerGroupCard
             for (var i = 0; i < 3; i++)
             {
                 var role = Roles[i]; // per-index local (value type, own copy) captured by the closure
-                var btn = MakeButton(row.transform, RoleKeys[i].GetLocalization(), () => r.OnRole(role));
+                var btn = MakeButton(row.transform, ShortRoleKeys[i].GetLocalization(), () => r.OnRole(role));
                 SetButtonIcon(btn, SiliconAlleyTheme.IconFor(RoleKeys[i])); // optional art; null-graceful
                 var lbl = btn.GetComponentInChildren<TMP_Text>();
-                lbl.fontSize = SiliconAlleyTheme.Sizes.Caption; // shrink so "Infrastructure" fits a third-width button
+                lbl.fontSize = SiliconAlleyTheme.Sizes.Caption; // shrink so the label fits a third-width button
                 lbl.enableWordWrapping = false;                 // never grow to two lines (layout stability)
                 r._roleImages[i] = btn.GetComponent<Image>();
             }
