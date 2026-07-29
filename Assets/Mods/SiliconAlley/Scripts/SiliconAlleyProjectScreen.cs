@@ -192,12 +192,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private GameObject _idleSection;
     private TMP_Text _idleStatusText, _startLabel;
     private Button _startButton;
-    // Footer "Abandon project" escape hatch (issue #113). Shown in any active stage; two-click confirm, and
-    // because the screen re-refreshes every second the armed state has to live in a field, not in the UI.
+    // Footer "Abandon project" escape hatch (issue #113). Shown in any active stage. #146 moved the old
+    // two-click arm into the in-canvas confirm modal — Danger styling lives on the modal's confirm button.
     private Button _abandonButton;
-    private TMP_Text _abandonLabel;
-    private Image _abandonImage;
-    private bool _abandonArmed;
     // Development section (issue #60: card + build-progress bar + stat rows)
     private SiliconAlleyUI.ProgressBar _devBuildBar;
     private SiliconAlleyUI.StatRow _devThroughput, _devBuild, _devEta;
@@ -325,7 +322,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (Input.GetKeyDown(ToggleKey))
             Toggle();
         else if (_visible && Input.GetKeyDown(KeyCode.Escape))
-            Close();
+        {
+            // Issue #146: an open confirm modal consumes Esc (cancel); only the NEXT press closes the
+            // screen. (The game's own GameManager also sees this Esc — pre-existing, harmless.)
+            if (!SiliconAlleyModal.TryHandleEscape())
+                Close();
+        }
 
         if (_visible)
         {
@@ -378,7 +380,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _visible = true;
         _refresh = 1f;
         _wizardPage = 0; // always open the wizard at the first page
-        _abandonArmed = false; // issue #113: never re-open with Abandon still armed
         Refresh();
     }
 
@@ -390,7 +391,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _root.SetActive(true);
         _visible = true;
         _refresh = 1f;
-        _abandonArmed = false;
         Refresh();
     }
 
@@ -401,7 +401,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (_studioKeys.Contains(key))
             _currentKey = key;
         _wizardPage = 0;
-        _abandonArmed = false;
         Refresh();
     }
 
@@ -409,14 +408,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void GoHub()
     {
         _hubMode = true;
-        _abandonArmed = false;
         Refresh();
     }
 
     private void Close()
     {
         _visible = false;
-        _abandonArmed = false; // issue #113: closing cancels a pending Abandon confirm
+        SiliconAlleyModal.CloseAll(); // issue #146: closing the screen never strands an open confirm
         if (_root != null)
             _root.SetActive(false);
     }
@@ -715,23 +713,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     }
 
     // Issue #113: the footer "Abandon project" button. Hidden when the studio is Idle (there is nothing to
-    // abandon, and the Idle card's "Start new project" is the right action). Two-click confirm because it
-    // destroys the current build: the first press arms it (red — destructive, #143) and the second discards
-    // the project.
+    // abandon, and the Idle card's "Start new project" is the right action). #146: a plain Slate trigger —
+    // the destructive confirm (and its Danger styling) moved into the SiliconAlleyModal dialog.
     private void RefreshAbandon(bool idle)
     {
         if (_abandonButton == null)
             return;
         _abandonButton.gameObject.SetActive(!idle);
-        if (idle)
-        {
-            _abandonArmed = false;
-            return;
-        }
-        _abandonLabel.text = (_abandonArmed
-            ? "siliconalley:screen_abandon_confirm_btn"
-            : "siliconalley:screen_abandon_btn").GetLocalization();
-        _abandonImage.color = _abandonArmed ? SiliconAlleyTheme.Danger : SiliconAlleyTheme.Slate;
     }
 
     // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
@@ -2147,21 +2135,25 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         Refresh();
     }
 
-    // Issue #113: abandon the in-flight project. Two-click confirm — the first press arms the button (the
-    // label + colour change), the second throws the build away and returns the studio to Idle, where the
-    // player starts fresh. The permanent escape hatch out of any stage/wizard dead end.
+    // Issue #113: abandon the in-flight project — the permanent escape hatch out of any stage/wizard dead
+    // end. #146: the old two-click arm is a real confirm modal now (scrim + Danger confirm; Esc/backdrop
+    // cancels); the body names the product being discarded. Confirming returns the studio to Idle.
     private void OnAbandonPressed()
     {
-        if (!_abandonArmed)
-        {
-            _abandonArmed = true;
-            Refresh();
+        var reg = FindRegistration(_currentKey);
+        if (reg == null)
             return;
-        }
-        _abandonArmed = false;
-        SiliconAlleyState.AbandonProject(_currentKey);
-        _wizardPage = 0; // the next project opens its wizard at the first page
-        Refresh();
+        SiliconAlleyModal.Confirm(_root.transform,
+            "siliconalley:modal_abandon_title".GetLocalization(),
+            Compose("siliconalley:modal_abandon_body",
+                ("product", DisplayProductName(_currentKey, BusinessTypeHelper.GetData(reg)))),
+            "siliconalley:modal_abandon_confirm".GetLocalization(),
+            () =>
+            {
+                SiliconAlleyState.AbandonProject(_currentKey);
+                _wizardPage = 0; // the next project opens its wizard at the first page
+                Refresh();
+            });
     }
 
     // Issue #88: push the finished build from Development into Testing/QA (available once Development is done).
@@ -2262,7 +2254,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         idx = (idx + delta + _studioKeys.Count) % _studioKeys.Count;
         _currentKey = _studioKeys[idx];
         _wizardPage = 0; // each studio opens its wizard at the first page
-        _abandonArmed = false; // issue #113: an armed Abandon must not carry over to another studio
         Refresh();
     }
 
@@ -2815,10 +2806,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeDivider(root);
         var footer = MakeRow(root, 10f, 40);
         // Issue #113: the Abandon escape hatch — reachable from every active stage, so no wizard/stage state
-        // can ever trap a studio again. Hidden while Idle (nothing to abandon); see RefreshAbandon.
-        _abandonButton = MakeButton(footer.transform, "", OnAbandonPressed);
-        _abandonLabel = _abandonButton.GetComponentInChildren<TMP_Text>();
-        _abandonImage = _abandonButton.GetComponent<Image>();
+        // can ever trap a studio again. Hidden while Idle (nothing to abandon); see RefreshAbandon. #146:
+        // the label is static now — the confirm (and its Danger red) lives in the modal, not on the button.
+        _abandonButton = MakeButton(footer.transform, "siliconalley:screen_abandon_btn".GetLocalization(), OnAbandonPressed);
         MakeButton(footer.transform, "siliconalley:screen_close".GetLocalization(), Close);
 
         _root.SetActive(false);
