@@ -15,6 +15,7 @@ using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using static SiliconAlleyUI; // issue #54: Make* helpers now live in the shared styled-component layer
+using static SiliconAlleyFormat; // issue #144: ONE format table — no private Money/Pct/Eta re-implementations
 
 [assembly: RegisterModClass(typeof(SiliconAlleyProjectScreenMod))]
 
@@ -525,9 +526,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             // A product parked at its stage ceiling is done for this stage — show that instead of an ETA.
             var shipEta = rawProgress >= size
                 ? "siliconalley:screen_ready_short".GetLocalization()
-                : EtaText(size - rawProgress, perHour);
+                : Eta(size - rawProgress, perHour);
             _summaryText.text = Compose("siliconalley:screen_summary",
-                ("quality", avgQ < 0f ? "—" : Pct(avgQ) + "%"),
+                ("quality", Quality(avgQ)),
                 ("shipeta", shipEta));
         }
 
@@ -577,7 +578,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var report = SiliconAlleyState.GetLastShip(key);
         _releaseSection.SetActive(report.Has);
         if (report.Has)
-            RefreshRelease(businessType, key, report);
+            RefreshRelease(reg, businessType, key, report);
 
         // Issue #129: the persistent release history — unlike the transient report above, this survives a
         // reload (backed by the #78 release rows + the #122 multiplier extras).
@@ -691,9 +692,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _milestoneDesc.text = evt.DescKey.GetLocalization();
         FillMilestoneOption(_msOptAButton, _msOptALabel, _msOptASummary, evt.OptionA, reg);
         FillMilestoneOption(_msOptBButton, _msOptBLabel, _msOptBSummary, evt.OptionB, reg);
-        var closePct = Mathf.RoundToInt(100f * SiliconAlleyMilestones.CloseProgress(slot, size) / Mathf.Max(1f, size));
         _milestoneCountdown.text = Compose("siliconalley:ms_countdown",
-            ("pct", closePct.ToString(CultureInfo.InvariantCulture)));
+            ("pct", Pct(SiliconAlleyMilestones.CloseProgress(slot, size) / Mathf.Max(1f, size))));
     }
 
     private static void FillMilestoneOption(Button button, TMP_Text label, TMP_Text summary,
@@ -906,7 +906,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetIconSprite(row.Icon, SiliconAlleyTheme.IconFor(f.NameKey));
             row.Label.text = f.NameKey.GetLocalization();
             row.Slider.value = Mathf.Clamp01(w / 2f);
-            row.Pct.text = (totalW > 0f ? Mathf.RoundToInt(w / totalW * 100f) : 0).ToString(CultureInfo.InvariantCulture) + "%";
+            row.Pct.text = Pct(totalW > 0f ? w / totalW : 0f);
         }
         _suppress = false;
         _allocHint.gameObject.SetActive(selected < 2);
@@ -937,23 +937,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var you = alloc != null && i < alloc.Length ? alloc[i] : 0f;
             row.Name.text = aspects[i].NameKey.GetLocalization();
             row.Lbl.text = Compose("siliconalley:wiz_demand_row",
-                ("wants", Mathf.RoundToInt(wants * 100f).ToString(CultureInfo.InvariantCulture)),
-                ("you", Mathf.RoundToInt(you * 100f).ToString(CultureInfo.InvariantCulture)));
+                ("wants", Pct(wants)),
+                ("you", Pct(you)));
             SetProgress(row.Demand, wants, SiliconAlleyTheme.Ok);
             SetProgress(row.Alloc, you, SiliconAlleyTheme.Accent);
         }
         var market = SiliconAlleyAspects.MarketFitFactor(mask, weights, type, day);
         var quality = SiliconAlleyAspects.QualityFitBonus(mask, weights, type, day);
         _targetingReadout.text = Compose("siliconalley:wiz_targeting_fit",
-            ("market", SignedPct((market - 1f) * 100f)),
-            ("quality", SignedPct(quality * 100f)));
-    }
-
-    // A signed percent for the fit readout: "+3%", "-2%", or "0%".
-    private static string SignedPct(float pct)
-    {
-        var rounded = Mathf.RoundToInt(pct);
-        return (rounded > 0 ? "+" : "") + rounded.ToString(CultureInfo.InvariantCulture) + "%";
+            ("market", SignedPct(market - 1f)),
+            ("quality", SignedPct(quality)));
     }
 
     // Issue #86: a per-feature allocation slider moved. Resolve the feature bit from the row's slot (only
@@ -1063,7 +1056,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         var designQ = SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design);
         _designQualityText.text = Compose("siliconalley:screen_designquality",
-            ("value", designQ < 0f ? "—" : Pct(designQ) + "%"));
+            ("value", Quality(designQ)));
 
         var hasDesigner = _ctxBusinessType != null
             && System.Array.IndexOf(_ctxBusinessType.employeePrimarySkills, "ba:skill_graphicdesigner") >= 0;
@@ -1072,7 +1065,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("lead", leadKey.GetLocalization()), ("staff", CountStaff(_ctxReg).ToString(CultureInfo.InvariantCulture)));
 
         var remaining = SiliconAlleyState.PhaseEndProgress(SiliconAlleyState.ProjectPhase.Design, _ctxSize) - _ctxProgress;
-        _etaText.text = Compose("siliconalley:screen_designeta", ("eta", EtaText(remaining, _ctxPerHour)));
+        _etaText.text = Compose("siliconalley:screen_designeta", ("eta", Eta(remaining, _ctxPerHour)));
 
         var currentKind = SiliconAlleyState.GetProjectType(key);
         for (var i = 0; i < 3; i++)
@@ -1103,15 +1096,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(f.NameKey)); // #55 icon
             c.Title.text = f.NameKey.GetLocalization();
             SetCardChips(c, // #57: cost/benefit chips
-                Compose("siliconalley:wiz_chip_size", ("v", Mathf.RoundToInt(f.SizeCost * 100f).ToString(CultureInfo.InvariantCulture))),
-                Compose("siliconalley:wiz_chip_ceiling", ("v", Mathf.RoundToInt(f.QualityContribution * 100f).ToString(CultureInfo.InvariantCulture))));
+                Compose("siliconalley:wiz_chip_size", ("v", Pct(f.SizeCost))),
+                Compose("siliconalley:wiz_chip_ceiling", ("v", Pct(f.QualityContribution))));
             c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
             SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
         _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
-            ("eta", EtaText(_ctxSize - _ctxProgress, _ctxPerHour)),
-            ("ceiling", Pct(ProjectedCeiling(key)) + "%"));
+            ("eta", Eta(_ctxSize - _ctxProgress, _ctxPerHour)),
+            ("ceiling", Pct(ProjectedCeiling(key))));
     }
 
     // A display estimate of the achievable quality ceiling: the design baseline (clamped, so it reads sensibly
@@ -1154,14 +1147,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             c.Title.text = p.NameKey.GetLocalization();
             SetCardChips(c, // #57: cost/benefit chips
                 Compose("siliconalley:wiz_chip_reach", ("v", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture))),
-                Compose("siliconalley:wiz_chip_size", ("v", Mathf.RoundToInt(p.ScopeCost * 100f).ToString(CultureInfo.InvariantCulture))));
+                Compose("siliconalley:wiz_chip_size", ("v", Pct(p.ScopeCost))));
             c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
             SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
         _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
             ("market", PlatformMarketText(key, type)),
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
-            ("eta", EtaText(_ctxSize - _ctxProgress, _ctxPerHour)));
+            ("eta", Eta(_ctxSize - _ctxProgress, _ctxPerHour)));
     }
 
     // Shared "reach ×N.N · K platform(s)" phrase for the OS page readout and the Summary market row. PlatformMask
@@ -1197,9 +1190,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var t = tools[i];
             var owned = SiliconAlleyState.IsToolOwned(key, t.Bit);
             var used = SiliconAlleyState.IsToolUsed(key, t.Bit);
-            var quality = Compose("siliconalley:wiz_chip_quality", ("v", Mathf.RoundToInt(t.QualityBonus * 100f).ToString(CultureInfo.InvariantCulture)));
-            var royalty = Compose("siliconalley:wiz_chip_royalty", ("v", Mathf.RoundToInt(t.RoyaltyRate * 100f).ToString(CultureInfo.InvariantCulture)));
-            var build = Compose("siliconalley:wiz_chip_build", ("v", Mathf.RoundToInt(t.BuildCost).ToString(CultureInfo.InvariantCulture)));
+            var quality = Compose("siliconalley:wiz_chip_quality", ("v", Pct(t.QualityBonus)));
+            var royalty = Compose("siliconalley:wiz_chip_royalty", ("v", Pct(t.RoyaltyRate)));
+            var build = Compose("siliconalley:wiz_chip_build", ("v", Money(t.BuildCost)));
             SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(t.NameKey)); // #55 icon
             c.Title.text = t.NameKey.GetLocalization();
             if (owned && used) // owned + in this product
@@ -1228,8 +1221,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             }
         }
         _toolsReadout.text = Compose("siliconalley:wiz_tools_readout",
-            ("quality", Mathf.RoundToInt(SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type) * 100f).ToString(CultureInfo.InvariantCulture)),
-            ("royalty", Mathf.RoundToInt(SiliconAlleyState.ToolRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+            ("quality", Pct(SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type))),
+            ("royalty", Pct(SiliconAlleyState.ToolRoyalty(key, type))),
             ("licensed", LicensedToolCount(key, type).ToString(CultureInfo.InvariantCulture)));
     }
 
@@ -1271,8 +1264,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var d = deps[i];
             var owned = SiliconAlleyState.IsDependencyOwned(key, d.Bit);
             var used = SiliconAlleyState.IsDependencyUsed(key, d.Bit);
-            var selfQuality = Compose("siliconalley:wiz_chip_quality", ("v", Mathf.RoundToInt(d.SelfBuildQuality * 100f).ToString(CultureInfo.InvariantCulture)));
-            var build = Compose("siliconalley:wiz_chip_build", ("v", Mathf.RoundToInt(d.BuildCost).ToString(CultureInfo.InvariantCulture)));
+            var selfQuality = Compose("siliconalley:wiz_chip_quality", ("v", Pct(d.SelfBuildQuality)));
+            var build = Compose("siliconalley:wiz_chip_build", ("v", Money(d.BuildCost)));
             SetIconSprite(c.Icon, SiliconAlleyTheme.IconFor(d.NameKey)); // #55 icon
             c.Title.text = d.NameKey.GetLocalization();
             if (owned && used) // self-built, in this product
@@ -1291,23 +1284,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             {
                 var vendorOrdinal = SiliconAlleyState.GetDependencyVendorOrdinal(key, d.Bit);
                 var vendorName = SiliconAlleyVendors.TryGetById(vendorOrdinal, out var vendor) ? vendor.NameKey.GetLocalization() : "—";
-                var royalty = Compose("siliconalley:wiz_chip_royalty", ("v", Mathf.RoundToInt(OfferRoyalty(type, d.Bit, vendorOrdinal) * 100f).ToString(CultureInfo.InvariantCulture)));
-                var quality = Compose("siliconalley:wiz_chip_quality", ("v", Mathf.RoundToInt(OfferQuality(type, d.Bit, vendorOrdinal) * 100f).ToString(CultureInfo.InvariantCulture)));
+                var royalty = Compose("siliconalley:wiz_chip_royalty", ("v", Pct(OfferRoyalty(type, d.Bit, vendorOrdinal))));
+                var quality = Compose("siliconalley:wiz_chip_quality", ("v", Pct(OfferQuality(type, d.Bit, vendorOrdinal))));
                 SetCardChips(c, vendorName, royalty, quality);
                 c.Card.color = SiliconAlleyTheme.CardLicensed;
                 SetCardBadge(c, "siliconalley:wiz_state_licensed".GetLocalization(), SiliconAlleyTheme.Warn);
             }
             else // off — show the build cost + the cheapest licensing royalty as a hint
             {
-                var royaltyHint = Compose("siliconalley:wiz_chip_royalty", ("v", Mathf.RoundToInt(MinOfferRoyalty(type, d.Bit) * 100f).ToString(CultureInfo.InvariantCulture)));
+                var royaltyHint = Compose("siliconalley:wiz_chip_royalty", ("v", Pct(MinOfferRoyalty(type, d.Bit))));
                 SetCardChips(c, build, royaltyHint);
                 c.Card.color = SiliconAlleyTheme.Card;
                 SetCardBadge(c, "siliconalley:wiz_state_off".GetLocalization(), SiliconAlleyTheme.Slate);
             }
         }
         _componentsReadout.text = Compose("siliconalley:wiz_components_readout",
-            ("quality", Mathf.RoundToInt(SiliconAlleyState.DependencyQualityBonus(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
-            ("royalty", Mathf.RoundToInt(SiliconAlleyState.DependencyRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+            ("quality", Pct(SiliconAlleyState.DependencyQualityBonus(key, type))),
+            ("royalty", Pct(SiliconAlleyState.DependencyRoyalty(key, type))),
             ("licensed", LicensedDependencyCount(key, type).ToString(CultureInfo.InvariantCulture)));
     }
 
@@ -1461,7 +1454,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _depReadout.text = Compose("siliconalley:wiz_deps_readout",
             ("covered", covered.ToString(CultureInfo.InvariantCulture)),
             ("total", total.ToString(CultureInfo.InvariantCulture)),
-            ("ceiling", Pct(ProjectedCeiling(key)) + "%"));
+            ("ceiling", Pct(ProjectedCeiling(key))));
     }
 
     // The provider tool name(s) for an uncovered feature — what the player could own/license to cover it.
@@ -1489,11 +1482,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _sumHeroSub.text = Compose("siliconalley:wiz_sum_scope",
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
-            ("eta", EtaText(_ctxSize - _ctxProgress, _ctxPerHour)));
+            ("eta", Eta(_ctxSize - _ctxProgress, _ctxPerHour)));
 
         // Quality ceiling (features + owned/used tools).
         SetStat(_sumQuality, "stat_quality", "siliconalley:wiz_sum_lbl_quality",
-            Pct(ProjectedCeiling(key)) + "%", SiliconAlleyTheme.Accent);
+            Pct(ProjectedCeiling(key)), SiliconAlleyTheme.Accent);
 
         // #39 dependencies: feature→tool coverage (green when full, amber with gaps).
         SiliconAlleyDependencies.Coverage(SiliconAlleyState.GetFeatureMask(key),
@@ -1525,13 +1518,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var ownedRnd = OwnedToolsRnd(key, type) + OwnedDependenciesRnd(key, type);
         SetStat(_sumCost, "stat_cost", "siliconalley:wiz_sum_lbl_cost",
             ownedRnd <= 0f ? "siliconalley:wiz_placeholder_none".GetLocalization()
-                           : Compose("siliconalley:wiz_cost_value", ("amount", Mathf.RoundToInt(ownedRnd).ToString(CultureInfo.InvariantCulture))),
+                           : Compose("siliconalley:wiz_cost_value", ("amount", Money(ownedRnd))),
             ownedRnd <= 0f ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Warn);
         var licensed = LicensedToolCount(key, type) + LicensedDependencyCount(key, type);
         SetStat(_sumRoyalty, "stat_royalty", "siliconalley:wiz_sum_lbl_royalties",
             licensed <= 0 ? "siliconalley:wiz_placeholder_noroyalties".GetLocalization()
                           : Compose("siliconalley:wiz_royalty_value",
-                              ("royalty", Mathf.RoundToInt(SiliconAlleyState.LaunchRoyalty(key, type) * 100f).ToString(CultureInfo.InvariantCulture)),
+                              ("royalty", Pct(SiliconAlleyState.LaunchRoyalty(key, type))),
                               ("count", licensed.ToString(CultureInfo.InvariantCulture))),
             licensed <= 0 ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Warn);
 
@@ -1559,8 +1552,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SetStat(_sumFit, "cat_segment", "siliconalley:wiz_sum_lbl_fit",
             targeted
                 ? Compose("siliconalley:wiz_sum_fit_value",
-                    ("market", SignedPct((fitMarket - 1f) * 100f)),
-                    ("quality", SignedPct(fitQuality * 100f)))
+                    ("market", SignedPct(fitMarket - 1f)),
+                    ("quality", SignedPct(fitQuality)))
                 : "siliconalley:wiz_sum_fit_neutral".GetLocalization(),
             !targeted || Mathf.Approximately(fitDelta, 0f) ? SiliconAlleyTheme.TextMuted
                 : fitDelta > 0f ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn);
@@ -1584,11 +1577,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         AnimateNumber(row.Value, target, format);
     }
 
-    // Issue #61: allocation-free formatters for the animated stat values (the counting label).
+    // Issue #61: allocation-free formatters for the animated stat values (the counting label). #144: they
+    // delegate to the SiliconAlleyFormat table — note FmtPct now takes a 0..1 FRACTION, not a 0..100 value.
     private static readonly Func<float, string> FmtInt = v => Mathf.RoundToInt(v).ToString(CultureInfo.InvariantCulture);
-    private static readonly Func<float, string> FmtPct = v => Mathf.RoundToInt(v).ToString(CultureInfo.InvariantCulture) + "%";
-    private static readonly Func<float, string> FmtMoney = v => "$" + Mathf.RoundToInt(v).ToString("N0", CultureInfo.InvariantCulture);
-    private static readonly Func<float, string> FmtReview = v => v.ToString("F1", CultureInfo.InvariantCulture) + " / 10";
+    private static readonly Func<float, string> FmtPct = Pct;
+    private static readonly Func<float, string> FmtMoney = Money;
+    private static readonly Func<float, string> FmtReview = Review;
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
     private void RefreshRecap(string key)
@@ -1600,8 +1594,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _recapText.text = Compose("siliconalley:wiz_recap",
             ("product", DisplayProductName(key, _ctxBusinessType)),
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
-            ("focus", Pct(SiliconAlleyState.GetDesignFocus(key)) + "%"),
-            ("quality", q < 0f ? "—" : Pct(q) + "%"));
+            ("focus", Pct(SiliconAlleyState.GetDesignFocus(key))),
+            ("quality", Quality(q)));
         _recapStatusText.text = "siliconalley:screen_locked".GetLocalization();
     }
 
@@ -1616,7 +1610,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SetStat(_devThroughput, "stat_market", "siliconalley:screen_dev_lbl_throughput",
             ThroughputValue(reg, perHour), SiliconAlleyTheme.Text);
         var remaining = SiliconAlleyState.PhaseEndProgress(SiliconAlleyState.ProjectPhase.Development, size) - rawProgress;
-        SetStat(_devEta, "stat_eta", "siliconalley:screen_dev_lbl_eta", EtaText(remaining, perHour), SiliconAlleyTheme.Text);
+        SetStat(_devEta, "stat_eta", "siliconalley:screen_dev_lbl_eta", Eta(remaining, perHour), SiliconAlleyTheme.Text);
         RefreshForecast(reg, businessType, key, _devForecast, _devForecastMults); // issue #130
 
         var on = SiliconAlleyState.IsOvertime(key);
@@ -1698,15 +1692,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _updateButton.interactable = staffed && !requested;
     }
 
-    // Issue #88: the current market-demand multiplier as a timing hint ("x1.12"). Releasing while it is high
-    // earns more (it scales launch + update revenue, #28). Neutral "x1.00" without a resolvable type.
-    private static string DemandText(BusinessType businessType)
-    {
-        var demand = businessType == null
+    // Issue #88: the current market-demand multiplier as a timing hint ("×1.12"). Releasing while it is high
+    // earns more (it scales launch + update revenue, #28). Neutral "×1.00" without a resolvable type.
+    private static string DemandText(BusinessType businessType) =>
+        Demand(businessType == null
             ? 1f
-            : SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay);
-        return "x" + demand.ToString("F2", CultureInfo.InvariantCulture);
-    }
+            : SiliconAlleyMarket.DemandFactor(businessType.businessTypeName, TimeHelper.CurrentDay));
 
     // Shared "{staff} staff · {perhour}/h" value for the development throughput + testing QA stat rows.
     private static string ThroughputValue(BuildingRegistration reg, float perHour) =>
@@ -1714,7 +1705,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
             ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
 
-    private void RefreshRelease(BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
+    private void RefreshRelease(BuildingRegistration reg, BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
         SetStat(_relProduct, "stat_market", "siliconalley:screen_rel_lbl_product",
             string.IsNullOrWhiteSpace(report.ProductName) ? DisplayProductName(key, businessType) : report.ProductName,
@@ -1724,7 +1715,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var review01 = Mathf.Clamp01(report.Review / 10f);
         SetProgress(_relReviewBar, review01,
             report.Review >= 7f ? SiliconAlleyTheme.Ok : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
-        SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Mathf.Clamp01(report.Quality) * 100f, FmtPct, SiliconAlleyTheme.Text);
+        SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Mathf.Clamp01(report.Quality), FmtPct, SiliconAlleyTheme.Text);
         SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue",
             Compose("siliconalley:screen_rel_val_revenue",
                 ("payout", Money(report.Payout)),
@@ -1740,7 +1731,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 ("base", SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture))),
             SiliconAlleyTheme.Text);
         // Issue #25/#60: support income + the current freshness as a thin bar (declines as the catalog ages).
-        SetStat(_relSupport, "stat_royalty", "siliconalley:screen_rel_lbl_support", SupportPerDay(businessType, key), SiliconAlleyTheme.Text);
+        // Issue #144: the CANONICAL demand-aware SupportPerDay — the private demand-less copy this screen used
+        // showed a different $/day than the hub card for the same studio at the same tick.
+        SetStat(_relSupport, "stat_royalty", "siliconalley:screen_rel_lbl_support", SupportPerDay(reg, key), SiliconAlleyTheme.Text);
         SetProgress(_relFreshBar, SiliconAlleyState.SupportFreshness(key, TimeHelper.CurrentDay));
         SetStat(_relPatch, "stat_eta", "siliconalley:screen_rel_lbl_patch", PatchEta(key), SiliconAlleyTheme.Text);
     }
@@ -1754,9 +1747,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var daysLeft = Mathf.Max(0, SiliconAlleyState.GetContractDeadlineDay(key) - TimeHelper.CurrentDay);
         // Amber bar — the contract competes with the studio's own product for staff (the dial below splits them).
         SetProgress(_contractBar, frac, SiliconAlleyTheme.Warn);
-        SetStatNum(_contractProgress, "stat_coverage", "siliconalley:screen_contract_lbl_progress", frac * 100f, FmtPct, SiliconAlleyTheme.Text);
+        SetStatNum(_contractProgress, "stat_coverage", "siliconalley:screen_contract_lbl_progress", frac, FmtPct, SiliconAlleyTheme.Text);
         SetStat(_contractDue, "stat_eta", "siliconalley:screen_contract_lbl_due",
-            daysLeft.ToString(CultureInfo.InvariantCulture) + "d", SiliconAlleyTheme.Text);
+            DaysLeft(daysLeft), SiliconAlleyTheme.Text);
         SetStatNum(_contractPayout, "stat_cost", "siliconalley:screen_contract_lbl_payout",
             SiliconAlleyState.GetContractPayout(key), FmtMoney, SiliconAlleyTheme.Ok);
         // Issue #129: reflect the persisted focus without writing back through the change handler.
@@ -1764,10 +1757,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _suppress = true;
         _contractFocusSlider.value = 1f - focus;
         _suppress = false;
-        var contractPct = Mathf.RoundToInt(focus * 100f);
+        // Round ONCE so the two shares always sum to 100%.
+        var contractPct = Mathf.RoundToInt(Mathf.Clamp01(focus) * 100f);
         _contractFocusText.text = Compose("siliconalley:screen_contract_focus_val",
-            ("contract", contractPct.ToString(CultureInfo.InvariantCulture)),
-            ("product", (100 - contractPct).ToString(CultureInfo.InvariantCulture)));
+            ("contract", Pct(contractPct / 100f)),
+            ("product", Pct((100 - contractPct) / 100f)));
     }
 
     // Issue #129: the staff-split dial writes the #126 contractFocus (slider 0 = all contract, 1 = all product).
@@ -1829,14 +1823,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // The same grading the ship report's review bar uses (>=7 good, >=4 fine, else rough).
         row.ReviewChip.color = rec.Review >= 7f ? SiliconAlleyTheme.Ok
             : rec.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn;
-        row.ReviewLabel.text = rec.Review.ToString("F1", CultureInfo.InvariantCulture) + "/10";
+        row.ReviewLabel.text = Review(rec.Review);
         var publisher = SiliconAlleyPublishers.TryGetById(rec.Publisher, out var pub)
             ? pub.NameKey.GetLocalization()
             : "—";
         row.Meta.text = Compose("siliconalley:screen_history_meta",
             ("day", rec.Day.ToString(CultureInfo.InvariantCulture)),
             ("kind", SiliconAlleyState.ProjectTypeNameKey(rec.Kind).GetLocalization()),
-            ("quality", Pct(Mathf.Clamp01(rec.Quality))),
+            ("quality", Pct(rec.Quality)),
             ("payout", Money(rec.LaunchPayout)),
             ("units", rec.LaunchUnits.ToString(CultureInfo.InvariantCulture)),
             ("publisher", publisher));
@@ -1850,7 +1844,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 ("rep", rec.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
                 ("market", rec.MarketMult.ToString("F2", CultureInfo.InvariantCulture)),
                 ("demand", rec.DemandMult.ToString("F2", CultureInfo.InvariantCulture)),
-                ("clean", Pct(Mathf.Clamp01(rec.Cleanliness))));
+                ("clean", Pct(rec.Cleanliness)));
     }
 
     // Issue #21 (Marketing): refresh the campaign block — current awareness/hype, channel costs, and the
@@ -1889,8 +1883,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Issue #130: the Press Build timing line — the window the purchase handler always applied, live.
         var timing = SiliconAlleyState.PressBuildTiming(rawProgress, size);
-        var windowStart = Mathf.RoundToInt(SiliconAlleyState.PressBuildWindowStart * 100f).ToString(CultureInfo.InvariantCulture);
-        var windowEnd = Mathf.RoundToInt(SiliconAlleyState.PressBuildWindowEnd * 100f).ToString(CultureInfo.InvariantCulture);
+        var windowStart = Pct(SiliconAlleyState.PressBuildWindowStart);
+        var windowEnd = Pct(SiliconAlleyState.PressBuildWindowEnd);
         if (timing >= 1f)
         {
             _mktTimingText.text = Compose("siliconalley:screen_mkt_timing_hot", ("start", windowStart), ("end", windowEnd));
@@ -1926,7 +1920,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var review = SiliconAlleyState.ComputeReviewScore(capped * cleanFactor * bugFactor, designQuality,
             SiliconAlleyState.GetAwareness(key));
         SetStat(forecastRow, "stat_quality", "siliconalley:screen_forecast_lbl",
-            Compose("siliconalley:screen_forecast_val", ("review", review.ToString("F1", CultureInfo.InvariantCulture))),
+            Compose("siliconalley:screen_forecast_val", ("review", Review(review))),
             review >= 7f ? SiliconAlleyTheme.Ok : review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
         multsText.gameObject.SetActive(true);
         var capFactor = accrued > 0f ? capped / accrued : 1f;
@@ -1954,15 +1948,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var name = SiliconAlleyPublishers.TryGetById(pub, out var publisher) ? publisher.NameKey.GetLocalization() : "";
             var daysLeft = SiliconAlleyState.GetDealDeadlineDay(key) - TimeHelper.CurrentDay;
             var urgent = daysLeft <= 3;
-            var deadline = daysLeft < 0
-                ? "siliconalley:client_eta_due".GetLocalization()
-                : "~" + daysLeft.ToString(CultureInfo.InvariantCulture) + "d";
+            var deadline = DaysLeft(daysLeft); // exact countdown, bare "Nd" — "due now" once lapsed (#144)
             SetProgress(_pubShipBar, size > 0f ? Mathf.Clamp01(rawProgress / size) : 0f,
                 urgent ? SiliconAlleyTheme.Warn : SiliconAlleyTheme.Accent);
             SetStat(_pubDealPublisher, "stat_royalty", "siliconalley:screen_pub_lbl_publisher", name, SiliconAlleyTheme.Text);
             SetStat(_pubDealDeadline, "stat_eta", "siliconalley:screen_pub_lbl_deadline", deadline,
                 urgent ? SiliconAlleyTheme.Warn : SiliconAlleyTheme.Text);
-            SetStat(_pubDealShipEta, "stat_eta", "siliconalley:screen_pub_lbl_shipeta", EtaText(size - rawProgress, perHour), SiliconAlleyTheme.Text);
+            SetStat(_pubDealShipEta, "stat_eta", "siliconalley:screen_pub_lbl_shipeta", Eta(size - rawProgress, perHour), SiliconAlleyTheme.Text);
             SetStatNum(_pubDealBonus, "stat_cost", "siliconalley:screen_pub_lbl_bonus", SiliconAlleyState.GetDealPayout(key), FmtMoney, SiliconAlleyTheme.Ok);
             return;
         }
@@ -1989,7 +1981,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             c.Title.text = pub.NameKey.GetLocalization();
             SetCardChips(c,
                 "+" + Money(payout),
-                days.ToString(CultureInfo.InvariantCulture) + "d",
+                DaysLeft(days),
                 Compose("siliconalley:screen_pub_chip_rep", ("rep", rep.ToString("F1", CultureInfo.InvariantCulture))));
             SetCardBadge(c, "siliconalley:screen_pub_badge_sign".GetLocalization(), SiliconAlleyTheme.Accent);
         }
@@ -2275,10 +2267,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         Refresh();
     }
 
-    // ---- helpers -----------------------------------------------------------------------------------
-
-    private static string Pct(float fraction01) =>
-        Mathf.RoundToInt(Mathf.Clamp01(fraction01) * 100f).ToString(CultureInfo.InvariantCulture);
+    // ---- helpers (formatting lives in SiliconAlleyFormat — issue #144) -----------------------------
 
     private static string ProductName(BusinessType businessType)
     {
@@ -2290,9 +2279,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private static string DisplayProductName(string key, BusinessType businessType) =>
         SiliconAlleyState.GetProductNameOrDefault(key, ProductName(businessType));
 
-    private static string Money(float amount) =>
-        "$" + Mathf.RoundToInt(amount).ToString("N0", CultureInfo.InvariantCulture);
-
     // Market price of the business's primary product (drives publisher offer math); 0 if none.
     private static float MarketPrice(BusinessType businessType)
     {
@@ -2300,31 +2286,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             return 0f;
         var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
         return item != null ? item.DefaultMarketPrice : 0f;
-    }
-
-    // Estimated recurring support income per day — mirrors the phone dashboard (SiliconAlleyClient).
-    private static string SupportPerDay(BusinessType businessType, string key)
-    {
-        var installed = SiliconAlleyState.GetInstalledBase(key);
-        var perDay = 0f;
-        if (installed > 0 && businessType?.businessProducts != null && businessType.businessProducts.Length > 0)
-        {
-            var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
-            if (item != null)
-                perDay = installed * item.DefaultMarketPrice * SiliconAlleyState.SupportRatePerDay;
-        }
-        return Money(perDay) + "/day";
-    }
-
-    // Days until the next post-release patch — mirrors the phone dashboard. "—" before anything ships.
-    private static string PatchEta(string key)
-    {
-        if (SiliconAlleyState.GetInstalledBase(key) <= 0)
-            return "—";
-        var days = SiliconAlleyOfficeSimulator.PatchIntervalDays - (TimeHelper.CurrentDay - SiliconAlleyState.GetLastPatchDay(key));
-        return days <= 0
-            ? "siliconalley:client_eta_due".GetLocalization()
-            : "~" + days.ToString(CultureInfo.InvariantCulture) + "d";
     }
 
     private static string Compose(string key, params (string, string)[] args)
@@ -2349,20 +2310,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 n++;
         }
         return n;
-    }
-
-    private static string EtaText(float remaining, float perHour)
-    {
-        if (perHour <= 0f)
-            return "siliconalley:client_eta_idle".GetLocalization();
-        var hours = Mathf.CeilToInt(Mathf.Max(0f, remaining) / perHour);
-        if (hours <= 0)
-            return "siliconalley:client_eta_due".GetLocalization();
-        var days = hours / 24;
-        var rest = hours % 24;
-        return days > 0
-            ? "~" + days.ToString(CultureInfo.InvariantCulture) + "d " + rest.ToString(CultureInfo.InvariantCulture) + "h"
-            : "~" + rest.ToString(CultureInfo.InvariantCulture) + "h";
     }
 
     // ---- code-built uGUI ---------------------------------------------------------------------------
