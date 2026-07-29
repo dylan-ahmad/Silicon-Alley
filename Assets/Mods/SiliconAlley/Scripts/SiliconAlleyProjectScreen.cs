@@ -250,10 +250,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private SiliconAlleyUI.ProgressBar _pubShipBar;
     // Release section (transient ship report; issue #60: review + freshness bars + stat rows)
     private SiliconAlleyUI.ProgressBar _relReviewBar, _relFreshBar;
-    private SiliconAlleyUI.StatRow _relProduct, _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
-    // Issue #146: review vs the previous release as a before › after delta (hidden on a debut).
-    private GameObject _relReviewDeltaRow;
-    private SiliconAlleyUI.DeltaReadout _relReviewDelta;
+    private SiliconAlleyUI.StatRow _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
+    // Issue #149: the hero line (product + version + review badge) and the 2-column stat grid's new cells.
+    private Image _relHeroIcon;
+    private TMP_Text _relHeroTitle, _relMults;
+    private SiliconAlleyUI.Badge _relReviewBadge;
+    private SiliconAlleyUI.StatRow _relInstalled, _relIpRep;
+    // Issue #146/#149: review and payout vs the previous release as before › after deltas (hidden on a debut).
+    private GameObject _relReviewDeltaRow, _relPayoutDeltaRow;
+    private SiliconAlleyUI.DeltaReadout _relReviewDelta, _relPayoutDelta;
     // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
@@ -1692,6 +1697,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Issue #146: a SIGNED review-point delta ("+0.6" / "-1.2") for the ship report's delta readout.
     private static readonly Func<float, string> FmtSignedReview = v =>
         (v >= 0f ? "+" : "") + v.ToString("F1", CultureInfo.InvariantCulture);
+    // Issue #149: the signed payout delta ("+$1,200"), from the shared format table.
+    private static readonly Func<float, string> FmtSignedMoney = SignedMoney;
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
     private void RefreshRecap(string key)
@@ -1816,41 +1823,74 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
             ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
 
+    // Issue #149: a labelled "before › after" row — muted label on the left, the delta readout hugging the
+    // right edge. The ship report builds two (review, payout); both hide on a debut.
+    private static GameObject MakeDeltaRow(Transform parent, string labelKey, out SiliconAlleyUI.DeltaReadout readout)
+    {
+        var row = MakeRow(parent, 8f, 24);
+        row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        var label = MakeText(row.transform, "DeltaLbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        label.color = SiliconAlleyTheme.TextMuted;
+        label.text = labelKey.GetLocalization();
+        label.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the readout to the right edge
+        readout = MakeDeltaReadout(row.transform);
+        return row;
+    }
+
     private void RefreshRelease(BuildingRegistration reg, BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
-        SetStat(_relProduct, "stat_market", "siliconalley:screen_rel_lbl_product",
-            string.IsNullOrWhiteSpace(report.ProductName) ? ProductDisplayName(key, businessType) : report.ProductName,
-            SiliconAlleyTheme.Header);
-        // Issue #20/#60: lead with the critical-reception score + a 0..10 review bar (color-graded).
-        SetStatNum(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review", report.Review, FmtReview, SiliconAlleyTheme.Header);
-        var review01 = Mathf.Clamp01(report.Review / 10f);
-        SetProgress(_relReviewBar, review01,
-            report.Review >= 7f ? SiliconAlleyTheme.Ok : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
-        // Issue #146: how this release reviewed against the previous one. The newest history row IS this
-        // ship (appended in OnProjectCompleted), so the previous release sits at Count - 2.
+        // Issue #149: the hero line — what shipped, at which version, and how it reviewed.
+        var kind = SiliconAlleyState.GetProjectType(key);
+        SetIconSprite(_relHeroIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.ProjectTypeNameKey(kind)));
+        var shipped = string.IsNullOrWhiteSpace(report.ProductName)
+            ? ProductDisplayName(key, businessType)
+            : report.ProductName;
+        _relHeroTitle.text = Compose("siliconalley:screen_studio",
+            ("product", shipped),
+            ("version", SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)));
+        // The same ≥7 / ≥4 grading the review bar and the history rows use.
+        var grade = report.Review >= 7f ? SiliconAlleyTheme.Ok
+            : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn;
+        SetBadge(_relReviewBadge, Review(report.Review), grade);
+        SetProgress(_relReviewBar, Mathf.Clamp01(report.Review / 10f), grade);
+
+        // Issue #146/#149: review + payout against the previous release. The newest history row IS this ship
+        // (appended in OnProjectCompleted), so the previous release sits at Count - 2 and this one at Count - 1.
         var releases = SiliconAlleyState.GetReleaseHistory(key);
         var hasPrev = releases.Count >= 2;
         _relReviewDeltaRow.SetActive(hasPrev);
+        _relPayoutDeltaRow.SetActive(hasPrev);
         if (hasPrev)
         {
-            var prev = releases[releases.Count - 2].Review;
-            SetDelta(_relReviewDelta, Review(prev), Review(report.Review), report.Review - prev, FmtSignedReview);
+            var prev = releases[releases.Count - 2];
+            SetDelta(_relReviewDelta, Review(prev.Review), Review(report.Review),
+                report.Review - prev.Review, FmtSignedReview);
+            SetDelta(_relPayoutDelta, Money(prev.LaunchPayout), Money(report.Payout),
+                report.Payout - prev.LaunchPayout, FmtSignedMoney);
         }
-        SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Mathf.Clamp01(report.Quality), FmtPct, SiliconAlleyTheme.Text);
-        SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue",
-            Compose("siliconalley:screen_rel_val_revenue",
-                ("payout", Money(report.Payout)),
-                ("repmult", report.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
-                ("marketmult", report.MarketMult.ToString("F2", CultureInfo.InvariantCulture))),
-            SiliconAlleyTheme.Ok);
-        // Issue #24: the franchise's version + IP reputation alongside reputation and installed base.
-        SetStat(_relRep, "stat_market", "siliconalley:screen_rel_lbl_rep",
-            Compose("siliconalley:screen_rel_val_rep",
-                ("reputation", SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
-                ("iprep", SiliconAlleyState.GetIpReputation(key).ToString("F2", CultureInfo.InvariantCulture)),
-                ("version", "v" + SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)),
-                ("base", SiliconAlleyState.GetInstalledBase(key).ToString(CultureInfo.InvariantCulture))),
-            SiliconAlleyTheme.Text);
+
+        // Issue #149: one fact per grid cell — this replaces the two crammed multi-number strings.
+        SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue", Money(report.Payout), SiliconAlleyTheme.Ok);
+        SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality",
+            Mathf.Clamp01(report.Quality), FmtPct, SiliconAlleyTheme.Text);
+        SetStatNum(_relInstalled, "stat_installed", "siliconalley:screen_rel_lbl_installed",
+            SiliconAlleyState.GetInstalledBase(key), FmtInt, SiliconAlleyTheme.Text);
+        SetStat(_relRep, "stat_reputation", "siliconalley:screen_rel_lbl_rep",
+            SiliconAlleyState.GetReputation(key).ToString("F2", CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+        // Issue #24: the franchise's IP reputation — the sequel bar this release is judged against.
+        SetStat(_relIpRep, "stat_market", "siliconalley:screen_rel_lbl_iprep",
+            SiliconAlleyState.GetIpReputation(key).ToString("F2", CultureInfo.InvariantCulture), SiliconAlleyTheme.Text);
+
+        // Issue #149: "why this payout" — the recorded multiplier breakdown, reusing the release-history
+        // strings (and its -1 "not recorded" sentinel guard for anything shipped before 0.5.0).
+        var recorded = releases.Count >= 1 ? releases[releases.Count - 1] : default;
+        _relMults.text = releases.Count >= 1 && recorded.RepMult >= 0f
+            ? Compose("siliconalley:screen_history_mults",
+                ("rep", recorded.RepMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("market", recorded.MarketMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("demand", recorded.DemandMult.ToString("F2", CultureInfo.InvariantCulture)),
+                ("clean", Pct(recorded.Cleanliness)))
+            : "siliconalley:screen_history_mults_na".GetLocalization();
         // Issue #25/#60: support income + the current freshness as a thin bar (declines as the catalog ages).
         // Issue #144: the CANONICAL demand-aware SupportPerDay — the private demand-less copy this screen used
         // showed a different $/day than the hub card for the same studio at the same tick.
@@ -2924,22 +2964,36 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _releaseSection = MakeSection(root);
         MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
         var relCard = MakeCardPanel(_releaseSection.transform, "RelCard");
-        _relProduct = MakeStatRow(relCard.transform);
-        _relReview = MakeStatRow(relCard.transform);
+        // Issue #149: a hero line — [scope icon] product + version …… review badge — instead of burying the
+        // headline number in a stat row.
+        var relHero = MakeRow(relCard.transform, 10f, 32);
+        relHero.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        _relHeroIcon = MakeIcon(relHero.transform, null, 28f, SiliconAlleyTheme.Header);
+        _relHeroTitle = MakeText(relHero.transform, "RelHeroTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _relHeroTitle.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        _relHeroTitle.enableWordWrapping = false;
+        _relHeroTitle.overflowMode = TextOverflowModes.Ellipsis;
+        _relReviewBadge = MakeBadge(relHero.transform, SiliconAlleyTheme.Slate, SiliconAlleyTheme.Text);
         _relReviewBar = MakeProgressBar(relCard.transform);
-        // Issue #146: "vs previous release   6.8/10 › 7.4/10 (+0.6)" — the delta-readout primitive's
-        // first live call site. The whole row hides on a debut (nothing to compare against).
-        _relReviewDeltaRow = MakeRow(relCard.transform, 8f, 24);
-        _relReviewDeltaRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-        var relDeltaLbl = MakeText(_relReviewDeltaRow.transform, "DeltaLbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        relDeltaLbl.color = SiliconAlleyTheme.TextMuted;
-        relDeltaLbl.text = "siliconalley:rel_review_delta_lbl".GetLocalization();
-        relDeltaLbl.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the readout to the right edge
-        _relReviewDelta = MakeDeltaReadout(_relReviewDeltaRow.transform);
-        _relQuality = MakeStatRow(relCard.transform);
-        _relRevenue = MakeStatRow(relCard.transform);
-        _relRep = MakeStatRow(relCard.transform);
-        _relSupport = MakeStatRow(relCard.transform);
+        // Issue #146/#149: the two numbers players actually compare across releases get before › after
+        // readouts — review and payout. Both rows hide on a debut (nothing to compare against).
+        _relReviewDeltaRow = MakeDeltaRow(relCard.transform, "siliconalley:rel_review_delta_lbl", out _relReviewDelta);
+        _relPayoutDeltaRow = MakeDeltaRow(relCard.transform, "siliconalley:rel_payout_delta_lbl", out _relPayoutDelta);
+        // Issue #149: the multi-number Revenue/Reputation strings become a 2-column stat grid — one fact
+        // per cell instead of three or four crammed into a wrapping right-aligned value.
+        var relGrid = MakeColumns(relCard.transform);
+        var relLeft = MakeSection(relGrid.transform);
+        var relRight = MakeSection(relGrid.transform);
+        _relRevenue = MakeStatRow(relLeft.transform);   // payout
+        _relQuality = MakeStatRow(relLeft.transform);
+        _relInstalled = MakeStatRow(relLeft.transform);
+        _relRep = MakeStatRow(relRight.transform);      // reputation
+        _relIpRep = MakeStatRow(relRight.transform);
+        _relSupport = MakeStatRow(relRight.transform);
+        // Issue #149: "why this payout" — the same breakdown line (and the same pre-0.5.0 fallback) the
+        // release-history rows already render, read from this ship's own history record.
+        _relMults = MakeText(relCard.transform, "RelMults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _relMults.color = SiliconAlleyTheme.TextMuted;
         _relFreshBar = MakeProgressBar(relCard.transform, 6f);
         _relPatch = MakeStatRow(relCard.transform);
         MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);

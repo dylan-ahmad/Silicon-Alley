@@ -25,6 +25,14 @@ public static class SiliconAlleyFormat
             : "$" + rounded.ToString("N0", CultureInfo.InvariantCulture);
     }
 
+    // A signed money delta as "+$1,200" / "-$340" / "$0" (#149 — the ship report's payout-vs-previous
+    // readout). Rounds first like Money, so a sub-dollar delta reads "$0" instead of "+$0".
+    public static string SignedMoney(float amount)
+    {
+        var rounded = Mathf.RoundToInt(amount);
+        return rounded > 0 ? "+" + Money(rounded) : Money(rounded);
+    }
+
     // A 0..1 fraction as "42%".
     public static string Pct(float fraction01) =>
         Mathf.RoundToInt(Mathf.Clamp01(fraction01) * 100f).ToString(CultureInfo.InvariantCulture) + "%";
