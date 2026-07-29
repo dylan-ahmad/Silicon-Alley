@@ -292,13 +292,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // studio's detail view, and the header's "‹ Overview" button returns. One menu entry point, clicked
     // through — no separate dashboard window anymore.
     private bool _hubMode;
-    private GameObject _hubSection, _hubCardsHost, _hubServersBlock, _hubServersHost;
-    private TMP_Text _hubEmptyText, _hubServersEmpty;
+    private GameObject _hubSection, _hubGridHost;
+    private SiliconAlleyHubStrip _hubStrip; // issue #148: the triage strip above the grid
+    private TMP_Text _hubEmptyText;
     private GameObject _studioRow, _phaseRow; // header rows hidden while the hub shows
     private Button _overviewButton;
     private readonly List<BuildingRegistration> _studioRegs = new List<BuildingRegistration>();
-    private readonly List<SiliconAlleyStudioCard> _hubCards = new List<SiliconAlleyStudioCard>();
-    private readonly List<SiliconAlleyServerGroupCard> _hubServerCards = new List<SiliconAlleyServerGroupCard>();
+    // Issue #148: the 2-column grid — rows of MakeColumns, each holding two cells (studio card + its
+    // server group). Grow-only pools, built at grow time only (#147: the value path never re-parents).
+    private readonly List<GameObject> _hubRows = new List<GameObject>();
+    private readonly List<SiliconAlleyHubCell> _hubCells = new List<SiliconAlleyHubCell>();
+    // Issue #148: the per-tick attention pre-pass (index-aligned with _studioRegs) + the sorted binding
+    // order — pooled cell slot s is BOUND to studio _hubOrder[s]; nothing ever moves siblings (#147).
+    private readonly List<SiliconAlleyAttention.Info> _hubInfos = new List<SiliconAlleyAttention.Info>();
+    private readonly List<int> _hubOrder = new List<int>();
 
     private void Awake()
     {
@@ -527,7 +534,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         _titleText.text = Compose("siliconalley:screen_title", ("phase", stageName));
         _studioText.text = Compose("siliconalley:screen_studio",
-            ("business", reg.GetDisplayName()), ("product", DisplayProductName(key, businessType)));
+            ("business", reg.GetDisplayName()), ("product", ProductDisplayName(key, businessType)));
         // Issue #55: reflect the current business type + phase as icons next to their labels (none when idle).
         SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(businessType?.businessTypeName));
         SetIconSprite(_phaseIcon, idle ? null : SiliconAlleyTheme.IconFor(SiliconAlleyState.PhaseNameKey(phase)));
@@ -653,51 +660,65 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             "siliconalley:dash_empty",
             "siliconalley:dash_registration_failed").GetLocalization();
         _hubEmptyText.gameObject.SetActive(count == 0);
-        for (var i = 0; i < count; i++)
-        {
-            var card = EnsureHubCard(i);
-            card.Root.SetActive(true);
-            card.Fill(_studioRegs[i], _studioKeys[i]);
-        }
-        for (var i = count; i < _hubCards.Count; i++)
-            _hubCards[i].Root.SetActive(false);
 
-        RefreshHubServers(count);
+        // Issue #148 pre-pass: ONE attention/totals computation per studio, BEFORE any card binds — the
+        // triage strip renders above the cards and must show this tick's figures, not last tick's.
+        _hubInfos.Clear();
+        for (var i = 0; i < count; i++)
+            _hubInfos.Add(SiliconAlleyAttention.Compute(_studioRegs[i], _studioKeys[i]));
+
+        // Issue #148: the strip consumes the same pre-pass the sort and badges use — it cannot disagree.
+        _hubStrip.Root.SetActive(count > 0); // with 0 studios the empty text carries the message alone
+        if (count > 0)
+            _hubStrip.Fill(_studioRegs, _studioKeys, _hubInfos);
+
+        // Sorted BINDING order (#147: pooled slots never move — slot s is simply bound to the studio that
+        // sorts s-th): Danger, then Warn, then quiet; stable by original index within each tier. When a
+        // severity flips mid-hover the card under the cursor re-binds to a different studio — accepted:
+        // the click delegate reads the card's CURRENT bind, so a click always opens what the card shows.
+        _hubOrder.Clear();
+        for (var lvl = (int)SiliconAlleyAttention.Level.Danger; lvl >= (int)SiliconAlleyAttention.Level.None; lvl--)
+            for (var i = 0; i < count; i++)
+                if ((int)_hubInfos[i].Level == lvl)
+                    _hubOrder.Add(i);
+
+        for (var slot = 0; slot < count; slot++)
+        {
+            var i = _hubOrder[slot];
+            var cell = EnsureHubCell(slot);
+            cell.Root.SetActive(true);
+            cell.Fill(_studioRegs[i], _studioKeys[i], _hubInfos[i]);
+        }
+        // Odd count: the partner cell in the half-used row stays ACTIVE but empty — MakeColumns
+        // force-expands children, so hiding it would stretch the lone card to full width.
+        var cellsInUse = count;
+        if (count % 2 == 1)
+        {
+            var filler = EnsureHubCell(count);
+            filler.Root.SetActive(true);
+            filler.Hide();
+            cellsInUse = count + 1;
+        }
+        for (var slot = cellsInUse; slot < _hubCells.Count; slot++)
+            _hubCells[slot].Root.SetActive(false);
+        var rowsInUse = (cellsInUse + 1) / 2;
+        for (var r = 0; r < _hubRows.Count; r++)
+            _hubRows[r].SetActive(r < rowsInUse); // whole unused rows hide — no empty gutters
         // #147: no layout clamp here — see Refresh()'s tail note.
     }
 
-    private SiliconAlleyStudioCard EnsureHubCard(int index)
+    // Issue #148: grow-only cell pool — every even growth adds a MakeColumns row; a cell holds the studio
+    // card + its server group stacked. Growth happens on the value path exactly as the old EnsureHubCard's
+    // did: a one-time build whose height FollowContentHeight picks up a frame later (#147).
+    private SiliconAlleyHubCell EnsureHubCell(int index)
     {
-        while (index >= _hubCards.Count)
-            _hubCards.Add(SiliconAlleyStudioCard.Build(_hubCardsHost.transform, OpenDetailFromHub));
-        return _hubCards[index];
-    }
-
-    // Issue #104 (hub-hosted): per-studio server role assignment. The group pool is index-aligned with the
-    // studio pool; a card self-hides when its studio owns no servers, and the empty hint shows when all do.
-    private void RefreshHubServers(int count)
-    {
-        _hubServersBlock.SetActive(count > 0);
-        if (count == 0)
-            return;
-        var totalServers = 0;
-        for (var i = 0; i < count; i++)
+        while (index >= _hubCells.Count)
         {
-            var group = EnsureHubServerCard(i);
-            var n = group.Fill(_studioRegs[i], _studioKeys[i]);
-            group.Root.SetActive(n > 0);
-            totalServers += n;
+            if (_hubCells.Count % 2 == 0)
+                _hubRows.Add(MakeColumns(_hubGridHost.transform)); // Space.Gutter → two ~437px columns
+            _hubCells.Add(SiliconAlleyHubCell.Build(_hubRows[_hubCells.Count / 2].transform, OpenDetailFromHub));
         }
-        for (var i = count; i < _hubServerCards.Count; i++)
-            _hubServerCards[i].Root.SetActive(false);
-        _hubServersEmpty.gameObject.SetActive(totalServers == 0);
-    }
-
-    private SiliconAlleyServerGroupCard EnsureHubServerCard(int index)
-    {
-        while (index >= _hubServerCards.Count)
-            _hubServerCards.Add(SiliconAlleyServerGroupCard.Build(_hubServersHost.transform)); // #147: role clicks repaint in place
-        return _hubServerCards[index];
+        return _hubCells[index];
     }
 
     // Issue #128: fill the decision card from the pending milestone's deterministic event. Paid options show
@@ -1104,7 +1125,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void RefreshConceptPage()
     {
         var key = _currentKey;
-        var productName = DisplayProductName(key, _ctxBusinessType);
+        var productName = ProductDisplayName(key, _ctxBusinessType);
         _conceptNameText.text = Compose("siliconalley:wiz_product", ("product", productName));
         if (_productNameInput.text != productName)
         {
@@ -1535,7 +1556,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var type = _ctxBusinessType?.businessTypeName;
 
         // Hero: product name + "scope · size · ship eta", with the per-scope icon.
-        _sumHeroTitle.text = DisplayProductName(key, _ctxBusinessType);
+        _sumHeroTitle.text = ProductDisplayName(key, _ctxBusinessType);
         SetIconSprite(_sumScopeIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.ProjectTypeNameKey(kind)));
         _sumHeroSub.text = Compose("siliconalley:wiz_sum_scope",
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
@@ -1653,7 +1674,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (q < 0f)
             q = SiliconAlleyState.GetAverageQuality(key);
         _recapText.text = Compose("siliconalley:wiz_recap",
-            ("product", DisplayProductName(key, _ctxBusinessType)),
+            ("product", ProductDisplayName(key, _ctxBusinessType)),
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
             ("focus", Pct(SiliconAlleyState.GetDesignFocus(key))),
             ("quality", Quality(q)));
@@ -1767,7 +1788,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void RefreshRelease(BuildingRegistration reg, BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
         SetStat(_relProduct, "stat_market", "siliconalley:screen_rel_lbl_product",
-            string.IsNullOrWhiteSpace(report.ProductName) ? DisplayProductName(key, businessType) : report.ProductName,
+            string.IsNullOrWhiteSpace(report.ProductName) ? ProductDisplayName(key, businessType) : report.ProductName,
             SiliconAlleyTheme.Header);
         // Issue #20/#60: lead with the critical-reception score + a 0..10 review bar (color-graded).
         SetStatNum(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review", report.Review, FmtReview, SiliconAlleyTheme.Header);
@@ -1887,7 +1908,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void FillHistoryRow(HistoryRow row, SiliconAlleyState.ReleaseRecord rec, BusinessType businessType, bool expand)
     {
-        var name = string.IsNullOrWhiteSpace(rec.ProductName) ? ProductName(businessType) : rec.ProductName;
+        var name = string.IsNullOrWhiteSpace(rec.ProductName) ? ProductDisplayName(businessType) : rec.ProductName;
         row.Title.text = name + " v" + rec.Version.ToString(CultureInfo.InvariantCulture);
         // The same grading the ship report's review bar uses (>=7 good, >=4 fine, else rough).
         SetBadge(row.Review, Review(rec.Review), rec.Review >= 7f ? SiliconAlleyTheme.Ok
@@ -2233,7 +2254,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SiliconAlleyModal.Confirm(_root.transform,
             "siliconalley:modal_abandon_title".GetLocalization(),
             Compose("siliconalley:modal_abandon_body",
-                ("product", DisplayProductName(_currentKey, BusinessTypeHelper.GetData(reg)))),
+                ("product", ProductDisplayName(_currentKey, BusinessTypeHelper.GetData(reg)))),
             "siliconalley:modal_abandon_confirm".GetLocalization(),
             () =>
             {
@@ -2346,15 +2367,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // ---- helpers (formatting lives in SiliconAlleyFormat — issue #144) -----------------------------
 
-    private static string ProductName(BusinessType businessType)
-    {
-        if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
-            return "project";
-        return businessType.businessProducts[0].itemName.GetLocalization();
-    }
-
-    private static string DisplayProductName(string key, BusinessType businessType) =>
-        SiliconAlleyState.GetProductNameOrDefault(key, ProductName(businessType));
+    // #148: the product display name lives in SiliconAlleyFormat now (ProductDisplayName) — the private
+    // ProductName/DisplayProductName copies this file carried are gone.
 
     // Market price of the business's primary product (drives publisher offer math); 0 if none.
     private static float MarketPrice(BusinessType businessType)
@@ -2363,14 +2377,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             return 0f;
         var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
         return item != null ? item.DefaultMarketPrice : 0f;
-    }
-
-    private static string Compose(string key, params (string, string)[] args)
-    {
-        var dict = new Dictionary<string, string>();
-        foreach (var (k, v) in args)
-            dict[k] = v;
-        return key.Localize(dict).ToString();
     }
 
     private static int CountStaff(BuildingRegistration reg)
@@ -2510,16 +2516,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // ---- Hub landing page (issue #127): the old F8 dashboard content, hosted as this screen's first
         // page — studio cards + the Servers section. Hidden whenever a studio's detail view shows.
         _hubSection = MakeSection(root);
+        // Issue #148: the triage strip first — "who needs me?" answered before any card is read.
+        _hubStrip = SiliconAlleyHubStrip.Build(_hubSection.transform, OpenDetailFromHub);
         _hubEmptyText = MakeText(_hubSection.transform, "HubEmpty", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
-        _hubCardsHost = MakeSection(_hubSection.transform);
-        _hubServersBlock = MakeSection(_hubSection.transform);
-        MakeDivider(_hubServersBlock.transform);
-        MakeHeader(_hubServersBlock.transform, "siliconalley:dash_servers_header");
-        _hubServersEmpty = MakeText(_hubServersBlock.transform, "ServersEmpty",
-            SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        _hubServersEmpty.color = SiliconAlleyTheme.TextMuted;
-        _hubServersEmpty.text = "siliconalley:dash_servers_hint".GetLocalization();
-        _hubServersHost = MakeSection(_hubServersBlock.transform);
+        // Issue #148: rows of two half-width cells (studio card + its server group) replace the old
+        // single-column card list AND the disconnected Servers block below it.
+        _hubGridHost = MakeSection(_hubSection.transform);
         _hubSection.SetActive(false);
 
         // ---- Idle section (issue #88: no active project — start the next version) ----

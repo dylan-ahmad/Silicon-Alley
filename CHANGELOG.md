@@ -8,6 +8,18 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 ## [Unreleased]
 
 ### Added
+- **Hub redesign: the overview finally answers "who needs me?"** (#148, epic #142). A **triage strip**
+  tops the hub: "N studios need you" with one clickable badge per needing studio — open **milestone
+  decision**, **contract/publisher deadline** within 3 days, **ready to release**, **update due** —
+  that deep-links straight into that studio, plus an aggregate totals line (studios · support $/day ·
+  installed base · servers · upkeep) computed from the same shared formatter the cards use, so the
+  figures always agree. Studio cards sit in a **2-column grid** (the 940px window finally earns its
+  width); needs-action studios carry a red/amber badge and **sort first**. The **whole card is
+  clickable** with hover elevation (the Open button is gone), every card states **what is being built**
+  ("{product} · v{n}"), and quiet studios render compact (an Idle studio drops its progress bar and
+  ship ETA). **Server groups now live directly under their studio's card** — the disconnected Servers
+  block below is gone, the group header slims to a muted "Servers" caption, and the role buttons read
+  Infra/Backend/Host at the new column width. Presentation only — no save surface.
 - **UI component kit** (#146, epic #142). The window finally gets a **scrollbar** — themed, overlaying
   the right padding, alpha-fading out when the content fits (hysteresis over the live overflow, so the
   per-second refresh can't flicker it). A **tooltip system** on the mod's own canvas (0.1 s hover

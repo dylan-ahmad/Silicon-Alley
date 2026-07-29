@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using BigAmbitions.Items;
 using Entities;
@@ -74,22 +75,48 @@ public static class SiliconAlleyFormat
 
     // Estimated recurring support income per day = installed base x product market price x support rate x
     // current market demand — the demand-aware estimate that matches what the simulator actually credits.
-    public static string SupportPerDay(BuildingRegistration registration, string key)
+    // #148: the raw float, so the hub's totals strip can SUM per-studio values and round ONCE via Money
+    // (summing the per-studio rounded strings would drift from the true total and fail the strip-matches-
+    // cards acceptance).
+    public static float SupportPerDayValue(BuildingRegistration registration, string key)
     {
         var installedBase = SiliconAlleyState.GetInstalledBase(key);
-        var perDay = 0f;
-        if (installedBase > 0)
-        {
-            var businessType = BusinessTypeHelper.GetData(registration);
-            if (businessType?.businessProducts != null && businessType.businessProducts.Length > 0)
-            {
-                var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
-                if (item != null)
-                    perDay = installedBase * item.DefaultMarketPrice * SiliconAlleyState.SupportRatePerDay
-                        * SiliconAlleyMarket.DemandFactor(registration.businessTypeName, TimeHelper.CurrentDay);
-            }
-        }
-        return Money(perDay) + "/day";
+        if (installedBase <= 0)
+            return 0f;
+        var businessType = BusinessTypeHelper.GetData(registration);
+        if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
+            return 0f;
+        var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
+        if (item == null)
+            return 0f;
+        return installedBase * item.DefaultMarketPrice * SiliconAlleyState.SupportRatePerDay
+            * SiliconAlleyMarket.DemandFactor(registration.businessTypeName, TimeHelper.CurrentDay);
+    }
+
+    public static string SupportPerDay(BuildingRegistration registration, string key) =>
+        Money(SupportPerDayValue(registration, key)) + "/day";
+
+    // #148: THE product display name — was three private copies (project screen ×2, simulator ×2) of the
+    // same "primary product's localized item name, 'project' fallback, player-typed name overlay" logic,
+    // exactly the duplication this table exists to prevent (#144).
+    public static string ProductDisplayName(BusinessType businessType)
+    {
+        if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
+            return "project";
+        return businessType.businessProducts[0].itemName.GetLocalization();
+    }
+
+    public static string ProductDisplayName(string key, BusinessType businessType) =>
+        SiliconAlleyState.GetProductNameOrDefault(key, ProductDisplayName(businessType));
+
+    // #148: localized-string composition for "{a} · {b}"-style keys — was three identical private copies
+    // (dashboard ×2, project screen ×1); the hub strip would have needed a fourth.
+    public static string Compose(string key, params (string, string)[] args)
+    {
+        var dict = new Dictionary<string, string>();
+        foreach (var (k, v) in args)
+            dict[k] = v;
+        return key.Localize(dict).ToString();
     }
 
     // Days until the studio next patches its live catalog (only meaningful once installed base > 0);
