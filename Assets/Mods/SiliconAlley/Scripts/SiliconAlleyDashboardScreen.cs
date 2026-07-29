@@ -176,9 +176,10 @@ public static class SiliconAlleyAttention
     }
 }
 
-// Issue #59 (now hosted by the #127 hub): one pooled card per player-owned studio — type icon + name + a
-// colour-coded demand-trend pill, a stage progress bar, the key stats at a glance, and an "Open" deep-link
-// into that studio's detail view. Build() runs once; Fill() re-reads live state each refresh tick.
+// Issue #59 (now hosted by the #127 hub): one pooled card per player-owned studio — type icon + name +
+// attention badge + a colour-coded demand-trend pill, the product being built, a stage progress bar and
+// the key stats at a glance. #148: the WHOLE card is the deep-link into the studio's detail view.
+// Build() runs once; Fill() re-reads live state each refresh tick.
 sealed class SiliconAlleyStudioCard
 {
     public GameObject Root;
@@ -189,6 +190,7 @@ sealed class SiliconAlleyStudioCard
     private SiliconAlleyUI.Badge _attnBadge; // issue #148: the needs-you badge (Danger/Warn; hidden when quiet)
     private Image _trendChip;
     private TMP_Text _trendLabel;
+    private TMP_Text _productText; // issue #148: "{product} · v{n}" — what is being built, not just the studio
     private TMP_Text _phaseText;
     private SiliconAlleyUI.ProgressBar _progress;
     private SiliconAlleyUI.StatRow _quality, _reputation, _installed, _support, _shipEta;
@@ -199,16 +201,34 @@ sealed class SiliconAlleyStudioCard
         var card = MakeCardPanel(parent, "StudioCard");
         var t = card.transform;
 
-        // Header: [type icon] name (grows) [demand-trend pill, hugs right].
+        // Issue #148: the WHOLE card is the open affordance (the MakeCardItem recipe) — the old
+        // right-aligned "Open" button is gone. The delegate reads the card's CURRENT bind (_key), so a
+        // click always opens whatever the card shows, even right after a re-sort re-binds it.
+        var cardImage = card.GetComponent<Image>();
+        var button = card.AddComponent<Button>();
+        button.targetGraphic = cardImage;
+        button.colors = SiliconAlleyTheme.Interaction;
+        button.onClick.AddListener(() => onOpen(c._key));
+        card.AddComponent<SiliconAlleyHoverScale>().Gate = button; // hover elevation; OnDisable resets (pooled-safe)
+
+        // Header: [type icon] name (grows) [attention badge] [demand-trend pill] — pills hug right.
         var header = MakeRow(t, 8f, 30);
-        header.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false; // so the pill hugs, not stretches
+        header.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
         c._typeIcon = MakeIcon(header.transform, null, 26f, SiliconAlleyTheme.Text);
         c._name = MakeText(header.transform, "Name", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
         c._name.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack so the pills are pushed right
+        c._name.enableWordWrapping = false;                        // #148: a 437px column must never wrap the header
+        c._name.overflowMode = TextOverflowModes.Ellipsis;
         c._attnBadge = MakeBadge(header.transform, SiliconAlleyTheme.Danger, SiliconAlleyTheme.Text); // issue #148
         c._trendChip = MakeChip(header.transform, SiliconAlleyTheme.Ok, SiliconAlleyTheme.Text, out c._trendLabel);
         // Issue #146: hovering the ▲/▼ pill explains what the demand trend means (live-evaluated at 1 Hz).
+        // #148 known dead zone: the tooltip keeps the pill raycastable, so clicks over the pill don't
+        // reach the card button — accepted; the pill reads as its own control.
         SiliconAlleyTooltip.Attach(c._trendChip, () => c.TrendTip());
+
+        // Issue #148: WHAT is being built — product name + version, under the studio name.
+        c._productText = MakeText(t, "Product", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        c._productText.color = SiliconAlleyTheme.TextMuted;
 
         // Phase line + a phase-progress bar.
         c._phaseText = MakeText(t, "Phase", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
@@ -221,13 +241,6 @@ sealed class SiliconAlleyStudioCard
         c._installed = MakeStatRow(t);
         c._support = MakeStatRow(t);
         c._shipEta = MakeStatRow(t);
-
-        // "Open" deep-link, right-aligned (a flexible spacer pushes it to the edge).
-        var actionRow = MakeRow(t, 6f, 30);
-        actionRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-        MakeSpacer(actionRow.transform);
-        var openBtn = MakeButton(actionRow.transform, "siliconalley:dash_open_detail".GetLocalization(), () => onOpen(c._key));
-        FixWidth(openBtn, 100f);
 
         c.Root = card;
         return c;
@@ -270,19 +283,33 @@ sealed class SiliconAlleyStudioCard
         _trendChip.color = rising ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn;
         _trendLabel.text = (rising ? "▲ " : "▼ ") + Demand(demand); // ×1.12 — the same shape the detail view uses (#144)
 
-        // Stage + stage-progress bar (issue #88: an idle studio reads "Idle · 0%", not the derived phase).
+        // Issue #148: what is being built — product name + version (shared formatter, #144).
+        _productText.text = Compose("siliconalley:dash_product_line",
+            ("product", ProductDisplayName(key, businessType)),
+            ("version", SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)));
+
+        // Stage + stage-progress bar (issue #88: an idle studio reads "Idle", not the derived phase).
         var stage = SiliconAlleyState.GetStage(key);
-        var phaseFrac = stage == SiliconAlleyState.ProjectStage.Idle
-            ? 0f
-            : SiliconAlleyState.PhaseProgressFraction(rawProgress, size);
-        _phaseText.text = Compose("siliconalley:dash_phase",
-            ("phase", SiliconAlleyState.StageNameKey(stage).GetLocalization()),
-            ("progress", Pct(phaseFrac)));
+        var idle = stage == SiliconAlleyState.ProjectStage.Idle;
+        var phaseFrac = idle ? 0f : SiliconAlleyState.PhaseProgressFraction(rawProgress, size);
+        _phaseText.text = idle
+            ? SiliconAlleyState.StageNameKey(stage).GetLocalization() // bare "Idle" — no "· 0%" noise
+            : Compose("siliconalley:dash_phase",
+                ("phase", SiliconAlleyState.StageNameKey(stage).GetLocalization()),
+                ("progress", Pct(phaseFrac)));
         SetProgress(_progress, phaseFrac);
+
+        // Issue #148 quiet-compact: an Idle studio drops its progress bar + ship ETA, and a "—" quality
+        // drops the quality row. Value-driven SetActive — same-value calls are no-ops; real flips are the
+        // sim-driven structure changes FollowContentHeight exists for (#147).
+        _progress.Root.SetActive(!idle);
+        _shipEta.Root.SetActive(!idle);
+        var avgQ = SiliconAlleyState.GetAverageQuality(key);
+        _quality.Root.SetActive(avgQ >= 0f);
 
         // Stats (the stems light up if their icon ships; otherwise the row keeps a consistent indent).
         SetStat(_quality, "stat_quality", "siliconalley:dash_lbl_quality",
-            SiliconAlleyFormat.Quality(SiliconAlleyState.GetAverageQuality(key)), SiliconAlleyTheme.Accent);
+            SiliconAlleyFormat.Quality(avgQ), SiliconAlleyTheme.Accent);
         // Issue #61: reputation + installed base count to their new value (quality can be "—" and support
         // is a "$/day" string, so those stay plain).
         SetStatNum(_reputation, "stat_reputation", "siliconalley:dash_lbl_reputation",

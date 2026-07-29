@@ -145,7 +145,7 @@
   "siliconalley:dash_lbl_installed": "Installed base",
   "siliconalley:dash_lbl_support": "Support",
   "siliconalley:dash_lbl_shipeta": "Ship ETA",
-  "siliconalley:dash_open_detail": "Open",
+  "siliconalley:dash_product_line": "{product} · v{version}",
   "siliconalley:dash_attn_decision": "Decision",
   "siliconalley:dash_attn_contract": "Contract {days}",
   "siliconalley:dash_attn_deal": "Deal {days}",
