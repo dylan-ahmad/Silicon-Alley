@@ -95,6 +95,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // Control references rebuilt once in Build().
     private TMP_Text _titleText, _studioText, _phaseText, _summaryText;
+    private TMP_Text _switcherText; // issue #149: the studio switcher's position readout ("2 / 5")
     private Image _typeIcon, _phaseIcon; // issue #55: current business-type + phase icons (next to studio name / phase)
     private GameObject _wizardSection, _developmentSection, _testingSection, _releaseSection;
     // ---- Design wizard (issue #35): a paged Concept → … → Summary flow shown during the Design phase.
@@ -492,6 +493,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _phaseRow.SetActive(true);
         _summaryText.gameObject.SetActive(true);
         _overviewButton.gameObject.SetActive(true);
+        // Issue #149: keep the studio list fresh on the DETAIL path too — the switcher's "N / M" would
+        // otherwise lie after a studio is bought or sold while the detail view sits open (only OpenFor and
+        // the hub refreshed it before). Same per-tick cost the hub has paid since #148.
+        PopulateStudios();
 
         var reg = FindRegistration(_currentKey);
         if (reg == null)
@@ -502,6 +507,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 "siliconalley:screen_registration_failed").GetLocalization();
             _phaseText.text = "";
             _summaryText.text = "";
+            RefreshSwitcher();
             _wizardSection.SetActive(false);
             _developmentSection.SetActive(false);
             _testingSection.SetActive(false);
@@ -532,9 +538,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var idle = stage == SiliconAlleyState.ProjectStage.Idle;
         var stageName = SiliconAlleyState.StageNameKey(stage).GetLocalization();
 
-        _titleText.text = Compose("siliconalley:screen_title", ("phase", stageName));
+        // Issue #149: the header is an identity band — the title names the STUDIO, the identity line the
+        // PRODUCT (+ version) with the switcher's position, and the meta line the stage with the ONE phase
+        // percentage. Nothing repeats anything else.
+        _titleText.text = reg.GetDisplayName();
         _studioText.text = Compose("siliconalley:screen_studio",
-            ("business", reg.GetDisplayName()), ("product", ProductDisplayName(key, businessType)));
+            ("product", ProductDisplayName(key, businessType)),
+            ("version", SiliconAlleyState.GetVersion(key).ToString(CultureInfo.InvariantCulture)));
+        RefreshSwitcher();
         // Issue #55: reflect the current business type + phase as icons next to their labels (none when idle).
         SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(businessType?.businessTypeName));
         SetIconSprite(_phaseIcon, idle ? null : SiliconAlleyTheme.IconFor(SiliconAlleyState.PhaseNameKey(phase)));
@@ -628,6 +639,22 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         RefreshAbandon(idle);
         // #147: no layout clamp here — the value path never forces a rebuild. Structure changes reach
         // RebuildLayout via RefreshStructural (clicks) or FollowContentHeight (sim-driven flips).
+    }
+
+    // Issue #149: the switcher's position readout — "2 / 5" instead of two positionless arrows. Same two
+    // expressions CycleStudio uses, with its IndexOf == -1 guard; blank when there is nothing to cycle.
+    private void RefreshSwitcher()
+    {
+        var count = _studioKeys.Count;
+        if (count <= 0)
+        {
+            _switcherText.text = "";
+            return;
+        }
+        var index = Mathf.Max(0, _studioKeys.IndexOf(_currentKey));
+        _switcherText.text = Compose("siliconalley:screen_switcher",
+            ("n", (index + 1).ToString(CultureInfo.InvariantCulture)),
+            ("m", count.ToString(CultureInfo.InvariantCulture)));
     }
 
     // Issue #127: the hub landing page — studio cards + the Servers section (the old F8 dashboard content),
@@ -1683,7 +1710,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void RefreshDevelopment(BuildingRegistration reg, BusinessType businessType, string key, float size, float rawProgress, float perHour)
     {
-        SetProgress(_devBuildBar, size > 0f ? Mathf.Clamp01(rawProgress / size) : 0f);
+        // Issue #149: the bar now visualises the SAME fraction the header states (progress within the
+        // current stage). It used to show whole-project progress, so the header said "62%" while the bar
+        // sat at a different place — two answers to one question. The stat row below keeps the absolute
+        // "{progress} / {size}" units, which is a different fact, not a third percentage.
+        SetProgress(_devBuildBar, SiliconAlleyState.PhaseProgressFraction(rawProgress, size));
         SetStat(_devBuild, "phase_development", "siliconalley:screen_dev_lbl_build",
             Compose("siliconalley:screen_dev_val_build",
                 ("progress", Mathf.RoundToInt(rawProgress).ToString(CultureInfo.InvariantCulture)),
@@ -2493,25 +2524,45 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _drag.Window = _windowRt;
         _drag.ScaleSource = canvas;
         _drag.OnMoved = SaveWindowPosition;
+        // Issue #149: the title row names the STUDIO (it used to repeat the stage, which the meta row
+        // below already states — that was the header's duplication). The hub still writes dash_title here.
         _titleText = MakeText(titleRow.transform, "Title", SiliconAlleyTheme.Sizes.Title, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _titleText.enableWordWrapping = false;
+        _titleText.overflowMode = TextOverflowModes.Ellipsis;
         _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);
         FixWidth(_overviewButton, 120f);
         FixWidth(MakeButton(titleRow.transform, "X", Close), 34f);
 
-        // Studio selector: [<]  [type icon] name  [>]  (detail mode only — the hub hides this row, #127)
+        // Issue #149: the identity line — [type icon] product + version …… ‹ N / M › . The switcher finally
+        // says WHERE you are in the studio list instead of being two positionless arrows (detail only —
+        // the hub hides this row, #127).
         var studioRow = MakeRow(root);
         _studioRow = studioRow;
-        FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 44f);
-        _typeIcon = MakeIcon(studioRow.transform, null, 22f, SiliconAlleyTheme.Text); // issue #55: current business-type icon
-        _studioText = MakeText(studioRow.transform, "Studio", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleCenter);
-        FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 44f);
+        studioRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        _typeIcon = MakeIcon(studioRow.transform, null, 26f, SiliconAlleyTheme.Text); // issue #55: current business-type icon
+        _studioText = MakeText(studioRow.transform, "Studio", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _studioText.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack; the switcher hugs right
+        _studioText.enableWordWrapping = false;
+        _studioText.overflowMode = TextOverflowModes.Ellipsis;
+        FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 38f);
+        _switcherText = MakeText(studioRow.transform, "Switcher", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleCenter);
+        _switcherText.color = SiliconAlleyTheme.TextMuted;
+        FixWidth(_switcherText, 56f);
+        FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 38f);
 
-        // Phase indicator: [phase icon] phase + progress (issue #55 adds the icon).
+        // Issue #149: the meta line — [phase icon] stage + THE one phase % …… quality · ship ETA (muted).
+        // _summaryText moves in here so the header is three purposeful rows instead of four mixed ones.
         var phaseRow = MakeRow(root, 6f, 24);
         _phaseRow = phaseRow;
+        phaseRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
         _phaseIcon = MakeIcon(phaseRow.transform, null, 20f, SiliconAlleyTheme.Header);
         _phaseText = MakeText(phaseRow.transform, "Phase", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft);
-        _summaryText = MakeText(root, "Summary", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        _phaseText.enableWordWrapping = false;
+        _summaryText = MakeText(phaseRow.transform, "Summary", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _summaryText.color = SiliconAlleyTheme.TextMuted;
+        _summaryText.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        _summaryText.enableWordWrapping = false;
+        _summaryText.overflowMode = TextOverflowModes.Ellipsis;
 
         // ---- Hub landing page (issue #127): the old F8 dashboard content, hosted as this screen's first
         // page — studio cards + the Servers section. Hidden whenever a studio's detail view shows.
