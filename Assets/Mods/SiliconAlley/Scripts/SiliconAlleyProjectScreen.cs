@@ -67,6 +67,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private const float WindowWidth = 940f;
     private const float MaxHeight = 940f; // window caps here (at the 1080 reference) and scrolls beyond
 
+    // Issue #147: the dragged window position, machine-local (NOT save state — presentation only). The
+    // key shape mirrors the game's "m:<modId>:<optionId>" option prefs; the game's Options reset only
+    // deletes REGISTERED option ids, so these can't be collaterally cleared. MUST be written/read via
+    // UnityEngine.PlayerPrefs — the game DLL declares a global-namespace PlayerPrefs class that shadows
+    // Unity's under the plain name.
+    private const string PrefWindowX = "m:SiliconAlley:window_x";
+    private const string PrefWindowY = "m:SiliconAlley:window_y";
+
     private static readonly int[] ScopeKinds =
     {
         (int)SiliconAlleyState.ProjectKind.Quick,
@@ -76,6 +84,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private GameObject _root;
     private RectTransform _windowRt, _contentRt; // window = clamped panel; content = scrollable stack
+    private SiliconAlleyWindowDrag _drag;        // issue #147: the title-strip drag handler (owns Clamp)
     private bool _built;
     private bool _visible;
     private bool _suppress;     // ignore control callbacks while we set values programmatically
@@ -383,6 +392,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OpenFor(string key)
     {
         EnsureBuilt();
+        _windowRt.anchoredPosition = _drag.Clamp(_windowRt.anchoredPosition); // #147: repair a stale position
         PopulateStudios();
         _hubMode = false; // issue #127: an explicit studio ask goes straight to detail, not the hub
         if (!string.IsNullOrEmpty(key) && _studioKeys.Contains(key))
@@ -401,6 +411,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void OpenForHub()
     {
         EnsureBuilt();
+        _windowRt.anchoredPosition = _drag.Clamp(_windowRt.anchoredPosition); // #147: repair a stale position
         _hubMode = true;
         _root.SetActive(true);
         _visible = true;
@@ -2462,6 +2473,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Title row: title (flexible) + [‹ Overview] (issue #127: back to the hub; hidden on it) + [X] close.
         var titleRow = MakeRow(root, 6f, 30);
+        // Issue #147: invisible drag strip behind the title row — the window's drag handle. First sibling
+        // + ignoreLayout: the row's buttons render later and keep raycast priority; the strip catches
+        // everything else (alpha-0 Images still raycast; rows themselves have no Graphic). It implements
+        // the drag interfaces itself, so the ScrollRect never scrolls during a title drag, and it has no
+        // IScrollHandler, so the mouse wheel still bubbles to the ScrollRect. The strip scrolls WITH the
+        // content — draggable while scrolled to top; the always-visible fixed header is #149's.
+        var dragStrip = MakeImage(titleRow.transform, "DragStrip", Color.clear);
+        dragStrip.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        Stretch(dragStrip.rectTransform);
+        dragStrip.rectTransform.SetAsFirstSibling();
+        _drag = dragStrip.gameObject.AddComponent<SiliconAlleyWindowDrag>();
+        _drag.Window = _windowRt;
+        _drag.ScaleSource = canvas;
+        _drag.OnMoved = SaveWindowPosition;
         _titleText = MakeText(titleRow.transform, "Title", SiliconAlleyTheme.Sizes.Title, TextAnchor.MiddleLeft, FontStyle.Bold);
         _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);
         FixWidth(_overviewButton, 120f);
@@ -2912,6 +2937,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _abandonButton = MakeButton(footer.transform, "siliconalley:screen_abandon_btn".GetLocalization(), OnAbandonPressed);
         MakeButton(footer.transform, "siliconalley:screen_close".GetLocalization(), Close);
 
+        // Issue #147: restore the last dragged position (machine-local; default = top-centred). One canvas
+        // force-update first so the CanvasScaler has sized the canvas rect the clamp checks against — a
+        // stale/off-screen/other-resolution position self-repairs instead of loading unreachable.
+        Canvas.ForceUpdateCanvases();
+        _windowRt.anchoredPosition = _drag.Clamp(new Vector2(
+            UnityEngine.PlayerPrefs.GetFloat(PrefWindowX, 0f),
+            UnityEngine.PlayerPrefs.GetFloat(PrefWindowY, MaxHeight * 0.5f)));
+
         _root.SetActive(false);
+    }
+
+    // Issue #147: persist the dragged position on end-drag (rare — flush immediately so it survives a
+    // crash). See PrefWindowX for why the PlayerPrefs qualification is load-bearing.
+    private void SaveWindowPosition(Vector2 pos)
+    {
+        UnityEngine.PlayerPrefs.SetFloat(PrefWindowX, pos.x);
+        UnityEngine.PlayerPrefs.SetFloat(PrefWindowY, pos.y);
+        UnityEngine.PlayerPrefs.Save();
     }
 }
