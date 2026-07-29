@@ -201,8 +201,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Development section (issue #60: card + build-progress bar + stat rows)
     private SiliconAlleyUI.ProgressBar _devBuildBar;
     private SiliconAlleyUI.StatRow _devThroughput, _devBuild, _devEta;
-    private TMP_Text _overtimeLabel;
-    private Image _overtimeImage;
+    private SiliconAlleyUI.ToggleRow _overtimeToggle; // issue #146: checkbox row (was a recoloured button)
     // Issue #88: the Development push controls — Send to testing (when the build is done) + Release now (anytime)
     private TMP_Text _devStatusText, _toTestLabel, _devReleaseLabel;
     private Button _toTestButton, _devReleaseButton;
@@ -218,8 +217,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Marketing section (issue #21): shown pre-release (Design→Testing); cash-funded awareness campaign.
     private GameObject _marketingSection;
     private SiliconAlleyUI.StatRow _mktAwareness, _mktHype, _mktSynergy; // #29 synergy row hidden when no agency
-    private TMP_Text _adSpendLabel;
-    private Image _adSpendImage;
+    private SiliconAlleyUI.ToggleRow _adSpendToggle; // issue #146: checkbox row (was a recoloured button)
     // Issue #130: the live Press Build timing line + the projected-review rows with the quality-gate readout.
     private TMP_Text _mktTimingText;
     private SiliconAlleyUI.StatRow _devForecast, _testForecast;
@@ -1096,8 +1094,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetCardChips(c, // #57: cost/benefit chips
                 Compose("siliconalley:wiz_chip_size", ("v", Pct(f.SizeCost))),
                 Compose("siliconalley:wiz_chip_ceiling", ("v", Pct(f.QualityContribution))));
-            c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
-            SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
+            SetCardChecked(c, selected); // issue #146: the checkbox IS the state — no tint, no "Selected" badge
+            SetCardBadge(c, null, SiliconAlleyTheme.Accent);
         }
         _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
@@ -1146,8 +1144,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetCardChips(c, // #57: cost/benefit chips
                 Compose("siliconalley:wiz_chip_reach", ("v", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture))),
                 Compose("siliconalley:wiz_chip_size", ("v", Pct(p.ScopeCost))));
-            c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
-            SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
+            SetCardChecked(c, selected); // issue #146: the checkbox IS the state — no tint, no "Selected" badge
+            SetCardBadge(c, null, SiliconAlleyTheme.Accent);
         }
         _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
             ("market", PlatformMarketText(key, type)),
@@ -1611,10 +1609,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SetStat(_devEta, "stat_eta", "siliconalley:screen_dev_lbl_eta", Eta(remaining, perHour), SiliconAlleyTheme.Text);
         RefreshForecast(reg, businessType, key, _devForecast, _devForecastMults); // issue #130
 
-        var on = SiliconAlleyState.IsOvertime(key);
-        _overtimeLabel.text = Compose("siliconalley:screen_overtime",
-            ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()));
-        _overtimeImage.color = on ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+        // Issue #146: a real checkbox — the tick IS the state (no more "Overtime: ON" + colour lerp).
+        SetToggle(_overtimeToggle, SiliconAlleyState.IsOvertime(key));
 
         // Issue #88: the player pushes the build forward. "Send to testing" appears once Development has filled
         // (parked at its ceiling); "Release now" is available any moment (an early ship reviews worse).
@@ -1873,11 +1869,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _pressBuildButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.PressBuildCost);
         _hypeButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.HypeCost);
 
-        var on = SiliconAlleyState.IsAdSpend(key);
-        _adSpendLabel.text = Compose("siliconalley:screen_mkt_adspend",
-            ("state", (on ? "siliconalley:screen_on" : "siliconalley:screen_off").GetLocalization()),
+        // Issue #146: checkbox row — the label re-states the hourly cost, the tick is the state.
+        _adSpendToggle.Label.text = Compose("siliconalley:toggle_adspend",
             ("cost", Money(SiliconAlleyState.AdSpendCostPerHour)));
-        _adSpendImage.color = on ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Slate;
+        SetToggle(_adSpendToggle, SiliconAlleyState.IsAdSpend(key));
 
         // Issue #130: the Press Build timing line — the window the purchase handler always applied, live.
         var timing = SiliconAlleyState.PressBuildTiming(rawProgress, size);
@@ -2509,7 +2504,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         for (var i = 0; i < featureSlots; i++)
         {
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
-            _featureCards[i] = MakeCardItem(_featuresPage.transform, () => OnToggleFeature(slot));
+            _featureCards[i] = MakeCardItem(_featuresPage.transform, () => OnToggleFeature(slot), checkable: true); // #146: real checkbox
         }
         _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -2522,7 +2517,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         for (var i = 0; i < platformSlots; i++)
         {
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
-            _platformCards[i] = MakeCardItem(_platformsPage.transform, () => OnTogglePlatform(slot));
+            _platformCards[i] = MakeCardItem(_platformsPage.transform, () => OnTogglePlatform(slot), checkable: true); // #146: real checkbox
         }
         _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
@@ -2674,9 +2669,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _devForecast = MakeStatRow(devCard.transform);
         _devForecastMults = MakeText(devCard.transform, "DevForecastMults", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _devForecastMults.color = SiliconAlleyTheme.TextMuted;
-        var overtimeButton = MakeButton(devCard.transform, "", OnToggleOvertime);
-        _overtimeImage = overtimeButton.GetComponent<Image>();
-        _overtimeLabel = overtimeButton.GetComponentInChildren<TMP_Text>();
+        // Issue #146: the Overtime toggle as a real checkbox row (the label states the tradeoff once).
+        _overtimeToggle = MakeToggle(devCard.transform, "siliconalley:toggle_overtime".GetLocalization(), OnToggleOvertime);
         // Issue #88: the Development push controls — a status line + Send to testing / Release now buttons.
         _devStatusText = MakeText(devCard.transform, "DevStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _devStatusText.color = SiliconAlleyTheme.TextMuted;
@@ -2752,9 +2746,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _pressBuildLabel = _pressBuildButton.GetComponentInChildren<TMP_Text>();
         _hypeButton = MakeButton(mktCard.transform, "", OnHype);
         _hypeLabel = _hypeButton.GetComponentInChildren<TMP_Text>();
-        var adSpendButton = MakeButton(mktCard.transform, "", OnToggleAdSpend);
-        _adSpendImage = adSpendButton.GetComponent<Image>();
-        _adSpendLabel = adSpendButton.GetComponentInChildren<TMP_Text>();
+        // Issue #146: Ad Spend as a checkbox row; the label is set per refresh (it carries the hourly cost).
+        _adSpendToggle = MakeToggle(mktCard.transform, "", OnToggleAdSpend);
 
         // ---- Publisher section (issue #17/#22/#23; issue #60: offer cards + active-deal card) ----
         _publisherSection = MakeSection(root);

@@ -169,6 +169,8 @@
   "siliconalley:screen_dev_build": "Build progress: {progress} / {size}",
   "siliconalley:screen_dev_eta": "Testing in {eta}",
   "siliconalley:screen_overtime": "Overtime: {state}",
+  "siliconalley:toggle_overtime": "Overtime — faster build, more bugs",
+  "siliconalley:toggle_adspend": "Ad Spend ({cost}/h) — steady awareness",
   "siliconalley:screen_on": "ON",
   "siliconalley:screen_off": "OFF",
   "siliconalley:screen_test_bugs": "Open issues (bugs): {bugs} · polish {polish}% — Testing burns bugs down (×2 toward quality)",

@@ -243,9 +243,12 @@ public static class SiliconAlleyUI
         public TMP_Text[] ChipLabels = null!;
         public Image Badge = null!;
         public TMP_Text BadgeLabel = null!;
+        // #146: present only on checkable cards (multi-select pickers) — driven via SetCardChecked.
+        public Image? CheckBox;
+        public SiliconAlleyCheckPop? Check;
     }
 
-    public static CardItem MakeCardItem(Transform parent, UnityAction onClick, int chipCapacity = 3)
+    public static CardItem MakeCardItem(Transform parent, UnityAction onClick, int chipCapacity = 3, bool checkable = false)
     {
         var go = new GameObject("CardItem", typeof(RectTransform));
         go.transform.SetParent(parent, false);
@@ -275,6 +278,15 @@ public static class SiliconAlleyUI
         var le = go.AddComponent<LayoutElement>();
         le.minHeight = SiliconAlleyTheme.Height.Card;
         le.flexibleWidth = 1f;
+
+        // #146: a real checkbox slot for multi-select picker cards — replaces the old 30% colour-lerp tint
+        // as the selection signal (the card face stays Card; SetCardChecked drives the tick).
+        if (checkable)
+        {
+            MakeCheckboxVisual(go.transform, out var box, out var check);
+            item.CheckBox = box;
+            item.Check = check;
+        }
 
         // Icon (left, fixed).
         item.Icon = MakeImage(go.transform, "Icon", SiliconAlleyTheme.Text);
@@ -370,6 +382,16 @@ public static class SiliconAlleyUI
             return;
         c.Badge.color = color;
         c.BadgeLabel.text = text;
+    }
+
+    // #146: tick/untick a checkable card. Selection reads from the checkbox, not a card tint, so the card
+    // face stays Card; idempotent (the pop animator no-ops at its target), safe on the 1 Hz Refresh. No-op
+    // on cards built without checkable: true.
+    public static void SetCardChecked(CardItem c, bool on)
+    {
+        if (c.CheckBox == null || c.Check == null)
+            return;
+        SetCheckVisual(c.CheckBox, c.Check, on);
     }
 
     // ---- Review primitives (issue #58). A rounded card panel with a vertical content layout + scannable
@@ -807,6 +829,109 @@ public static class SiliconAlleyUI
             bar.Labels[i].color = i == index ? SiliconAlleyTheme.Text : SiliconAlleyTheme.TextMuted;
         }
     }
+
+    // ---- Toggle / checkbox (#146). A real box-and-tick instead of the ON/OFF label + colour-lerp buttons.
+    // The box is the #143 outline sprite (a solid Elevated well as the flat fallback); the tick is an accent
+    // fill + the optional ui_check glyph, popped in by SiliconAlleyCheckPop (scale + alpha, unscaled,
+    // layout-inert inside the fixed-size box). State lives in SiliconAlleyState as before — clicks report
+    // through the handler and the screen's Refresh re-asserts visuals via SetToggle/SetCardChecked. ----
+
+    public sealed class ToggleRow
+    {
+        public GameObject Root = null!;
+        public Button Button = null!;
+        public Image Box = null!;
+        public SiliconAlleyCheckPop Check = null!;
+        public TMP_Text Label = null!;
+    }
+
+    public static ToggleRow MakeToggle(Transform parent, string label, UnityAction onToggled)
+    {
+        var go = new GameObject("Toggle", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var surface = go.AddComponent<Image>();
+        surface.color = new Color(0f, 0f, 0f, 0f); // invisible, but the WHOLE row catches the click
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.padding = new RectOffset(SiliconAlleyTheme.Space.Tight, SiliconAlleyTheme.Space.Tight, 0, 0);
+        h.spacing = SiliconAlleyTheme.Space.Medium;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleLeft;
+        var le = go.AddComponent<LayoutElement>();
+        le.minHeight = (int)SiliconAlleyTheme.Height.Row;
+        le.flexibleWidth = 1f;
+
+        MakeCheckboxVisual(go.transform, out var box, out var check);
+
+        var button = go.AddComponent<Button>();
+        button.targetGraphic = box; // hover/press tint lands on the box frame (the row surface is invisible)
+        button.colors = SiliconAlleyTheme.Interaction;
+        if (onToggled != null)
+            button.onClick.AddListener(onToggled);
+        go.AddComponent<SiliconAlleyHoverScale>().Gate = button;
+
+        var text = MakeText(go.transform, "Label", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        text.text = label;
+        text.GetComponent<LayoutElement>().flexibleWidth = 1f;
+
+        var row = new ToggleRow { Root = go, Button = button, Box = box, Check = check, Label = text };
+        SetToggle(row, false);
+        return row;
+    }
+
+    // Re-assert a toggle's visual state. Idempotent — call from Refresh each tick.
+    public static void SetToggle(ToggleRow t, bool on) => SetCheckVisual(t.Box, t.Check, on);
+
+    // The shared 22×22 box + tick visual behind MakeToggle and checkable CardItems. Box frame = outline
+    // sprite (solid Elevated well when the bundle predates it); tick = accent fill + the ui_check glyph
+    // (glyph hidden when the icon isn't bundled — the fill alone still reads as checked).
+    private static void MakeCheckboxVisual(Transform parent, out Image box, out SiliconAlleyCheckPop check)
+    {
+        box = MakeImage(parent, "CheckBox", SiliconAlleyTheme.TextMuted);
+        box.raycastTarget = false;
+        if (SiliconAlleyTheme.OutlineSprite != null)
+        {
+            box.sprite = SiliconAlleyTheme.OutlineSprite;
+            box.type = Image.Type.Sliced;
+        }
+        var le = box.gameObject.AddComponent<LayoutElement>();
+        le.minWidth = le.preferredWidth = 22f;
+        le.minHeight = le.preferredHeight = 22f;
+        le.flexibleWidth = 0f;
+
+        var checkGo = new GameObject("Check", typeof(RectTransform));
+        checkGo.transform.SetParent(box.transform, false);
+        Stretch((RectTransform)checkGo.transform);
+        var group = checkGo.AddComponent<CanvasGroup>();
+        group.blocksRaycasts = false;
+
+        var fill = MakeImage(checkGo.transform, "Fill", SiliconAlleyTheme.Accent);
+        fill.raycastTarget = false;
+        Stretch(fill.rectTransform);
+        fill.rectTransform.offsetMin = new Vector2(4f, 4f);
+        fill.rectTransform.offsetMax = new Vector2(-4f, -4f);
+
+        var glyph = MakeImage(checkGo.transform, "Glyph", SiliconAlleyTheme.Text);
+        glyph.preserveAspect = true;
+        glyph.raycastTarget = false;
+        Stretch(glyph.rectTransform);
+        glyph.rectTransform.offsetMin = new Vector2(3f, 3f);
+        glyph.rectTransform.offsetMax = new Vector2(-3f, -3f);
+        SetIconSprite(glyph, SiliconAlleyTheme.IconFor("ui_check"));
+
+        check = checkGo.AddComponent<SiliconAlleyCheckPop>();
+        check.Group = group;
+    }
+
+    // Frame colour + tick for either checkbox host: accent frame when on; muted outline (or the flat
+    // fallback's solid well, left at its build colour) when off.
+    private static void SetCheckVisual(Image box, SiliconAlleyCheckPop check, bool on)
+    {
+        box.color = on ? SiliconAlleyTheme.Accent
+            : box.sprite != null ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Elevated;
+        check.Set(on);
+    }
 }
 
 // ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame
@@ -1015,5 +1140,56 @@ public sealed class SiliconAlleyFadeIn : MonoBehaviour
             _playing = false;
         }
         _group.alpha = a;
+    }
+}
+
+// #146: the checkbox tick's pop — localScale + CanvasGroup alpha toward on/off, unscaled, layout-inert
+// (the tick is a non-layout child inside the fixed-size box). Set() is idempotent so the 1 Hz Refresh can
+// re-assert state every tick; the FIRST Set snaps, so a freshly shown control doesn't replay the pop.
+// Group is wired by the builder (not looked up in Awake) so Set works before the host ever activates.
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyCheckPop : MonoBehaviour
+{
+    public CanvasGroup? Group;
+
+    private const float Speed = 14f;
+
+    private float _target = -1f; // -1 = never set
+    private float _t;
+
+    public void Set(bool on)
+    {
+        var target = on ? 1f : 0f;
+        if (_target < 0f)
+        {
+            _target = _t = target;
+            Apply(target);
+            return;
+        }
+        _target = target;
+    }
+
+    private void Update()
+    {
+        if (_target < 0f)
+            return;
+        if (Mathf.Abs(_t - _target) < 0.005f)
+        {
+            if (!Mathf.Approximately(_t, _target))
+            {
+                _t = _target;
+                Apply(_t);
+            }
+            return;
+        }
+        _t = Mathf.Lerp(_t, _target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        Apply(_t);
+    }
+
+    private void Apply(float t)
+    {
+        transform.localScale = new Vector3(t, t, 1f);
+        if (Group != null)
+            Group.alpha = t;
     }
 }
