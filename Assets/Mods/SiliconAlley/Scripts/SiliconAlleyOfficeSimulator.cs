@@ -367,7 +367,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // ship, so the launch is unchanged. Read the version being shipped BEFORE OnProjectCompleted bumps it.
             var version = SiliconAlleyState.GetVersion(key);
             var releaseProductName = SiliconAlleyState.GetProductName(key);
-            var releaseDisplayName = SiliconAlleyState.GetProductNameOrDefault(key, ProductDisplayName(businessType));
+            var releaseDisplayName = ProductDisplayName(key, businessType); // #148: the key-overload IS this expression
             var launchBonus = SiliconAlleyState.LaunchBonusUnits(key, review) + SiliconAlleyState.SequelLaunchUnits(key, review);
             var reputationFactor = 0.75f + SiliconAlleyState.GetReputation(key);
             var marketFactor = MarketFactor(buildingRegistration, projectKind);
@@ -733,16 +733,14 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
     private static string PublisherName(int publisherIndex)
         => SiliconAlleyPublishers.TryGetById(publisherIndex, out var publisher) ? publisher.NameKey.GetLocalization() : "";
 
-    // Localized display name of the business's primary product (themes the toast per business type:
-    // a Game Studio ships "Video Game", a Cyber Security Firm a "Security Audit", etc.).
-    private static string ProductDisplayName(BusinessType businessType)
-    {
-        var product = PrimaryProduct(businessType);
-        return product != null ? product.GetLocalization() : "project";
-    }
+    // Localized display name of the business's primary product (themes the toast per business type).
+    // #148: delegates to the ONE copy in SiliconAlleyFormat; the local names stay so the ~10 toast call
+    // sites read unchanged.
+    private static string ProductDisplayName(BusinessType businessType) =>
+        SiliconAlleyFormat.ProductDisplayName(businessType);
 
     private static string ProductDisplayName(string key, BusinessType businessType) =>
-        SiliconAlleyState.GetProductNameOrDefault(key, ProductDisplayName(businessType));
+        SiliconAlleyFormat.ProductDisplayName(key, businessType);
 
     private static string PrimaryProduct(BusinessType businessType)
     {

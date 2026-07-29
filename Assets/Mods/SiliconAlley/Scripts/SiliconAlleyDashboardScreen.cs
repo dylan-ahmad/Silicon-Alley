@@ -214,14 +214,6 @@ sealed class SiliconAlleyStudioCard
 
     private static readonly Func<float, string> FmtInt = v => Mathf.RoundToInt(v).ToString(CultureInfo.InvariantCulture);
     private static readonly Func<float, string> FmtF2 = v => v.ToString("F2", CultureInfo.InvariantCulture);
-
-    private static string Compose(string key, params (string, string)[] args)
-    {
-        var dict = new Dictionary<string, string>();
-        foreach (var (k, v) in args)
-            dict[k] = v;
-        return key.Localize(dict).ToString();
-    }
 }
 
 // Issue #104 (now hosted by the #127 hub): one pooled group card per studio that owns >=1 server, each
@@ -363,14 +355,6 @@ sealed class SiliconAlleyServerGroupCard
             ("coverage", Pct(coverage)),
             ("capacity", backendCapacity.ToString(CultureInfo.InvariantCulture)),
             ("infra", Pct(infraBonus)));
-    }
-
-    private static string Compose(string key, params (string, string)[] args)
-    {
-        var dict = new Dictionary<string, string>();
-        foreach (var (k, v) in args)
-            dict[k] = v;
-        return key.Localize(dict).ToString();
     }
 
     // One row per placed server: a "Server N" label + a 3-button role selector (the scope-picker recolour

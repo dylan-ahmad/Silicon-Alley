@@ -527,7 +527,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         _titleText.text = Compose("siliconalley:screen_title", ("phase", stageName));
         _studioText.text = Compose("siliconalley:screen_studio",
-            ("business", reg.GetDisplayName()), ("product", DisplayProductName(key, businessType)));
+            ("business", reg.GetDisplayName()), ("product", ProductDisplayName(key, businessType)));
         // Issue #55: reflect the current business type + phase as icons next to their labels (none when idle).
         SetIconSprite(_typeIcon, SiliconAlleyTheme.IconFor(businessType?.businessTypeName));
         SetIconSprite(_phaseIcon, idle ? null : SiliconAlleyTheme.IconFor(SiliconAlleyState.PhaseNameKey(phase)));
@@ -1104,7 +1104,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void RefreshConceptPage()
     {
         var key = _currentKey;
-        var productName = DisplayProductName(key, _ctxBusinessType);
+        var productName = ProductDisplayName(key, _ctxBusinessType);
         _conceptNameText.text = Compose("siliconalley:wiz_product", ("product", productName));
         if (_productNameInput.text != productName)
         {
@@ -1535,7 +1535,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var type = _ctxBusinessType?.businessTypeName;
 
         // Hero: product name + "scope · size · ship eta", with the per-scope icon.
-        _sumHeroTitle.text = DisplayProductName(key, _ctxBusinessType);
+        _sumHeroTitle.text = ProductDisplayName(key, _ctxBusinessType);
         SetIconSprite(_sumScopeIcon, SiliconAlleyTheme.IconFor(SiliconAlleyState.ProjectTypeNameKey(kind)));
         _sumHeroSub.text = Compose("siliconalley:wiz_sum_scope",
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
@@ -1653,7 +1653,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (q < 0f)
             q = SiliconAlleyState.GetAverageQuality(key);
         _recapText.text = Compose("siliconalley:wiz_recap",
-            ("product", DisplayProductName(key, _ctxBusinessType)),
+            ("product", ProductDisplayName(key, _ctxBusinessType)),
             ("scope", SiliconAlleyState.ProjectTypeNameKey(kind).GetLocalization()),
             ("focus", Pct(SiliconAlleyState.GetDesignFocus(key))),
             ("quality", Quality(q)));
@@ -1767,7 +1767,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void RefreshRelease(BuildingRegistration reg, BusinessType businessType, string key, SiliconAlleyState.ShipReport report)
     {
         SetStat(_relProduct, "stat_market", "siliconalley:screen_rel_lbl_product",
-            string.IsNullOrWhiteSpace(report.ProductName) ? DisplayProductName(key, businessType) : report.ProductName,
+            string.IsNullOrWhiteSpace(report.ProductName) ? ProductDisplayName(key, businessType) : report.ProductName,
             SiliconAlleyTheme.Header);
         // Issue #20/#60: lead with the critical-reception score + a 0..10 review bar (color-graded).
         SetStatNum(_relReview, "stat_quality", "siliconalley:screen_rel_lbl_review", report.Review, FmtReview, SiliconAlleyTheme.Header);
@@ -1887,7 +1887,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     private void FillHistoryRow(HistoryRow row, SiliconAlleyState.ReleaseRecord rec, BusinessType businessType, bool expand)
     {
-        var name = string.IsNullOrWhiteSpace(rec.ProductName) ? ProductName(businessType) : rec.ProductName;
+        var name = string.IsNullOrWhiteSpace(rec.ProductName) ? ProductDisplayName(businessType) : rec.ProductName;
         row.Title.text = name + " v" + rec.Version.ToString(CultureInfo.InvariantCulture);
         // The same grading the ship report's review bar uses (>=7 good, >=4 fine, else rough).
         SetBadge(row.Review, Review(rec.Review), rec.Review >= 7f ? SiliconAlleyTheme.Ok
@@ -2233,7 +2233,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SiliconAlleyModal.Confirm(_root.transform,
             "siliconalley:modal_abandon_title".GetLocalization(),
             Compose("siliconalley:modal_abandon_body",
-                ("product", DisplayProductName(_currentKey, BusinessTypeHelper.GetData(reg)))),
+                ("product", ProductDisplayName(_currentKey, BusinessTypeHelper.GetData(reg)))),
             "siliconalley:modal_abandon_confirm".GetLocalization(),
             () =>
             {
@@ -2346,15 +2346,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // ---- helpers (formatting lives in SiliconAlleyFormat — issue #144) -----------------------------
 
-    private static string ProductName(BusinessType businessType)
-    {
-        if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
-            return "project";
-        return businessType.businessProducts[0].itemName.GetLocalization();
-    }
-
-    private static string DisplayProductName(string key, BusinessType businessType) =>
-        SiliconAlleyState.GetProductNameOrDefault(key, ProductName(businessType));
+    // #148: the product display name lives in SiliconAlleyFormat now (ProductDisplayName) — the private
+    // ProductName/DisplayProductName copies this file carried are gone.
 
     // Market price of the business's primary product (drives publisher offer math); 0 if none.
     private static float MarketPrice(BusinessType businessType)
@@ -2363,14 +2356,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             return 0f;
         var item = ItemsGetter.GetByName(businessType.businessProducts[0].itemName);
         return item != null ? item.DefaultMarketPrice : 0f;
-    }
-
-    private static string Compose(string key, params (string, string)[] args)
-    {
-        var dict = new Dictionary<string, string>();
-        foreach (var (k, v) in args)
-            dict[k] = v;
-        return key.Localize(dict).ToString();
     }
 
     private static int CountStaff(BuildingRegistration reg)
