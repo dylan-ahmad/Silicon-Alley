@@ -932,6 +932,89 @@ public static class SiliconAlleyUI
             : box.sprite != null ? SiliconAlleyTheme.TextMuted : SiliconAlleyTheme.Elevated;
         check.Set(on);
     }
+
+    // ---- Collapsible section (#146). A header row (title + chevron, whole row clickable) over a content
+    // section the caller fills. The reveal follows the layout-animation rule to the letter: expanding
+    // SNAPS the height (one SetActive → one layout rebuild on the click) and animates ALPHA only via
+    // SiliconAlleyFadeIn; collapsing hides instantly. The chevron rotates (layout-inert) and is hidden
+    // gracefully when the ui_chevron_down icon isn't bundled — the header stays fully usable text-only.
+    // The expanded flag is plain UI state the 1 Hz Refresh never writes, so it can't fight the player. ----
+
+    public sealed class Collapsible
+    {
+        public GameObject Root = null!;
+        public Button Header = null!;
+        public TMP_Text Title = null!;
+        public Image Chevron = null!;
+        public GameObject Content = null!; // parent your rows/cards here
+        public SiliconAlleyFadeIn Fade = null!;
+        public bool Expanded;
+    }
+
+    public static Collapsible MakeCollapsible(Transform parent, string titleKey, bool startExpanded = true, Action? onToggled = null)
+    {
+        var root = MakeSection(parent);
+        root.name = "Collapsible";
+
+        var headerGo = new GameObject("Header", typeof(RectTransform));
+        headerGo.transform.SetParent(root.transform, false);
+        var surface = headerGo.AddComponent<Image>();
+        surface.color = new Color(0f, 0f, 0f, 0f); // invisible, but the whole header row catches the click
+        var h = headerGo.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = SiliconAlleyTheme.Space.Base;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleLeft;
+        headerGo.AddComponent<LayoutElement>().minHeight = 28f;
+
+        var title = MakeText(headerGo.transform, "Title", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft, FontStyle.Bold);
+        title.color = SiliconAlleyTheme.Header;
+        title.text = titleKey.GetLocalization();
+        title.GetComponent<LayoutElement>().flexibleWidth = 1f;
+
+        var chevron = MakeIcon(headerGo.transform, SiliconAlleyTheme.IconFor("ui_chevron_down"), 18f, SiliconAlleyTheme.TextMuted);
+
+        var button = headerGo.AddComponent<Button>();
+        button.transition = Selectable.Transition.None; // feedback comes from the hover scale + the chevron flip
+        headerGo.AddComponent<SiliconAlleyHoverScale>().Gate = button;
+
+        var content = MakeSection(root.transform);
+        content.name = "Content";
+        var fade = content.AddComponent<SiliconAlleyFadeIn>();
+
+        var c = new Collapsible
+        {
+            Root = root,
+            Header = button,
+            Title = title,
+            Chevron = chevron,
+            Content = content,
+            Fade = fade,
+        };
+        button.onClick.AddListener(() =>
+        {
+            SetCollapsibleExpanded(c, !c.Expanded);
+            onToggled?.Invoke(); // e.g. the screen's ClampHeight, so the window resizes on the click, not a second later
+        });
+        // Initial state without the reveal fade (a freshly built screen shouldn't animate).
+        c.Expanded = startExpanded;
+        content.SetActive(startExpanded);
+        chevron.rectTransform.localEulerAngles = new Vector3(0f, 0f, startExpanded ? 180f : 0f);
+        return c;
+    }
+
+    // Expand/collapse programmatically. Height snaps; only the alpha of the revealed content animates.
+    public static void SetCollapsibleExpanded(Collapsible c, bool expanded)
+    {
+        var was = c.Content.activeSelf;
+        c.Expanded = expanded;
+        c.Content.SetActive(expanded);
+        if (expanded && !was)
+            c.Fade.Play();
+        // Down = "click to reveal below", up = "click to fold away" — rotation is layout-inert.
+        c.Chevron.rectTransform.localEulerAngles = new Vector3(0f, 0f, expanded ? 180f : 0f);
+    }
 }
 
 // ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame

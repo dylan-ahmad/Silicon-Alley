@@ -2787,8 +2787,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // ---- Release history (issue #129): the studio's persistent catalog, newest first ----
         _historySection = MakeSection(root);
         MakeDivider(_historySection.transform);
-        MakeHeader(_historySection.transform, "siliconalley:screen_history_header");
-        _historyHost = MakeSection(_historySection.transform);
+        // Issue #146: the archive folds behind its header, default collapsed — it's pure history (up to 8
+        // cards ≈ 700px of scroll) and the fold reclaims that for the sections that need action. ClampHeight
+        // as the toggle callback resizes the window on the click instead of on the next 1 Hz tick.
+        var historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
+            startExpanded: false, onToggled: ClampHeight);
+        _historyHost = historyFold.Content;
 
         // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
         _contractSection = MakeSection(root);
