@@ -675,6 +675,59 @@ public static class SiliconAlleyUI
 
         return input;
     }
+
+    // ---- Scrollbar (#146). The missing "there is more below" affordance for the window's ScrollRect.
+    // Standard track/sliding-area/handle hierarchy styled like MakeSlider (capsule track + capsule handle
+    // via the pill sprite; flat fallback when absent). The bar OVERLAYS the window's right content padding
+    // as a non-layout child, so showing/hiding it never reflows the content — which is also why visibility
+    // stays Permanent on the ScrollRect: AutoHideAndExpandViewport resizes the viewport, exactly the
+    // per-second reflow flicker this bar must not add. Auto-hide is instead a pure CanvasGroup alpha fade
+    // driven by SiliconAlleyScrollbarAutoHide (hysteresis over the live overflow), never SetActive. ----
+
+    public static Scrollbar MakeScrollbar(ScrollRect scroll, float width = 8f)
+    {
+        var go = new GameObject("Scrollbar", typeof(RectTransform));
+        go.transform.SetParent(scroll.transform, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = new Vector2(1f, 0f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        // Inset from the right edge, clear of the panel's rounded corners top + bottom.
+        var corner = (float)SiliconAlleyTheme.Radius.Panel;
+        rt.offsetMin = new Vector2(-5f - width, corner);
+        rt.offsetMax = new Vector2(-5f, -corner);
+
+        var track = go.AddComponent<Image>();
+        track.color = SiliconAlleyTheme.Elevated;
+        ApplyPill(track, width);
+
+        var slidingArea = new GameObject("Sliding Area", typeof(RectTransform));
+        slidingArea.transform.SetParent(go.transform, false);
+        Stretch((RectTransform)slidingArea.transform);
+
+        var handle = MakeImage(slidingArea.transform, "Handle", SiliconAlleyTheme.TextMuted);
+        ApplyPill(handle, width);
+        Stretch(handle.rectTransform);
+
+        var bar = go.AddComponent<Scrollbar>();
+        bar.handleRect = handle.rectTransform;
+        bar.targetGraphic = handle;
+        bar.colors = SiliconAlleyTheme.Interaction;
+        bar.direction = Scrollbar.Direction.BottomToTop;
+
+        // From here the ScrollRect drives the value + handle size each frame (layout-inert: only the
+        // scrollbar's own internal rects move, never anything a LayoutGroup measures).
+        scroll.verticalScrollbar = bar;
+        scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+
+        var group = go.AddComponent<CanvasGroup>();
+        group.alpha = 0f; // hidden until content actually overflows
+        group.blocksRaycasts = false;
+        group.interactable = false;
+        var autoHide = go.AddComponent<SiliconAlleyScrollbarAutoHide>();
+        autoHide.Scroll = scroll;
+        autoHide.Group = group;
+        return bar;
+    }
 }
 
 // ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame
@@ -799,5 +852,89 @@ public sealed class SiliconAlleyAnimatedNumber : MonoBehaviour
         }
         _current = Mathf.Lerp(_current, _target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
         _text.text = _format(_current);
+    }
+}
+
+// ---- Issue #146: component-kit MonoBehaviours. Same conventions as the #61 set above: self-contained,
+// manual unscaled-dt exponential lerps, and only alpha/localScale/anchor writes — never a layout input. ----
+
+// #146: fades the window scrollbar in only while the content actually overflows the viewport. The check is
+// hysteretic (show above 4px of overflow, hide below 1px; in between keep the current state) so the 1 Hz
+// ClampHeight re-measure — which can jitter the content height by a pixel or two — can never flip the bar
+// on and off (the "no flicker" acceptance criterion). Visibility is a CanvasGroup ALPHA fade, never
+// SetActive, so neither direction triggers a layout rebuild.
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyScrollbarAutoHide : MonoBehaviour
+{
+    public ScrollRect? Scroll;
+    public CanvasGroup? Group;
+
+    private const float ShowAbove = 4f; // px of overflow that reveal the bar
+    private const float HideBelow = 1f; // px of overflow that dismiss it
+    private const float Speed = 14f;
+
+    private float _target; // 0 or 1
+
+    private void Update()
+    {
+        if (Scroll == null || Group == null || Scroll.content == null || Scroll.viewport == null)
+            return;
+        var overflow = Scroll.content.rect.height - Scroll.viewport.rect.height;
+        if (overflow > ShowAbove)
+            _target = 1f;
+        else if (overflow < HideBelow)
+            _target = 0f;
+
+        var a = Group.alpha;
+        if (Mathf.Abs(a - _target) < 0.005f)
+        {
+            if (!Mathf.Approximately(a, _target))
+                Group.alpha = _target;
+        }
+        else
+        {
+            Group.alpha = Mathf.Lerp(a, _target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        }
+        // A faded-out bar must not eat clicks/drags along the window edge.
+        var visible = _target > 0.5f;
+        Group.blocksRaycasts = visible;
+        Group.interactable = visible;
+    }
+}
+
+// #146: a one-shot CanvasGroup fade-in (alpha 0 → 1). Play() (re)starts it. Used where content SNAPS into
+// place (SetActive / reposition) and only the alpha animates — the collapsible reveal and the tooltip
+// panel — per the #56 layout-safety rule (alpha never feeds a LayoutGroup).
+[DisallowMultipleComponent]
+public sealed class SiliconAlleyFadeIn : MonoBehaviour
+{
+    private const float Speed = 10f;
+
+    private CanvasGroup? _group;
+    private bool _playing;
+
+    public void Play()
+    {
+        if (_group == null)
+        {
+            _group = GetComponent<CanvasGroup>();
+            if (_group == null)
+                _group = gameObject.AddComponent<CanvasGroup>();
+        }
+        _group.alpha = 0f;
+        _playing = true;
+    }
+
+    private void Update()
+    {
+        if (!_playing || _group == null)
+            return;
+        var a = Mathf.Lerp(_group.alpha, 1f, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        if (a >= 0.995f)
+        {
+            a = 1f;
+            _playing = false;
+        }
+        _group.alpha = a;
     }
 }

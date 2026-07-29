@@ -2385,6 +2385,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var fitter = contentGo.AddComponent<ContentSizeFitter>();
         fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         scroll.content = _contentRt;
+        // Issue #146: the themed scrollbar — the affordance that tall content continues below the fold.
+        // Overlays the window's right padding (non-layout) and alpha-fades out when the content fits.
+        MakeScrollbar(scroll);
         var root = contentGo.transform;
 
         // Title row: title (flexible) + [‹ Overview] (issue #127: back to the hub; hidden on it) + [X] close.
