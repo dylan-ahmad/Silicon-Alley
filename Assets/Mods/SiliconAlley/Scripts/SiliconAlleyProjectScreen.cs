@@ -232,6 +232,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Release section (transient ship report; issue #60: review + freshness bars + stat rows)
     private SiliconAlleyUI.ProgressBar _relReviewBar, _relFreshBar;
     private SiliconAlleyUI.StatRow _relProduct, _relReview, _relQuality, _relRevenue, _relRep, _relSupport, _relPatch;
+    // Issue #146: review vs the previous release as a before › after delta (hidden on a debut).
+    private GameObject _relReviewDeltaRow;
+    private SiliconAlleyUI.DeltaReadout _relReviewDelta;
     // Contract section (issue #27): read-only — shown whenever the studio holds an accepted contract.
     private GameObject _contractSection;
     private SiliconAlleyUI.ProgressBar _contractBar;
@@ -264,6 +267,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private TMP_Text _milestoneTitle, _milestoneDesc, _milestoneCountdown, _msOptASummary, _msOptBSummary;
     private Button _msOptAButton, _msOptBButton;
     private TMP_Text _msOptALabel, _msOptBLabel;
+    private TMP_Text _msOptAReason, _msOptBReason; // issue #146: why a paid option is greyed ("You have $X of $Y")
     private int _msSlot = -1; // the slot the card currently shows (what the buttons resolve)
     // Issue #127 (epic #121): hub mode — the old F8 dashboard's content (studio cards + Servers) is this
     // screen's LANDING page. F9/F8 open the hub; a card's "Open" (or a toast deep-link) switches to that
@@ -685,18 +689,23 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         SetIconSprite(_milestoneIcon, SiliconAlleyTheme.IconFor("ms_" + evt.Id)); // drop-in art; null-graceful
         _milestoneTitle.text = evt.TitleKey.GetLocalization();
         _milestoneDesc.text = evt.DescKey.GetLocalization();
-        FillMilestoneOption(_msOptAButton, _msOptALabel, _msOptASummary, evt.OptionA, reg);
-        FillMilestoneOption(_msOptBButton, _msOptBLabel, _msOptBSummary, evt.OptionB, reg);
+        FillMilestoneOption(_msOptAButton, _msOptALabel, _msOptASummary, _msOptAReason, evt.OptionA, reg);
+        FillMilestoneOption(_msOptBButton, _msOptBLabel, _msOptBSummary, _msOptBReason, evt.OptionB, reg);
         _milestoneCountdown.text = Compose("siliconalley:ms_countdown",
             ("pct", Pct(SiliconAlleyMilestones.CloseProgress(slot, size) / Mathf.Max(1f, size))));
     }
 
-    private static void FillMilestoneOption(Button button, TMP_Text label, TMP_Text summary,
+    private static void FillMilestoneOption(Button button, TMP_Text label, TMP_Text summary, TMP_Text reason,
         SiliconAlleyMilestones.MilestoneOption option, BuildingRegistration reg)
     {
         label.text = option.LabelKey.GetLocalization();
         summary.text = option.SummaryKey.GetLocalization();
-        button.interactable = option.Cost <= 0f || SiliconAlleyMoney.CanAfford(reg, option.Cost);
+        // Issue #146: a greyed paid option now SAYS why — the exact shortfall — instead of staying silent.
+        var affordable = option.Cost <= 0f || SiliconAlleyMoney.CanAfford(reg, option.Cost);
+        SetDisabledReason(button, reason, affordable,
+            affordable ? null : Compose("siliconalley:ui_disabled_funds",
+                ("have", Money(SaveGameManager.Current.Money)),
+                ("need", Money(option.Cost))));
     }
 
     // Issue #128: resolve the shown slot with the clicked option. TryResolve re-validates the window (the
@@ -1567,6 +1576,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private static readonly Func<float, string> FmtPct = Pct;
     private static readonly Func<float, string> FmtMoney = Money;
     private static readonly Func<float, string> FmtReview = Review;
+    // Issue #146: a SIGNED review-point delta ("+0.6" / "-1.2") for the ship report's delta readout.
+    private static readonly Func<float, string> FmtSignedReview = v =>
+        (v >= 0f ? "+" : "") + v.ToString("F1", CultureInfo.InvariantCulture);
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
     private void RefreshRecap(string key)
@@ -1697,6 +1709,16 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var review01 = Mathf.Clamp01(report.Review / 10f);
         SetProgress(_relReviewBar, review01,
             report.Review >= 7f ? SiliconAlleyTheme.Ok : report.Review >= 4f ? SiliconAlleyTheme.Accent : SiliconAlleyTheme.Warn);
+        // Issue #146: how this release reviewed against the previous one. The newest history row IS this
+        // ship (appended in OnProjectCompleted), so the previous release sits at Count - 2.
+        var releases = SiliconAlleyState.GetReleaseHistory(key);
+        var hasPrev = releases.Count >= 2;
+        _relReviewDeltaRow.SetActive(hasPrev);
+        if (hasPrev)
+        {
+            var prev = releases[releases.Count - 2].Review;
+            SetDelta(_relReviewDelta, Review(prev), Review(report.Review), report.Review - prev, FmtSignedReview);
+        }
         SetStatNum(_relQuality, "stat_coverage", "siliconalley:screen_rel_lbl_quality", Mathf.Clamp01(report.Quality), FmtPct, SiliconAlleyTheme.Text);
         SetStat(_relRevenue, "stat_cost", "siliconalley:screen_rel_lbl_revenue",
             Compose("siliconalley:screen_rel_val_revenue",
@@ -2702,10 +2724,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _milestoneDesc.color = SiliconAlleyTheme.TextMuted;
         _msOptAButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(0), primary: true);
         _msOptALabel = _msOptAButton.GetComponentInChildren<TMP_Text>();
+        _msOptAReason = MakeDisabledReason(msCard.transform); // issue #146: the affordability shortfall
         _msOptASummary = MakeText(msCard.transform, "MsOptASum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _msOptASummary.color = SiliconAlleyTheme.TextMuted;
         _msOptBButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(1));
         _msOptBLabel = _msOptBButton.GetComponentInChildren<TMP_Text>();
+        _msOptBReason = MakeDisabledReason(msCard.transform); // issue #146
         _msOptBSummary = MakeText(msCard.transform, "MsOptBSum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _msOptBSummary.color = SiliconAlleyTheme.TextMuted;
         _milestoneCountdown = MakeText(msCard.transform, "MsCountdown", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
@@ -2766,6 +2790,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _relProduct = MakeStatRow(relCard.transform);
         _relReview = MakeStatRow(relCard.transform);
         _relReviewBar = MakeProgressBar(relCard.transform);
+        // Issue #146: "vs previous release   6.8/10 › 7.4/10 (+0.6)" — the delta-readout primitive's
+        // first live call site. The whole row hides on a debut (nothing to compare against).
+        _relReviewDeltaRow = MakeRow(relCard.transform, 8f, 24);
+        _relReviewDeltaRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        var relDeltaLbl = MakeText(_relReviewDeltaRow.transform, "DeltaLbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        relDeltaLbl.color = SiliconAlleyTheme.TextMuted;
+        relDeltaLbl.text = "siliconalley:rel_review_delta_lbl".GetLocalization();
+        relDeltaLbl.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the readout to the right edge
+        _relReviewDelta = MakeDeltaReadout(_relReviewDeltaRow.transform);
         _relQuality = MakeStatRow(relCard.transform);
         _relRevenue = MakeStatRow(relCard.transform);
         _relRep = MakeStatRow(relCard.transform);

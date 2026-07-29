@@ -1043,6 +1043,76 @@ public static class SiliconAlleyUI
         b.Root.color = bg;
         b.Label.text = text;
     }
+
+    // ---- Delta readout + disabled-reason line (#146). Two small "explain the number" primitives the
+    // hub/detail/wizard tickets (#147–#150) consume: a before › after comparison with a signed, coloured
+    // delta, and a caption that says WHY a button is disabled instead of leaving it silently grey. ----
+
+    public sealed class DeltaReadout
+    {
+        public GameObject Root = null!;
+        public TMP_Text Before = null!;
+        public TMP_Text After = null!;
+        public TMP_Text Delta = null!;
+    }
+
+    // "before › after (+delta)" — before muted, after bold, delta colour-coded by sign. The separator is
+    // the codebase's proven "›" glyph (the wizard nav's), not "→", which the game font may lack.
+    public static DeltaReadout MakeDeltaReadout(Transform parent)
+    {
+        var go = new GameObject("DeltaReadout", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var h = go.AddComponent<HorizontalLayoutGroup>();
+        h.spacing = SiliconAlleyTheme.Space.Small;
+        h.childControlWidth = h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = false;
+        h.childAlignment = TextAnchor.MiddleLeft;
+        go.AddComponent<LayoutElement>().minHeight = 24f;
+
+        var before = MakeText(go.transform, "Before", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        before.color = SiliconAlleyTheme.TextMuted;
+        var arrow = MakeText(go.transform, "Arrow", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleCenter);
+        arrow.color = SiliconAlleyTheme.TextMuted;
+        arrow.text = "›";
+        var after = MakeText(go.transform, "After", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft, FontStyle.Bold);
+        var delta = MakeText(go.transform, "Delta", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Bold);
+
+        return new DeltaReadout { Root = go, Before = before, After = after, Delta = delta };
+    }
+
+    // Fill the readout. `format` renders the SIGNED delta (e.g. SignedPct, or a "+0.6" lambda); colour
+    // follows the established sign precedent — Ok positive / Warn negative / TextMuted zero (Danger stays
+    // destructive-only, #143).
+    public static void SetDelta(DeltaReadout d, string before, string after, float delta, Func<float, string> format)
+    {
+        d.Before.text = before;
+        d.After.text = after;
+        d.Delta.text = "(" + format(delta) + ")";
+        d.Delta.color = Mathf.Approximately(delta, 0f) ? SiliconAlleyTheme.TextMuted
+            : delta > 0f ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn;
+    }
+
+    // A muted-amber caption explaining WHY its control is disabled ("You have $2,400 of $6,000"); hidden
+    // whenever the control is usable. Build it right under the button it explains.
+    public static TMP_Text MakeDisabledReason(Transform parent)
+    {
+        var text = MakeText(parent, "DisabledReason", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        text.color = SiliconAlleyTheme.Warn; // caution, not danger — nothing destructive about "can't afford"
+        text.gameObject.SetActive(false);
+        return text;
+    }
+
+    // Gate the button AND surface the reason in one call: enabled hides the line, disabled shows it with
+    // the caller's explanation. Idempotent — call from Refresh each tick.
+    public static void SetDisabledReason(Button button, TMP_Text reason, bool enabled, string? reasonText)
+    {
+        button.interactable = enabled;
+        var show = !enabled && !string.IsNullOrEmpty(reasonText);
+        reason.gameObject.SetActive(show);
+        if (show)
+            reason.text = reasonText;
+    }
 }
 
 // ---- Issue #61: interaction-polish components. Self-contained MonoBehaviours that drive their own per-frame
