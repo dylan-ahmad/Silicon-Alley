@@ -239,7 +239,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private SiliconAlleyUI.StatRow _devForecast, _testForecast;
     private TMP_Text _devForecastMults, _testForecastMults;
     private Button _pressReleaseButton, _pressBuildButton, _hypeButton;
-    private TMP_Text _pressReleaseLabel, _pressBuildLabel, _hypeLabel;
+    // Issue #149: the campaign cells' cost chips + disabled-reason lines (the cost moved out of the
+    // button label into a chip; the description became a hover tooltip).
+    private TMP_Text _pressReleaseCostLabel, _pressBuildCostLabel, _hypeCostLabel;
+    private TMP_Text _pressReleaseReason, _pressBuildReason, _hypeReason;
     // Publisher section (issue #17/#22/#23): shown pre-release; sign a publishing deal or watch its countdown.
     // Issue #60: eligible publishers are offer cards; an active deal is a stat-row card with a ship bar.
     private GameObject _publisherSection;
@@ -1823,6 +1826,26 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("staff", CountStaff(reg).ToString(CultureInfo.InvariantCulture)),
             ("perhour", Mathf.RoundToInt(perHour).ToString(CultureInfo.InvariantCulture)));
 
+    // Issue #149: one marketing-campaign cell — [short label][cost chip] with the old long label (price +
+    // what it does) as a hover tooltip, and a disabled-reason line underneath. The cost is a chip because
+    // a half-width button can't carry "Press Release ($1,500) — quick awareness bump" and stay readable.
+    // Returns the button; the caller keeps the chip label + reason line for the per-refresh writes.
+    private static Button MakeCampaignCell(Transform parent, string labelKey, string tipKey, float cost,
+        UnityAction onClick, out TMP_Text costLabel, out TMP_Text reason)
+    {
+        var cell = MakeSection(parent);
+        var row = MakeRow(cell.transform, SiliconAlleyTheme.Space.Small, 40);
+        row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        var button = MakeButton(row.transform, labelKey.GetLocalization(), onClick); // flexibleWidth 1: fills the cell
+        MakeChip(row.transform, SiliconAlleyTheme.Elevated, SiliconAlleyTheme.TextMuted, out costLabel);
+        // #146 tooltip: the description the button label used to carry (the existing long locale string,
+        // cost placeholder included) — the first tooltip on this screen.
+        SiliconAlleyTooltip.Attach(button.GetComponent<Image>(),
+            () => Compose(tipKey, ("cost", Money(cost))));
+        reason = MakeDisabledReason(cell.transform);
+        return button;
+    }
+
     // Issue #149: a labelled "before › after" row — muted label on the left, the delta readout hugging the
     // right edge. The ship report builds two (review, payout); both hide on a debut.
     private static GameObject MakeDeltaRow(Transform parent, string labelKey, out SiliconAlleyUI.DeltaReadout readout)
@@ -2027,13 +2050,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                     ("count", agencies.ToString(CultureInfo.InvariantCulture))),
                 SiliconAlleyTheme.Ok);
 
-        _pressReleaseLabel.text = Compose("siliconalley:screen_mkt_press_release", ("cost", Money(SiliconAlleyState.PressReleaseCost)));
-        _pressBuildLabel.text = Compose("siliconalley:screen_mkt_press_build", ("cost", Money(SiliconAlleyState.PressBuildCost)));
-        _hypeLabel.text = Compose("siliconalley:screen_mkt_hype", ("cost", Money(SiliconAlleyState.HypeCost)));
-
-        _pressReleaseButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.PressReleaseCost);
-        _pressBuildButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.PressBuildCost);
-        _hypeButton.interactable = SiliconAlleyMoney.CanAfford(reg, SiliconAlleyState.HypeCost);
+        // Issue #149: the cost lives in each cell's chip now, and an unaffordable campaign SAYS what it
+        // needs instead of greying out silently (the #146 milestone pattern, same locale string).
+        FillCampaignCell(_pressReleaseButton, _pressReleaseCostLabel, _pressReleaseReason,
+            SiliconAlleyState.PressReleaseCost, reg);
+        FillCampaignCell(_pressBuildButton, _pressBuildCostLabel, _pressBuildReason,
+            SiliconAlleyState.PressBuildCost, reg);
+        FillCampaignCell(_hypeButton, _hypeCostLabel, _hypeReason,
+            SiliconAlleyState.HypeCost, reg);
 
         // Issue #146: checkbox row — the label re-states the hourly cost, the tick is the state.
         _adSpendToggle.Label.text = Compose("siliconalley:toggle_adspend",
@@ -2056,6 +2080,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 ("start", windowStart), ("end", windowEnd));
             _mktTimingText.color = SiliconAlleyTheme.TextMuted;
         }
+    }
+
+    // Issue #149: one campaign cell's per-refresh writes — the cost chip plus the affordability gate with
+    // its shortfall line. Mirrors FillMilestoneOption, reusing ui_disabled_funds ("You have {have} of {need}").
+    private static void FillCampaignCell(Button button, TMP_Text costLabel, TMP_Text reason, float cost,
+        BuildingRegistration reg)
+    {
+        costLabel.text = Money(cost);
+        var affordable = SiliconAlleyMoney.CanAfford(reg, cost);
+        SetDisabledReason(button, reason, affordable,
+            affordable ? null : Compose("siliconalley:ui_disabled_funds",
+                ("have", Money(SaveGameManager.Current.Money)),
+                ("need", Money(cost))));
     }
 
     // Issue #130: the projected review — the exact ship-block quality math (accrued capped by the design
@@ -3005,17 +3042,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _mktAwareness = MakeStatRow(mktCard.transform);
         _mktHype = MakeStatRow(mktCard.transform);
         _mktSynergy = MakeStatRow(mktCard.transform); // #29: hidden when no marketing agency operated
-        _pressReleaseButton = MakeButton(mktCard.transform, "", OnPressRelease);
-        _pressReleaseLabel = _pressReleaseButton.GetComponentInChildren<TMP_Text>();
-        _pressBuildButton = MakeButton(mktCard.transform, "", OnPressBuild);
-        // Issue #130: the Press Build timing window, finally visible (a live line under its button).
-        _mktTimingText = MakeText(mktCard.transform, "MktTiming", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        // Issue #149: the four campaign controls were four stacked full-width buttons whose labels carried
+        // the price AND a description, and which greyed out silently when you couldn't pay. They are now a
+        // 2×2 grid of compact cells: [short label][cost chip] with the description on a hover tooltip and a
+        // disabled-reason line stating the exact shortfall.
+        var mktGrid = MakeColumns(mktCard.transform);
+        var mktLeft = MakeSection(mktGrid.transform);
+        var mktRight = MakeSection(mktGrid.transform);
+        _pressReleaseButton = MakeCampaignCell(mktLeft.transform, "siliconalley:screen_mkt_btn_press_release",
+            "siliconalley:screen_mkt_press_release", SiliconAlleyState.PressReleaseCost, OnPressRelease,
+            out _pressReleaseCostLabel, out _pressReleaseReason);
+        _hypeButton = MakeCampaignCell(mktLeft.transform, "siliconalley:screen_mkt_btn_hype",
+            "siliconalley:screen_mkt_hype", SiliconAlleyState.HypeCost, OnHype,
+            out _hypeCostLabel, out _hypeReason);
+        _pressBuildButton = MakeCampaignCell(mktRight.transform, "siliconalley:screen_mkt_btn_press_build",
+            "siliconalley:screen_mkt_press_build", SiliconAlleyState.PressBuildCost, OnPressBuild,
+            out _pressBuildCostLabel, out _pressBuildReason);
+        // Issue #130: the Press Build timing window — it belongs in that button's own cell.
+        _mktTimingText = MakeText(mktRight.transform, "MktTiming", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _mktTimingText.color = SiliconAlleyTheme.TextMuted;
-        _pressBuildLabel = _pressBuildButton.GetComponentInChildren<TMP_Text>();
-        _hypeButton = MakeButton(mktCard.transform, "", OnHype);
-        _hypeLabel = _hypeButton.GetComponentInChildren<TMP_Text>();
         // Issue #146: Ad Spend as a checkbox row; the label is set per refresh (it carries the hourly cost).
-        _adSpendToggle = MakeToggle(mktCard.transform, "", OnToggleAdSpend);
+        // It is never disabled — the simulator switches it off itself when the money runs out — so it needs
+        // no reason line.
+        _adSpendToggle = MakeToggle(mktRight.transform, "", OnToggleAdSpend);
 
         // ---- Publisher section (issue #17/#22/#23; issue #60: offer cards + active-deal card) ----
         _publisherSection = MakeSection(root);
