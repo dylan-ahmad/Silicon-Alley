@@ -10,6 +10,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using static SiliconAlleyUI; // issue #54: the shared Make* styled-component layer
+using static SiliconAlleyFormat; // issue #144: ONE format table — no private Money/Pct re-implementations
 
 [assembly: RegisterModClass(typeof(SiliconAlleyDashboardScreenMod))]
 
@@ -152,7 +153,7 @@ sealed class SiliconAlleyStudioCard
         var rising = SiliconAlleyMarket.IsRising(reg.businessTypeName, day);
         var demand = SiliconAlleyMarket.DemandFactor(reg.businessTypeName, day);
         _trendChip.color = rising ? SiliconAlleyTheme.Ok : SiliconAlleyTheme.Warn;
-        _trendLabel.text = (rising ? "▲ " : "▼ ") + demand.ToString("F2", CultureInfo.InvariantCulture);
+        _trendLabel.text = (rising ? "▲ " : "▼ ") + Demand(demand); // ×1.12 — the same shape the detail view uses (#144)
 
         // Stage + stage-progress bar (issue #88: an idle studio reads "Idle · 0%", not the derived phase).
         var stage = SiliconAlleyState.GetStage(key);
@@ -198,9 +199,6 @@ sealed class SiliconAlleyStudioCard
 
     private static readonly Func<float, string> FmtInt = v => Mathf.RoundToInt(v).ToString(CultureInfo.InvariantCulture);
     private static readonly Func<float, string> FmtF2 = v => v.ToString("F2", CultureInfo.InvariantCulture);
-
-    private static string Pct(float fraction01) =>
-        Mathf.RoundToInt(Mathf.Clamp01(fraction01) * 100f).ToString(CultureInfo.InvariantCulture);
 
     private static string Compose(string key, params (string, string)[] args)
     {
@@ -324,12 +322,6 @@ sealed class SiliconAlleyServerGroupCard
             ("capacity", backendCapacity.ToString(CultureInfo.InvariantCulture)),
             ("infra", Pct(infraBonus)));
     }
-
-    private static string Pct(float fraction01) =>
-        Mathf.RoundToInt(Mathf.Clamp01(fraction01) * 100f).ToString(CultureInfo.InvariantCulture);
-
-    private static string Money(float amount) =>
-        amount < 0f ? "-" + SiliconAlleyFormat.Money(0f - amount) : SiliconAlleyFormat.Money(amount);
 
     private static string Compose(string key, params (string, string)[] args)
     {
