@@ -22,6 +22,21 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   (`~2d 6h`) while exact calendar deadlines (contract due, publisher deadlines, patch timer) are bare
   (`14d`). The hub's demand trend pill now shows the multiplier shape too (`▲ ×1.12`). Presentation only.
 
+### Changed (0.6.0 UI)
+- **Design-system foundation** (#143, epic #142). The theme gains real design tokens: spacing / control-height /
+  corner-radius / elevation scales, a `Status` (13pt) type size for the muted status lines, and new
+  `Danger` / `Info` / `Focus` / `Scrim` / `Shadow` colors plus named state blends (`CardSelected`,
+  `CardLicensed`, `StepDone`) and one shared button/card interaction tint set. **Amber now means caution
+  only** — the armed "Abandon project" confirm turns red (`Danger`). The sprite kit gains a true **capsule
+  pill** (chips, badges, wizard step dots, progress/slider tracks and fills no longer stretch their corner
+  radii at any width), a hairline **outline**, and a soft **drop shadow** so cards and the window visibly
+  lift off the surface. Chips get a minimum width + ellipsis (no more squashing in narrow wizard cards),
+  text supports all nine alignments, headers return their label (stylable), and every raw font size and
+  off-palette color in the screens now routes through the theme. Presentation only — no save surface;
+  pre-0.6.0 bundles fall back gracefully (flat chips, no shadows).
+
+## [0.5.0] — 2026-07-29
+
 The gameplay-loop release (epic #121): the long empty middle of every project now asks real questions,
 shipping finally pays like the headline act, the numbers that always steered your launch are on screen,
 contracts are honest side-work instead of the meta, and everything lives in one hub.

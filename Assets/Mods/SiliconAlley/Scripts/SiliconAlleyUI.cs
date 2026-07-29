@@ -24,6 +24,7 @@ public static class SiliconAlleyUI
     {
         var image = MakeImage(parent, name, SiliconAlleyTheme.Surface);
         ApplySlice(image, SiliconAlleyTheme.PanelSprite);
+        AddShadow(image.gameObject, SiliconAlleyTheme.Elevation.PanelAlpha);
         return image;
     }
 
@@ -32,6 +33,7 @@ public static class SiliconAlleyUI
     {
         var image = MakeImage(parent, name, SiliconAlleyTheme.Card);
         ApplySlice(image, SiliconAlleyTheme.CardSprite);
+        AddShadow(image.gameObject, SiliconAlleyTheme.Elevation.CardAlpha);
         return image;
     }
 
@@ -43,6 +45,45 @@ public static class SiliconAlleyUI
         image.sprite = sprite;
         image.type = Image.Type.Sliced;
         image.pixelsPerUnitMultiplier = 1f; // keep the authored corner radius at its native size
+    }
+
+    // #143: render an Image as a true capsule at any size. The pill sprite's 9-slice border is scaled so
+    // the effective corner radius = diameter/2 (diameter = the element's SMALLER dimension). Replaces the
+    // old ButtonSprite-as-Type.Simple hack that stretched the corner radius with the element. No-op (flat
+    // fallback) when the pill sprite is absent (pre-0.6.0 bundle).
+    public static void ApplyPill(Image image, float diameter)
+    {
+        if (SiliconAlleyTheme.PillSprite == null)
+            return;
+        image.sprite = SiliconAlleyTheme.PillSprite;
+        image.type = Image.Type.Sliced;
+        image.pixelsPerUnitMultiplier = 2f * SiliconAlleyTheme.Radius.PillBorder / Mathf.Max(diameter, 1f);
+    }
+
+    // #143: a soft drop shadow under a sprite-backed surface, so cards/panels visibly lift off what's
+    // behind them. The shadow ring sprite has a fully transparent interior, so although the child Image
+    // draws ON TOP of its host, only the region outside the host's body is tinted. The rect is expanded
+    // by exactly Elevation.ShadowPad — the pad baked into the sprite — so the ring's inner edge aligns
+    // with the host edge. ignoreLayout keeps it invisible to the host's LayoutGroup (no layout impact).
+    // Skipped entirely when the shadow sprite is absent (pre-0.6.0 bundle) — the old flat look.
+    private static void AddShadow(GameObject host, float alpha)
+    {
+        if (SiliconAlleyTheme.ShadowSprite == null)
+            return;
+        var color = SiliconAlleyTheme.Shadow;
+        color.a = alpha;
+        var shadow = MakeImage(host.transform, "Shadow", color);
+        shadow.sprite = SiliconAlleyTheme.ShadowSprite;
+        shadow.type = Image.Type.Sliced;
+        shadow.raycastTarget = false;
+        shadow.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        var rt = shadow.rectTransform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        var pad = SiliconAlleyTheme.Elevation.ShadowPad;
+        rt.offsetMin = new Vector2(-pad, -pad);
+        rt.offsetMax = new Vector2(pad, pad);
+        rt.SetAsFirstSibling();
     }
 
     // ---- Text. ----
@@ -59,7 +100,18 @@ public static class SiliconAlleyUI
         text.fontStyle = style == FontStyle.Bold ? FontStyles.Bold
             : style == FontStyle.Italic ? FontStyles.Italic
             : FontStyles.Normal;
-        text.alignment = anchor == TextAnchor.MiddleCenter ? TextAlignmentOptions.Center : TextAlignmentOptions.Left;
+        text.alignment = anchor switch // full 9-way mapping (#143) — Upper/Lower and Right anchors included
+        {
+            TextAnchor.UpperLeft    => TextAlignmentOptions.TopLeft,
+            TextAnchor.UpperCenter  => TextAlignmentOptions.Top,
+            TextAnchor.UpperRight   => TextAlignmentOptions.TopRight,
+            TextAnchor.MiddleCenter => TextAlignmentOptions.Center,
+            TextAnchor.MiddleRight  => TextAlignmentOptions.Right,
+            TextAnchor.LowerLeft    => TextAlignmentOptions.BottomLeft,
+            TextAnchor.LowerCenter  => TextAlignmentOptions.Bottom,
+            TextAnchor.LowerRight   => TextAlignmentOptions.BottomRight,
+            _                       => TextAlignmentOptions.Left,
+        };
         text.color = SiliconAlleyTheme.Text;
         text.enableWordWrapping = true;
         text.overflowMode = TextOverflowModes.Overflow;
@@ -76,12 +128,14 @@ public static class SiliconAlleyUI
         return t;
     }
 
-    // A section header: a localization key resolved + accent-coloured.
-    public static void MakeHeader(Transform parent, string key)
+    // A section header: a localization key resolved + accent-coloured. Returns the label (#143) so callers
+    // can restyle, re-text or hide it later.
+    public static TMP_Text MakeHeader(Transform parent, string key)
     {
         var header = MakeText(parent, "Header", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft, FontStyle.Bold);
         header.color = SiliconAlleyTheme.Header;
         header.text = key.GetLocalization();
+        return header;
     }
 
     // ---- Buttons. ----
@@ -95,19 +149,10 @@ public static class SiliconAlleyUI
         ApplySlice(image, SiliconAlleyTheme.ButtonSprite);
         var button = go.AddComponent<Button>();
         button.targetGraphic = image;
-        // Hover/press/disabled feedback. normalColor stays white so each button's own image.color shows
-        // through (the scope/overtime/hold buttons recolour their image to signal state); the others tint.
-        var colors = button.colors;
-        colors.normalColor = Color.white;
-        colors.highlightedColor = new Color(0.82f, 0.82f, 0.82f, 1f);
-        colors.pressedColor = new Color(0.66f, 0.66f, 0.66f, 1f);
-        colors.selectedColor = Color.white;
-        colors.disabledColor = new Color(0.5f, 0.5f, 0.5f, 0.6f);
-        colors.fadeDuration = 0.08f;
-        button.colors = colors;
+        button.colors = SiliconAlleyTheme.Interaction; // shared hover/press/disabled tint set (#143)
         var le = go.AddComponent<LayoutElement>();
-        le.minHeight = 38f;
-        le.preferredHeight = 38f;
+        le.minHeight = SiliconAlleyTheme.Height.Control;
+        le.preferredHeight = SiliconAlleyTheme.Height.Control;
         le.flexibleWidth = 1f;
 
         var text = MakeText(go.transform, "Label", SiliconAlleyTheme.Sizes.Button, TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -213,27 +258,22 @@ public static class SiliconAlleyUI
         {
             var button = go.AddComponent<Button>();
             button.targetGraphic = card;
-            var colors = button.colors;
-            colors.normalColor = Color.white;
-            colors.highlightedColor = new Color(0.88f, 0.88f, 0.88f, 1f);
-            colors.pressedColor = new Color(0.72f, 0.72f, 0.72f, 1f);
-            colors.selectedColor = Color.white;
-            colors.disabledColor = new Color(0.6f, 0.6f, 0.6f, 0.8f);
-            colors.fadeDuration = 0.08f;
-            button.colors = colors;
+            button.colors = SiliconAlleyTheme.Interaction; // shared hover/press/disabled tint set (#143)
             button.onClick.AddListener(onClick);
             item.Button = button;
             go.AddComponent<SiliconAlleyHoverScale>().Gate = button; // issue #61: hover/press scale (clickable cards)
         }
+        AddShadow(go, SiliconAlleyTheme.Elevation.CardAlpha);
 
         var row = go.AddComponent<HorizontalLayoutGroup>();
-        row.padding = new RectOffset(10, 10, 8, 8);
-        row.spacing = 10f;
+        row.padding = new RectOffset(SiliconAlleyTheme.Space.Medium, SiliconAlleyTheme.Space.Medium,
+                                     SiliconAlleyTheme.Space.Base, SiliconAlleyTheme.Space.Base);
+        row.spacing = SiliconAlleyTheme.Space.Medium;
         row.childControlWidth = row.childControlHeight = true;
         row.childForceExpandWidth = row.childForceExpandHeight = false;
         row.childAlignment = TextAnchor.MiddleLeft;
         var le = go.AddComponent<LayoutElement>();
-        le.minHeight = 52f;
+        le.minHeight = SiliconAlleyTheme.Height.Card;
         le.flexibleWidth = 1f;
 
         // Icon (left, fixed).
@@ -262,7 +302,7 @@ public static class SiliconAlleyUI
         var chipsGo = new GameObject("Chips", typeof(RectTransform));
         chipsGo.transform.SetParent(body.transform, false);
         var chipsH = chipsGo.AddComponent<HorizontalLayoutGroup>();
-        chipsH.spacing = 6f;
+        chipsH.spacing = SiliconAlleyTheme.Space.Small;
         chipsH.childControlWidth = chipsH.childControlHeight = true;
         chipsH.childForceExpandWidth = chipsH.childForceExpandHeight = false;
         chipsH.childAlignment = TextAnchor.MiddleLeft;
@@ -278,9 +318,11 @@ public static class SiliconAlleyUI
         return item;
     }
 
-    // A small rounded pill that auto-sizes to its text (chips + state badges). No ContentSizeFitter: the
+    // A small capsule pill that auto-sizes to its text (chips + state badges). No ContentSizeFitter: the
     // pill's own HorizontalLayoutGroup reports its preferred width to the parent layout group. Public so
-    // other screens reuse it (e.g. the dashboard's demand-trend pill, issue #59).
+    // other screens reuse it (e.g. the dashboard's demand-trend pill, issue #59). #143: rendered via the
+    // dedicated pill sprite (true capsule at any width) with a min width + ellipsis so a chip in a narrow
+    // wizard card can no longer squash to nothing while its label spills out.
     public static Image MakeChip(Transform parent, Color bg, Color fg, out TMP_Text label)
     {
         var go = new GameObject("Chip", typeof(RectTransform));
@@ -288,20 +330,21 @@ public static class SiliconAlleyUI
         var img = go.AddComponent<Image>();
         img.color = bg;
         img.raycastTarget = false;
-        if (SiliconAlleyTheme.ButtonSprite != null)
-        {
-            img.sprite = SiliconAlleyTheme.ButtonSprite;
-            img.type = Image.Type.Simple; // Simple — the 9-slice border doesn't fit a ~18px pill
-        }
+        ApplyPill(img, SiliconAlleyTheme.Height.Chip);
         var h = go.AddComponent<HorizontalLayoutGroup>();
-        h.padding = new RectOffset(8, 8, 2, 2);
+        h.padding = new RectOffset(SiliconAlleyTheme.Space.Base, SiliconAlleyTheme.Space.Base,
+                                   SiliconAlleyTheme.Space.Hairline, SiliconAlleyTheme.Space.Hairline);
         h.childControlWidth = h.childControlHeight = true;
         h.childForceExpandWidth = h.childForceExpandHeight = false;
         h.childAlignment = TextAnchor.MiddleCenter;
+        var le = go.AddComponent<LayoutElement>();
+        le.minWidth = 44f; // ≈ four caption glyphs + the pill's end caps — the floor under layout pressure
+        le.flexibleWidth = 0f;
 
         label = MakeText(go.transform, "ChipLabel", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleCenter);
         label.color = fg;
         label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis; // clipped, not spilled, when squeezed to min width
         label.GetComponent<LayoutElement>().minHeight = 16f; // trim the chip height
         return img;
     }
@@ -333,12 +376,12 @@ public static class SiliconAlleyUI
     // "[icon] label …… value" stat rows. Reused by the summary review card (and later dashboard/sections). ----
 
     // A rounded card ready to hold stacked content (padding + vertical layout). Returns the card GameObject.
-    public static GameObject MakeCardPanel(Transform parent, string name, int pad = 12)
+    public static GameObject MakeCardPanel(Transform parent, string name, int pad = SiliconAlleyTheme.Space.Large)
     {
         var card = MakeCard(parent, name);
         var v = card.gameObject.AddComponent<VerticalLayoutGroup>();
         v.padding = new RectOffset(pad, pad, pad, pad);
-        v.spacing = 6f;
+        v.spacing = SiliconAlleyTheme.Space.Small;
         v.childControlWidth = v.childControlHeight = true;
         v.childForceExpandWidth = true;
         v.childForceExpandHeight = false;
@@ -361,7 +404,7 @@ public static class SiliconAlleyUI
         var go = new GameObject("StatRow", typeof(RectTransform));
         go.transform.SetParent(parent, false);
         var h = go.AddComponent<HorizontalLayoutGroup>();
-        h.spacing = 8f;
+        h.spacing = SiliconAlleyTheme.Space.Base;
         h.childControlWidth = h.childControlHeight = true;
         h.childForceExpandWidth = h.childForceExpandHeight = false;
         h.childAlignment = TextAnchor.MiddleLeft;
@@ -380,29 +423,30 @@ public static class SiliconAlleyUI
         label.enableWordWrapping = false;
         label.GetComponent<LayoutElement>().flexibleWidth = 0f; // hug content on the left
 
-        var value = MakeText(go.transform, "Value", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft, FontStyle.Bold);
-        value.alignment = TextAlignmentOptions.Right;
+        var value = MakeText(go.transform, "Value", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleRight, FontStyle.Bold);
         value.GetComponent<LayoutElement>().flexibleWidth = 1f; // fill the rest; wraps if the value is long
 
         return new StatRow { Root = go, Icon = icon, Label = label, Value = value };
     }
 
-    // ---- Progress bar (issue #59). A rounded track + accent fill for a 0..1 fraction. The fill is a
-    // single Image driven by fillAmount (Image.Type.Filled) — NOT a width-sized child — so SetProgress on
+    // ---- Progress bar (issue #59). A capsule track + accent fill for a 0..1 fraction. The fill is a
+    // single Image whose anchorMax.x is the fraction (#143) — NOT a layout-sized child — so SetProgress on
     // the 1s refresh tick never feeds the VerticalLayoutGroup/ContentSizeFitter (no layout rebuild / height
-    // jitter, the same layout-safety reason #56 keeps alpha/scale off the layout path). ----
+    // jitter, the same layout-safety reason #56 keeps alpha/scale off the layout path; anchors on a child
+    // outside any LayoutGroup are just as layout-inert as fillAmount was). Sliced pills keep both caps
+    // truly round at every width, where Type.Filled used to stretch the left cap and chop the right one. ----
 
     public sealed class ProgressBar
     {
         public GameObject Root = null!;
         public Image Track = null!; // background
-        public Image Fill = null!;  // accent fill (fillAmount = fraction)
-        public SiliconAlleyAnimatedFill Anim = null!; // issue #61: tweens Fill.fillAmount toward the target
+        public Image Fill = null!;  // accent fill (anchorMax.x = fraction, driven by Anim)
+        public SiliconAlleyAnimatedFill Anim = null!; // issue #61: tweens the fill toward the target
     }
 
-    // A full-width progress bar of fixed height. Track tinted Elevated, fill tinted Accent; both reuse the
-    // rounded ButtonSprite when present (flat-colour fallback when the bundle lacks it).
-    public static ProgressBar MakeProgressBar(Transform parent, float height = 10f)
+    // A full-width progress bar of fixed height. Track tinted Elevated, fill tinted Accent; both render as
+    // true capsules via the pill sprite (flat-colour fallback when the bundle lacks it).
+    public static ProgressBar MakeProgressBar(Transform parent, float height = SiliconAlleyTheme.Height.Bar)
     {
         var go = new GameObject("ProgressBar", typeof(RectTransform));
         go.transform.SetParent(parent, false);
@@ -412,21 +456,15 @@ public static class SiliconAlleyUI
 
         var track = MakeImage(go.transform, "Track", SiliconAlleyTheme.Elevated);
         track.raycastTarget = false;
-        if (SiliconAlleyTheme.ButtonSprite != null)
-        {
-            track.sprite = SiliconAlleyTheme.ButtonSprite;
-            track.type = Image.Type.Simple;
-        }
+        ApplyPill(track, height);
         Stretch(track.rectTransform);
 
         var fill = MakeImage(go.transform, "Fill", SiliconAlleyTheme.Accent);
         fill.raycastTarget = false;
-        if (SiliconAlleyTheme.ButtonSprite != null)
-            fill.sprite = SiliconAlleyTheme.ButtonSprite;
-        fill.type = Image.Type.Filled;
-        fill.fillMethod = Image.FillMethod.Horizontal;
-        fill.fillOrigin = (int)Image.OriginHorizontal.Left;
+        ApplyPill(fill, height);
         Stretch(fill.rectTransform);
+        fill.rectTransform.anchorMax = new Vector2(0f, 1f); // start empty; the animator drives anchorMax.x
+        fill.enabled = false;                               // hidden until the fraction clears the sliver floor
 
         // Issue #61: tween the fill toward its target each frame instead of snapping.
         var anim = fill.gameObject.AddComponent<SiliconAlleyAnimatedFill>();
@@ -458,7 +496,16 @@ public static class SiliconAlleyUI
     {
         var divider = MakeImage(parent, "Divider", SiliconAlleyTheme.Divider);
         var le = divider.gameObject.AddComponent<LayoutElement>();
-        le.minHeight = le.preferredHeight = 2f;
+        le.minHeight = le.preferredHeight = SiliconAlleyTheme.Space.Hairline;
+    }
+
+    // #143: an empty flexible gap that pushes row content apart (replaces the old invisible size-1 text hack).
+    public static GameObject MakeSpacer(Transform parent, float flexibleWidth = 1f)
+    {
+        var go = new GameObject("Spacer", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        go.AddComponent<LayoutElement>().flexibleWidth = flexibleWidth;
+        return go;
     }
 
     // A plain colour rectangle (no sprite) — used for the dim backdrop, dividers, slider parts.
@@ -486,7 +533,7 @@ public static class SiliconAlleyUI
         var go = new GameObject("Section", typeof(RectTransform));
         go.transform.SetParent(parent, false);
         var v = go.AddComponent<VerticalLayoutGroup>();
-        v.spacing = 8f;
+        v.spacing = SiliconAlleyTheme.Space.Base;
         v.childControlWidth = v.childControlHeight = true;
         v.childForceExpandWidth = true;
         v.childForceExpandHeight = false;
@@ -494,7 +541,7 @@ public static class SiliconAlleyUI
         return go;
     }
 
-    public static GameObject MakeRow(Transform parent, float spacing = 8f, int minHeight = 36)
+    public static GameObject MakeRow(Transform parent, float spacing = SiliconAlleyTheme.Space.Base, int minHeight = (int)SiliconAlleyTheme.Height.Row)
     {
         var go = new GameObject("Row", typeof(RectTransform));
         go.transform.SetParent(parent, false);
@@ -512,7 +559,7 @@ public static class SiliconAlleyUI
     // Software-Inc-scale phases; reusable by the dependencies/market screens). Unlike MakeRow, columns are not
     // vertically centred and there's no forced min-height — each column sizes to its own content and the row's
     // height is the tallest column. Put a MakeSection in each column to stack that column's controls.
-    public static GameObject MakeColumns(Transform parent, float spacing = 14f)
+    public static GameObject MakeColumns(Transform parent, float spacing = SiliconAlleyTheme.Space.Gutter)
     {
         var go = new GameObject("Columns", typeof(RectTransform));
         go.transform.SetParent(parent, false);
@@ -548,10 +595,13 @@ public static class SiliconAlleyUI
         go.transform.SetParent(parent, false);
         var slider = go.AddComponent<Slider>();
         var le = go.AddComponent<LayoutElement>();
-        le.minHeight = 24f;
+        le.minHeight = SiliconAlleyTheme.Height.Slider;
         le.flexibleWidth = 1f;
 
-        var background = MakeImage(go.transform, "Background", new Color(0.12f, 0.12f, 0.15f, 1f));
+        // Track band = the middle 30% of the control (~7px) — a capsule like the progress-bar track (#143).
+        var trackHeight = SiliconAlleyTheme.Height.Slider * 0.3f;
+        var background = MakeImage(go.transform, "Background", SiliconAlleyTheme.Elevated);
+        ApplyPill(background, trackHeight);
         StretchBand(background.rectTransform, 0.35f, 0.65f);
 
         var fillArea = new GameObject("Fill Area", typeof(RectTransform));
@@ -561,6 +611,7 @@ public static class SiliconAlleyUI
         fillAreaRt.offsetMin = new Vector2(8f, fillAreaRt.offsetMin.y);
         fillAreaRt.offsetMax = new Vector2(-8f, fillAreaRt.offsetMax.y);
         var fill = MakeImage(fillArea.transform, "Fill", SiliconAlleyTheme.Accent);
+        ApplyPill(fill, trackHeight);
         var fillRt = fill.rectTransform;
         fillRt.anchorMin = Vector2.zero;
         fillRt.anchorMax = Vector2.one;
@@ -575,7 +626,8 @@ public static class SiliconAlleyUI
         handleAreaRt.anchorMax = Vector2.one;
         handleAreaRt.offsetMin = new Vector2(8f, 0f);
         handleAreaRt.offsetMax = new Vector2(-8f, 0f);
-        var handle = MakeImage(handleArea.transform, "Handle", new Color(0.88f, 0.90f, 0.96f, 1f));
+        var handle = MakeImage(handleArea.transform, "Handle", SiliconAlleyTheme.Text);
+        ApplyPill(handle, 16f); // 16 wide × full height ⇒ a vertical capsule (corner radius = width/2)
         var handleRt = handle.rectTransform;
         handleRt.anchorMin = new Vector2(0f, 0f);
         handleRt.anchorMax = new Vector2(0f, 1f);
@@ -606,7 +658,7 @@ public static class SiliconAlleyUI
         input.textViewport = (RectTransform)go.transform;
 
         var le = go.AddComponent<LayoutElement>();
-        le.minHeight = le.preferredHeight = 38f;
+        le.minHeight = le.preferredHeight = SiliconAlleyTheme.Height.Control;
         le.flexibleWidth = 1f;
 
         var text = MakeText(go.transform, "Text", SiliconAlleyTheme.Sizes.Button, TextAnchor.MiddleLeft);
@@ -672,7 +724,9 @@ public sealed class SiliconAlleyHoverScale : MonoBehaviour,
     }
 }
 
-// Tweens an Image.fillAmount toward Target each frame, so progress bars glide instead of snapping.
+// Tweens a progress-bar fill toward Target each frame, so bars glide instead of snapping. #143: the fill
+// is a sliced pill whose width is its anchorMax.x (not fillAmount) — still layout-inert, see MakeProgressBar.
+// The Image is hidden below a small floor so a near-empty bar doesn't render a crushed sub-corner sliver.
 [DisallowMultipleComponent]
 public sealed class SiliconAlleyAnimatedFill : MonoBehaviour
 {
@@ -680,19 +734,28 @@ public sealed class SiliconAlleyAnimatedFill : MonoBehaviour
     public float Target;
 
     private const float Speed = 9f;
+    private const float MinVisible = 0.02f;
+
+    private float _current;
 
     private void Update()
     {
         if (Fill == null)
             return;
-        var cur = Fill.fillAmount;
-        if (Mathf.Abs(cur - Target) < 0.001f)
+        if (Mathf.Abs(_current - Target) < 0.001f)
         {
-            if (!Mathf.Approximately(cur, Target))
-                Fill.fillAmount = Target;
+            if (!Mathf.Approximately(_current, Target))
+                Apply(Target);
             return;
         }
-        Fill.fillAmount = Mathf.Lerp(cur, Target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime));
+        Apply(Mathf.Lerp(_current, Target, 1f - Mathf.Exp(-Speed * Time.unscaledDeltaTime)));
+    }
+
+    private void Apply(float fraction)
+    {
+        _current = fraction;
+        Fill!.rectTransform.anchorMax = new Vector2(fraction, 1f);
+        Fill.enabled = fraction > MinVisible;
     }
 }
 

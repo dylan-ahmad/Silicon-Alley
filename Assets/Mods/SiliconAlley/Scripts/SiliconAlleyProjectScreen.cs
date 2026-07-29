@@ -719,7 +719,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
     // Issue #113: the footer "Abandon project" button. Hidden when the studio is Idle (there is nothing to
     // abandon, and the Idle card's "Start new project" is the right action). Two-click confirm because it
-    // destroys the current build: the first press arms it (amber) and the second discards the project.
+    // destroys the current build: the first press arms it (red — destructive, #143) and the second discards
+    // the project.
     private void RefreshAbandon(bool idle)
     {
         if (_abandonButton == null)
@@ -733,7 +734,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _abandonLabel.text = (_abandonArmed
             ? "siliconalley:screen_abandon_confirm_btn"
             : "siliconalley:screen_abandon_btn").GetLocalization();
-        _abandonImage.color = _abandonArmed ? SiliconAlleyTheme.Warn : SiliconAlleyTheme.Slate;
+        _abandonImage.color = _abandonArmed ? SiliconAlleyTheme.Danger : SiliconAlleyTheme.Slate;
     }
 
     // Size the window to its content, capped at MaxHeight (the ScrollRect scrolls beyond the cap).
@@ -842,13 +843,13 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         hlg.childForceExpandWidth = false;
         hlg.childAlignment = TextAnchor.MiddleLeft;
         var icon = MakeIcon(row.transform, null, 18f);
-        var label = MakeText(row.transform, "WLabel", 14, TextAnchor.MiddleLeft);
+        var label = MakeText(row.transform, "WLabel", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         label.enableWordWrapping = false;
         label.overflowMode = TextOverflowModes.Ellipsis;
         FixWidth(label, 118f);
         var slider = MakeSlider(row.transform); // flexibleWidth 1 from MakeSlider
         slider.onValueChanged.AddListener(v => OnWeightChanged(slot, v));
-        var pct = MakeText(row.transform, "WPct", 14, TextAnchor.MiddleLeft);
+        var pct = MakeText(row.transform, "WPct", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         pct.alignment = TextAlignmentOptions.Right;
         pct.color = SiliconAlleyTheme.TextMuted;
         FixWidth(pct, 44f);
@@ -864,9 +865,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var hlg = top.GetComponent<HorizontalLayoutGroup>();
         hlg.childForceExpandWidth = false;
         hlg.childAlignment = TextAnchor.MiddleLeft;
-        var name = MakeText(top.transform, "AName", 14, TextAnchor.MiddleLeft, FontStyle.Bold);
+        var name = MakeText(top.transform, "AName", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Bold);
         name.GetComponent<LayoutElement>().flexibleWidth = 1f;
-        var lbl = MakeText(top.transform, "ALbl", 14, TextAnchor.MiddleLeft);
+        var lbl = MakeText(top.transform, "ALbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         lbl.alignment = TextAlignmentOptions.Right;
         lbl.color = SiliconAlleyTheme.TextMuted;
         lbl.enableWordWrapping = false;
@@ -982,14 +983,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private void BuildStepIndicator(Transform parent)
     {
         _stepIndicator = MakeSection(parent);
-        _stepHeaderText = MakeText(_stepIndicator.transform, "StepHeader", 15, TextAnchor.MiddleCenter, FontStyle.Bold);
+        _stepHeaderText = MakeText(_stepIndicator.transform, "StepHeader", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleCenter, FontStyle.Bold);
         _stepHeaderText.color = SiliconAlleyTheme.Header;
 
         // A centred row of fixed-size dots. MakeRow force-expands its children, so build the row by hand.
         var dotsGo = new GameObject("StepDots", typeof(RectTransform));
         dotsGo.transform.SetParent(_stepIndicator.transform, false);
         var h = dotsGo.AddComponent<HorizontalLayoutGroup>();
-        h.spacing = 6f;
+        h.spacing = SiliconAlleyTheme.Space.Small;
         h.childControlWidth = h.childControlHeight = true;
         h.childForceExpandWidth = h.childForceExpandHeight = false;
         h.childAlignment = TextAnchor.MiddleCenter;
@@ -999,14 +1000,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         for (var i = 0; i < _stepDots.Length; i++)
         {
             var dot = MakeImage(dotsGo.transform, "Dot", SiliconAlleyTheme.Slate);
-            if (SiliconAlleyTheme.ButtonSprite != null) // a small rounded pill (Simple — borders don't fit a 12px dot)
-            {
-                dot.sprite = SiliconAlleyTheme.ButtonSprite;
-                dot.type = Image.Type.Simple;
-            }
+            ApplyPill(dot, SiliconAlleyTheme.Height.Dot); // true capsule — the active dot widens without corner distortion (#143)
             var le = dot.gameObject.AddComponent<LayoutElement>();
-            le.minHeight = le.preferredHeight = 12f;
-            le.minWidth = le.preferredWidth = 12f;
+            le.minHeight = le.preferredHeight = SiliconAlleyTheme.Height.Dot;
+            le.minWidth = le.preferredWidth = SiliconAlleyTheme.Height.Dot;
             _stepDots[i] = dot;
         }
     }
@@ -1019,7 +1016,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             ("n", (_wizardPage + 1).ToString(CultureInfo.InvariantCulture)),
             ("m", count.ToString(CultureInfo.InvariantCulture)),
             ("title", current.TitleKey.GetLocalization()));
-        var done = Color.Lerp(SiliconAlleyTheme.Slate, SiliconAlleyTheme.Accent, 0.45f);
         for (var i = 0; i < _stepDots.Length; i++)
         {
             var on = i < count;
@@ -1027,9 +1023,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             if (!on)
                 continue;
             var le = _stepDots[i].GetComponent<LayoutElement>();
-            le.minWidth = le.preferredWidth = i == _wizardPage ? 18f : 12f; // the current step reads as a wider pill
+            le.minWidth = le.preferredWidth = i == _wizardPage ? 18f : SiliconAlleyTheme.Height.Dot; // the current step reads as a wider pill
             _stepDots[i].color = i == _wizardPage ? SiliconAlleyTheme.Accent
-                : i < _wizardPage ? done
+                : i < _wizardPage ? SiliconAlleyTheme.StepDone
                 : SiliconAlleyTheme.Slate;
         }
     }
@@ -1102,7 +1098,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetCardChips(c, // #57: cost/benefit chips
                 Compose("siliconalley:wiz_chip_size", ("v", Pct(f.SizeCost))),
                 Compose("siliconalley:wiz_chip_ceiling", ("v", Pct(f.QualityContribution))));
-            c.Card.color = selected ? Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f) : SiliconAlleyTheme.Card;
+            c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
             SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
         _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
@@ -1152,7 +1148,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetCardChips(c, // #57: cost/benefit chips
                 Compose("siliconalley:wiz_chip_reach", ("v", p.ShareWeight.ToString("0.0", CultureInfo.InvariantCulture))),
                 Compose("siliconalley:wiz_chip_size", ("v", Pct(p.ScopeCost))));
-            c.Card.color = selected ? Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f) : SiliconAlleyTheme.Card;
+            c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
             SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
         _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
@@ -1202,7 +1198,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             if (owned && used) // owned + in this product
             {
                 SetCardChips(c, quality);
-                c.Card.color = Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f);
+                c.Card.color = SiliconAlleyTheme.CardSelected;
                 SetCardBadge(c, "siliconalley:wiz_state_owned".GetLocalization(), SiliconAlleyTheme.Ok);
             }
             else if (owned) // owned studio asset, not used here
@@ -1214,7 +1210,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             else if (used) // licensed (royalty)
             {
                 SetCardChips(c, quality, royalty, build);
-                c.Card.color = Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Warn, 0.30f);
+                c.Card.color = SiliconAlleyTheme.CardLicensed;
                 SetCardBadge(c, "siliconalley:wiz_state_licensed".GetLocalization(), SiliconAlleyTheme.Warn);
             }
             else // off
@@ -1275,7 +1271,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             if (owned && used) // self-built, in this product
             {
                 SetCardChips(c, selfQuality);
-                c.Card.color = Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f);
+                c.Card.color = SiliconAlleyTheme.CardSelected;
                 SetCardBadge(c, "siliconalley:wiz_state_owned".GetLocalization(), SiliconAlleyTheme.Ok);
             }
             else if (owned) // self-built studio asset, not used here
@@ -1291,7 +1287,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 var royalty = Compose("siliconalley:wiz_chip_royalty", ("v", Pct(OfferRoyalty(type, d.Bit, vendorOrdinal))));
                 var quality = Compose("siliconalley:wiz_chip_quality", ("v", Pct(OfferQuality(type, d.Bit, vendorOrdinal))));
                 SetCardChips(c, vendorName, royalty, quality);
-                c.Card.color = Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Warn, 0.30f);
+                c.Card.color = SiliconAlleyTheme.CardLicensed;
                 SetCardBadge(c, "siliconalley:wiz_state_licensed".GetLocalization(), SiliconAlleyTheme.Warn);
             }
             else // off — show the build cost + the cheapest licensing royalty as a hint
@@ -1385,7 +1381,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 Compose("siliconalley:wiz_chip_price", ("v", s.PriceFactor.ToString("0.0", CultureInfo.InvariantCulture))),
                 Compose("siliconalley:wiz_chip_volume", ("v", s.VolumeFactor.ToString("0.0", CultureInfo.InvariantCulture))),
                 s.MarketSizeKey.GetLocalization());
-            c.Card.color = selected ? Color.Lerp(SiliconAlleyTheme.Card, SiliconAlleyTheme.Accent, 0.30f) : SiliconAlleyTheme.Card;
+            c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
             SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
         _marketReadout.text = SegmentText(current);
@@ -2342,7 +2338,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
 
         // Dim backdrop that also closes the screen and blocks uGUI click-through.
-        var backdrop = MakeImage(_root.transform, "Backdrop", new Color(0f, 0f, 0f, 0.55f));
+        var backdrop = MakeImage(_root.transform, "Backdrop", SiliconAlleyTheme.Scrim);
         Stretch(backdrop.rectTransform);
         var backdropButton = backdrop.gameObject.AddComponent<Button>();
         backdropButton.transition = Selectable.Transition.None;
@@ -2379,7 +2375,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _contentRt.offsetMax = new Vector2(0f, _contentRt.offsetMax.y);
         _contentRt.anchoredPosition = Vector2.zero;
         var layout = contentGo.AddComponent<VerticalLayoutGroup>();
-        layout.padding = new RectOffset(26, 26, 22, 22);
+        layout.padding = new RectOffset(SiliconAlleyTheme.Space.WindowX, SiliconAlleyTheme.Space.WindowX,
+                                        SiliconAlleyTheme.Space.WindowY, SiliconAlleyTheme.Space.WindowY);
         layout.spacing = 11f;
         layout.childControlWidth = layout.childControlHeight = true;
         layout.childForceExpandWidth = true;
@@ -2392,7 +2389,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Title row: title (flexible) + [‹ Overview] (issue #127: back to the hub; hidden on it) + [X] close.
         var titleRow = MakeRow(root, 6f, 30);
-        _titleText = MakeText(titleRow.transform, "Title", 22, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _titleText = MakeText(titleRow.transform, "Title", SiliconAlleyTheme.Sizes.Title, TextAnchor.MiddleLeft, FontStyle.Bold);
         _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);
         FixWidth(_overviewButton, 120f);
         FixWidth(MakeButton(titleRow.transform, "X", Close), 34f);
@@ -2402,15 +2399,15 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _studioRow = studioRow;
         FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 44f);
         _typeIcon = MakeIcon(studioRow.transform, null, 22f, SiliconAlleyTheme.Text); // issue #55: current business-type icon
-        _studioText = MakeText(studioRow.transform, "Studio", 17, TextAnchor.MiddleCenter);
+        _studioText = MakeText(studioRow.transform, "Studio", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleCenter);
         FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 44f);
 
         // Phase indicator: [phase icon] phase + progress (issue #55 adds the icon).
         var phaseRow = MakeRow(root, 6f, 24);
         _phaseRow = phaseRow;
         _phaseIcon = MakeIcon(phaseRow.transform, null, 20f, SiliconAlleyTheme.Header);
-        _phaseText = MakeText(phaseRow.transform, "Phase", 16, TextAnchor.MiddleLeft);
-        _summaryText = MakeText(root, "Summary", 15, TextAnchor.MiddleLeft);
+        _phaseText = MakeText(phaseRow.transform, "Phase", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft);
+        _summaryText = MakeText(root, "Summary", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
 
         // ---- Hub landing page (issue #127): the old F8 dashboard content, hosted as this screen's first
         // page — studio cards + the Servers section. Hidden whenever a studio's detail view shows.
@@ -2431,7 +2428,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _idleSection = MakeSection(root);
         MakeHeader(_idleSection.transform, "siliconalley:screen_idle_header");
         var idleCard = MakeCardPanel(_idleSection.transform, "IdleCard");
-        _idleStatusText = MakeText(idleCard.transform, "IdleStatus", 13, TextAnchor.MiddleLeft);
+        _idleStatusText = MakeText(idleCard.transform, "IdleStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _idleStatusText.color = SiliconAlleyTheme.TextMuted;
         _startButton = MakeButton(idleCard.transform, "", OnStartProject, primary: true);
         _startLabel = _startButton.GetComponentInChildren<TMP_Text>();
@@ -2454,7 +2451,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _scopeImages[i] = btn.GetComponent<Image>();
             SetButtonIcon(btn, SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
         }
-        _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", 15, TextAnchor.MiddleLeft);
+        _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_product_name");
         _productNameInput = MakeInputField(_conceptPage.transform, "ProductNameInput",
             "siliconalley:screen_product_name_placeholder".GetLocalization(), 64);
@@ -2465,9 +2462,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _focusSlider = MakeSlider(focusRow.transform);
         _focusSlider.onValueChanged.AddListener(OnFocusChanged);
         FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_speed".GetLocalization()), 70f);
-        _designQualityText = MakeText(_conceptPage.transform, "DesignQuality", 16, TextAnchor.MiddleLeft);
-        _leadText = MakeText(_conceptPage.transform, "Lead", 15, TextAnchor.MiddleLeft);
-        _etaText = MakeText(_conceptPage.transform, "Eta", 15, TextAnchor.MiddleLeft);
+        _designQualityText = MakeText(_conceptPage.transform, "DesignQuality", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft);
+        _leadText = MakeText(_conceptPage.transform, "Lead", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        _etaText = MakeText(_conceptPage.transform, "Eta", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
 
         // Summary page (issue #58): a scannable review CARD — product/scope/ETA hero + icon stat rows.
         _summaryPage = MakeSection(_wizardSection.transform);
@@ -2508,7 +2505,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
             _featureCards[i] = MakeCardItem(_featuresPage.transform, () => OnToggleFeature(slot));
         }
-        _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // Operating-systems page (issue #37): the platform checklist. Same reusable toggle-button pool as the
         // features page, sized to the largest platform table; RefreshPlatformsPage relabels + shows the type.
@@ -2521,7 +2518,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
             _platformCards[i] = MakeCardItem(_platformsPage.transform, () => OnTogglePlatform(slot));
         }
-        _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // Editors & tools page (issue #36): the dependency catalog. A reusable pool of CYCLE buttons (one per
         // tool: Off → Licensed → Owned), sized to the largest tool table; RefreshToolsPage relabels per type.
@@ -2534,7 +2531,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-slot index for the cycle closure (the bit is resolved at click time)
             _toolCards[i] = MakeCardItem(_toolsPage.transform, () => OnCycleTool(slot));
         }
-        _toolsReadout = MakeText(_toolsPage.transform, "ToolsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _toolsReadout = MakeText(_toolsPage.transform, "ToolsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // Market page (issue #38): single-select audience segment (price↔volume). One button per segment, like
         // the scope buttons; RefreshMarketPage recolors the chosen one and shows its market-size + factors.
@@ -2547,7 +2544,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var ordinal = i; // capture per-segment ordinal for the select closure
             _segmentCards[i] = MakeCardItem(_marketPage.transform, () => OnSelectSegment(ordinal)); // #57: vertical card stack
         }
-        _marketReadout = MakeText(_marketPage.transform, "MarketReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _marketReadout = MakeText(_marketPage.transform, "MarketReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // Dependencies page (issue #39): read-only feature→tool coverage. A pool of text rows (one per selected
         // feature, sized to the largest feature table), relabelled covered/uncovered each refresh; no input.
@@ -2556,7 +2553,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _depCards = new SiliconAlleyUI.CardItem[SiliconAlleyFeatures.MaxCount];
         for (var i = 0; i < _depCards.Length; i++)
             _depCards[i] = MakeCardItem(_dependenciesPage.transform, null, 1); // read-only coverage card (1 "needs …" chip)
-        _depReadout = MakeText(_dependenciesPage.transform, "DepReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _depReadout = MakeText(_dependenciesPage.transform, "DepReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // Components page (issue #84): interactive build-or-buy product dependencies (#83). A reusable pool of
         // CYCLE cards (one per dependency slot: Off → License Vendor A → License Vendor B → Build in-house &
@@ -2570,7 +2567,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-slot index for the cycle closure (the bit is resolved at click time)
             _componentCards[i] = MakeCardItem(_componentsPage.transform, () => OnCycleComponent(slot));
         }
-        _componentsReadout = MakeText(_componentsPage.transform, "ComponentsReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _componentsReadout = MakeText(_componentsPage.transform, "ComponentsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // Market-targeting pages (issue #86): Allocation = a per-feature % weight slider pool (one per feature in
         // the largest table; shown only for the selected features); Demand = a per-aspect demand vs allocation
@@ -2583,7 +2580,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-row index; the feature bit is resolved at change time
             _weightRows[i] = BuildWeightRow(_allocationPage.transform, slot);
         }
-        _allocHint = MakeText(_allocationPage.transform, "AllocHint", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _allocHint = MakeText(_allocationPage.transform, "AllocHint", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         _demandPage = MakeSection(_wizardSection.transform);
         MakeHeader(_demandPage.transform, "siliconalley:wiz_demand_header");
@@ -2591,7 +2588,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         for (var i = 0; i < _demandRows.Length; i++)
             _demandRows[i] = BuildDemandRow(_demandPage.transform);
         MakeDivider(_demandPage.transform);
-        _targetingReadout = MakeText(_demandPage.transform, "TargetingReadout", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _targetingReadout = MakeText(_demandPage.transform, "TargetingReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // ---- Issue #81: fold the 7 sub-pages into 4 wide, multi-column phases ----
         // Concept and Summary stay single-column. Dependencies groups Features + Tools + Coverage as columns;
@@ -2656,8 +2653,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // Read-only recap shown once the concept is locked (replaces the pages + nav).
         _wizardRecap = MakeSection(_wizardSection.transform);
         MakeHeader(_wizardRecap.transform, "siliconalley:wiz_recap_header");
-        _recapText = MakeText(_wizardRecap.transform, "Recap", 15, TextAnchor.MiddleLeft);
-        _recapStatusText = MakeText(_wizardRecap.transform, "RecapStatus", 14, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _recapText = MakeText(_wizardRecap.transform, "Recap", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        _recapStatusText = MakeText(_wizardRecap.transform, "RecapStatus", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
         // ---- Development section (issue #60: card + build-progress bar + stat rows) ----
         _developmentSection = MakeSection(root);
@@ -2675,7 +2672,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _overtimeImage = overtimeButton.GetComponent<Image>();
         _overtimeLabel = overtimeButton.GetComponentInChildren<TMP_Text>();
         // Issue #88: the Development push controls — a status line + Send to testing / Release now buttons.
-        _devStatusText = MakeText(devCard.transform, "DevStatus", 13, TextAnchor.MiddleLeft);
+        _devStatusText = MakeText(devCard.transform, "DevStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _devStatusText.color = SiliconAlleyTheme.TextMuted;
         var devButtonRow = MakeRow(devCard.transform, 10f, 40);
         _toTestButton = MakeButton(devButtonRow.transform, "", OnSendToTesting);
@@ -2696,7 +2693,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _testForecastMults.color = SiliconAlleyTheme.TextMuted;
         // Manual release: a status line (ready / market-demand timing hint) + the Release button. Replaces the
         // old Hold toggle + Ship-now — a product no longer auto-ships (see SiliconAlleyOfficeSimulator).
-        _shipStatusText = MakeText(testCard.transform, "ShipStatus", 13, TextAnchor.MiddleLeft);
+        _shipStatusText = MakeText(testCard.transform, "ShipStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _shipStatusText.color = SiliconAlleyTheme.TextMuted;
         _shipButton = MakeButton(testCard.transform, "", OnReleaseNow, primary: true);
         _shipLabel = _shipButton.GetComponentInChildren<TMP_Text>();
@@ -2728,7 +2725,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _updateSection = MakeSection(root);
         MakeHeader(_updateSection.transform, "siliconalley:screen_update_header");
         var updateCard = MakeCardPanel(_updateSection.transform, "UpdateCard");
-        _updateStatusText = MakeText(updateCard.transform, "UpdateStatus", 13, TextAnchor.MiddleLeft);
+        _updateStatusText = MakeText(updateCard.transform, "UpdateStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _updateStatusText.color = SiliconAlleyTheme.TextMuted;
         _updateButton = MakeButton(updateCard.transform, "", OnReleaseUpdate, primary: true);
         _updateLabel = _updateButton.GetComponentInChildren<TMP_Text>();
@@ -2756,7 +2753,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // ---- Publisher section (issue #17/#22/#23; issue #60: offer cards + active-deal card) ----
         _publisherSection = MakeSection(root);
         MakeHeader(_publisherSection.transform, "siliconalley:screen_pub_header");
-        _pubNoDealText = MakeText(_publisherSection.transform, "PubNoDeal", 14, TextAnchor.MiddleLeft);
+        _pubNoDealText = MakeText(_publisherSection.transform, "PubNoDeal", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _pubNoDealText.color = SiliconAlleyTheme.TextMuted;
         var roster = SiliconAlleyPublishers.Roster;
         _publisherCards = new SiliconAlleyUI.CardItem[roster.Length];
@@ -2809,7 +2806,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _contractFocusSlider = MakeSlider(cfRow.transform);
         _contractFocusSlider.onValueChanged.AddListener(OnContractFocusChanged);
         FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_right".GetLocalization()), 92f);
-        _contractFocusText = MakeText(contractCard.transform, "ContractFocusVal", 13, TextAnchor.MiddleLeft);
+        _contractFocusText = MakeText(contractCard.transform, "ContractFocusVal", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
         _contractFocusText.color = SiliconAlleyTheme.TextMuted;
 
         // ---- Footer (common) ----

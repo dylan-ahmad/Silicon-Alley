@@ -125,8 +125,7 @@ sealed class SiliconAlleyStudioCard
         // "Open" deep-link, right-aligned (a flexible spacer pushes it to the edge).
         var actionRow = MakeRow(t, 6f, 30);
         actionRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-        var spacer = MakeText(actionRow.transform, "Spacer", 1, TextAnchor.MiddleLeft);
-        spacer.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        MakeSpacer(actionRow.transform);
         var openBtn = MakeButton(actionRow.transform, "siliconalley:dash_open_detail".GetLocalization(), () => onOpen(c._key));
         FixWidth(openBtn, 100f);
 
