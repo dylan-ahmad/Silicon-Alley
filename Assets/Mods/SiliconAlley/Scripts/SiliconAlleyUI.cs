@@ -906,6 +906,8 @@ public static class SiliconAlleyUI
         Stretch((RectTransform)checkGo.transform);
         var group = checkGo.AddComponent<CanvasGroup>();
         group.blocksRaycasts = false;
+        group.alpha = 0f; // start unticked — no flash before the first SetToggle/SetCardChecked lands
+        checkGo.transform.localScale = Vector3.zero;
 
         var fill = MakeImage(checkGo.transform, "Fill", SiliconAlleyTheme.Accent);
         fill.raycastTarget = false;
