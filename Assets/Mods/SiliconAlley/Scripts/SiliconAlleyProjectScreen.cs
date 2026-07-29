@@ -2524,6 +2524,70 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _hubGridHost = MakeSection(_hubSection.transform);
         _hubSection.SetActive(false);
 
+        // ==== Issue #149: THE DETAIL SECTIONS ARE ORDERED BY URGENCY, NOT BY HISTORY. ====
+        // Build order IS visual order here (nothing reads a sibling index), so this sequence is the
+        // whole feature: what can COST you if ignored comes first, steady-state context follows, and
+        // the archive is last behind a fold. The order is:
+        //   1 contract (a hard deadline + the staff dial)  2 milestone decision (a window that expires)
+        //   3 updates due (money waiting)                  4 the stage card (idle / wizard / dev / testing)
+        //   5 ship report  6 marketing  7 publisher        8 release history (collapsed)   9 footer
+        // Contract used to sit DEAD LAST below 8 history cards and the milestone card was buried behind
+        // the stage card. If you add a section, place it by urgency — do not append it at the end.
+        // (Marketing/publisher and the ship report are effectively mutually exclusive: the campaign
+        // blocks need a pre-release stage, and a ship returns the studio to Idle.)
+
+        // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
+        _contractSection = MakeSection(root);
+        MakeHeader(_contractSection.transform, "siliconalley:screen_contract_header");
+        var contractCard = MakeCardPanel(_contractSection.transform, "ContractCard");
+        _contractBar = MakeProgressBar(contractCard.transform);
+        _contractProgress = MakeStatRow(contractCard.transform);
+        _contractDue = MakeStatRow(contractCard.transform);
+        _contractPayout = MakeStatRow(contractCard.transform);
+        // Issue #129: the #126 staff-split dial. Left = all hands on the contract (the legacy divert),
+        // right = product first; the slider maps to contractFocus = 1 − value.
+        var cfRow = MakeRow(contractCard.transform, 10f, 28);
+        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_left".GetLocalization()), 92f);
+        _contractFocusSlider = MakeSlider(cfRow.transform);
+        _contractFocusSlider.onValueChanged.AddListener(OnContractFocusChanged);
+        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_right".GetLocalization()), 92f);
+        _contractFocusText = MakeText(contractCard.transform, "ContractFocusVal", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        _contractFocusText.color = SiliconAlleyTheme.TextMuted;
+
+        // ---- Milestone decision card (issue #128, epic #121): shown while a #123 milestone window is open
+        // in Development/Testing. Two option buttons with effect summaries + the auto-resolve countdown.
+        _milestoneSection = MakeSection(root);
+        MakeHeader(_milestoneSection.transform, "siliconalley:ms_header");
+        var msCard = MakeCardPanel(_milestoneSection.transform, "MilestoneCard");
+        var msTitleRow = MakeRow(msCard.transform, 8f, 28);
+        msTitleRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        _milestoneIcon = MakeIcon(msTitleRow.transform, null, 24f, SiliconAlleyTheme.Accent);
+        _milestoneTitle = MakeText(msTitleRow.transform, "MsTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _milestoneTitle.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        _milestoneDesc = MakeText(msCard.transform, "MsDesc", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        _milestoneDesc.color = SiliconAlleyTheme.TextMuted;
+        _msOptAButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(0), primary: true);
+        _msOptALabel = _msOptAButton.GetComponentInChildren<TMP_Text>();
+        _msOptAReason = MakeDisabledReason(msCard.transform); // issue #146: the affordability shortfall
+        _msOptASummary = MakeText(msCard.transform, "MsOptASum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _msOptASummary.color = SiliconAlleyTheme.TextMuted;
+        _msOptBButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(1));
+        _msOptBLabel = _msOptBButton.GetComponentInChildren<TMP_Text>();
+        _msOptBReason = MakeDisabledReason(msCard.transform); // issue #146
+        _msOptBSummary = MakeText(msCard.transform, "MsOptBSum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _msOptBSummary.color = SiliconAlleyTheme.TextMuted;
+        _milestoneCountdown = MakeText(msCard.transform, "MsCountdown", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _milestoneCountdown.color = SiliconAlleyTheme.TextMuted;
+
+        // ---- Updates section (issue #88: manual post-launch updates for the live catalog) ----
+        _updateSection = MakeSection(root);
+        MakeHeader(_updateSection.transform, "siliconalley:screen_update_header");
+        var updateCard = MakeCardPanel(_updateSection.transform, "UpdateCard");
+        _updateStatusText = MakeText(updateCard.transform, "UpdateStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
+        _updateStatusText.color = SiliconAlleyTheme.TextMuted;
+        _updateButton = MakeButton(updateCard.transform, "", OnReleaseUpdate, primary: true);
+        _updateLabel = _updateButton.GetComponentInChildren<TMP_Text>();
+
         // ---- Idle section (issue #88: no active project — start the next version) ----
         _idleSection = MakeSection(root);
         MakeHeader(_idleSection.transform, "siliconalley:screen_idle_header");
@@ -2805,39 +2869,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _shipButton = MakeButton(testCard.transform, "", OnReleaseNow, primary: true);
         _shipLabel = _shipButton.GetComponentInChildren<TMP_Text>();
 
-        // ---- Milestone decision card (issue #128, epic #121): shown while a #123 milestone window is open
-        // in Development/Testing. Two option buttons with effect summaries + the auto-resolve countdown.
-        _milestoneSection = MakeSection(root);
-        MakeHeader(_milestoneSection.transform, "siliconalley:ms_header");
-        var msCard = MakeCardPanel(_milestoneSection.transform, "MilestoneCard");
-        var msTitleRow = MakeRow(msCard.transform, 8f, 28);
-        msTitleRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-        _milestoneIcon = MakeIcon(msTitleRow.transform, null, 24f, SiliconAlleyTheme.Accent);
-        _milestoneTitle = MakeText(msTitleRow.transform, "MsTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
-        _milestoneTitle.GetComponent<LayoutElement>().flexibleWidth = 1f;
-        _milestoneDesc = MakeText(msCard.transform, "MsDesc", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
-        _milestoneDesc.color = SiliconAlleyTheme.TextMuted;
-        _msOptAButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(0), primary: true);
-        _msOptALabel = _msOptAButton.GetComponentInChildren<TMP_Text>();
-        _msOptAReason = MakeDisabledReason(msCard.transform); // issue #146: the affordability shortfall
-        _msOptASummary = MakeText(msCard.transform, "MsOptASum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        _msOptASummary.color = SiliconAlleyTheme.TextMuted;
-        _msOptBButton = MakeButton(msCard.transform, "", () => OnMilestoneOption(1));
-        _msOptBLabel = _msOptBButton.GetComponentInChildren<TMP_Text>();
-        _msOptBReason = MakeDisabledReason(msCard.transform); // issue #146
-        _msOptBSummary = MakeText(msCard.transform, "MsOptBSum", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        _msOptBSummary.color = SiliconAlleyTheme.TextMuted;
-        _milestoneCountdown = MakeText(msCard.transform, "MsCountdown", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        _milestoneCountdown.color = SiliconAlleyTheme.TextMuted;
-
-        // ---- Updates section (issue #88: manual post-launch updates for the live catalog) ----
-        _updateSection = MakeSection(root);
-        MakeHeader(_updateSection.transform, "siliconalley:screen_update_header");
-        var updateCard = MakeCardPanel(_updateSection.transform, "UpdateCard");
-        _updateStatusText = MakeText(updateCard.transform, "UpdateStatus", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
-        _updateStatusText.color = SiliconAlleyTheme.TextMuted;
-        _updateButton = MakeButton(updateCard.transform, "", OnReleaseUpdate, primary: true);
-        _updateLabel = _updateButton.GetComponentInChildren<TMP_Text>();
+        // ---- Release section (transient ship report; issue #60: review + freshness bars + stat rows) ----
+        _releaseSection = MakeSection(root);
+        MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
+        var relCard = MakeCardPanel(_releaseSection.transform, "RelCard");
+        _relProduct = MakeStatRow(relCard.transform);
+        _relReview = MakeStatRow(relCard.transform);
+        _relReviewBar = MakeProgressBar(relCard.transform);
+        // Issue #146: "vs previous release   6.8/10 › 7.4/10 (+0.6)" — the delta-readout primitive's
+        // first live call site. The whole row hides on a debut (nothing to compare against).
+        _relReviewDeltaRow = MakeRow(relCard.transform, 8f, 24);
+        _relReviewDeltaRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        var relDeltaLbl = MakeText(_relReviewDeltaRow.transform, "DeltaLbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        relDeltaLbl.color = SiliconAlleyTheme.TextMuted;
+        relDeltaLbl.text = "siliconalley:rel_review_delta_lbl".GetLocalization();
+        relDeltaLbl.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the readout to the right edge
+        _relReviewDelta = MakeDeltaReadout(_relReviewDeltaRow.transform);
+        _relQuality = MakeStatRow(relCard.transform);
+        _relRevenue = MakeStatRow(relCard.transform);
+        _relRep = MakeStatRow(relCard.transform);
+        _relSupport = MakeStatRow(relCard.transform);
+        _relFreshBar = MakeProgressBar(relCard.transform, 6f);
+        _relPatch = MakeStatRow(relCard.transform);
+        MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);
 
         // ---- Marketing section (issue #21; issue #60 card restyle) ----
         _marketingSection = MakeSection(root);
@@ -2878,30 +2932,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _pubDealShipEta = MakeStatRow(_pubDealCard.transform);
         _pubDealBonus = MakeStatRow(_pubDealCard.transform);
 
-        // ---- Release section (transient ship report; issue #60: review + freshness bars + stat rows) ----
-        _releaseSection = MakeSection(root);
-        MakeHeader(_releaseSection.transform, "siliconalley:screen_rel_header");
-        var relCard = MakeCardPanel(_releaseSection.transform, "RelCard");
-        _relProduct = MakeStatRow(relCard.transform);
-        _relReview = MakeStatRow(relCard.transform);
-        _relReviewBar = MakeProgressBar(relCard.transform);
-        // Issue #146: "vs previous release   6.8/10 › 7.4/10 (+0.6)" — the delta-readout primitive's
-        // first live call site. The whole row hides on a debut (nothing to compare against).
-        _relReviewDeltaRow = MakeRow(relCard.transform, 8f, 24);
-        _relReviewDeltaRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-        var relDeltaLbl = MakeText(_relReviewDeltaRow.transform, "DeltaLbl", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
-        relDeltaLbl.color = SiliconAlleyTheme.TextMuted;
-        relDeltaLbl.text = "siliconalley:rel_review_delta_lbl".GetLocalization();
-        relDeltaLbl.GetComponent<LayoutElement>().flexibleWidth = 1f; // push the readout to the right edge
-        _relReviewDelta = MakeDeltaReadout(_relReviewDeltaRow.transform);
-        _relQuality = MakeStatRow(relCard.transform);
-        _relRevenue = MakeStatRow(relCard.transform);
-        _relRep = MakeStatRow(relCard.transform);
-        _relSupport = MakeStatRow(relCard.transform);
-        _relFreshBar = MakeProgressBar(relCard.transform, 6f);
-        _relPatch = MakeStatRow(relCard.transform);
-        MakeButton(_releaseSection.transform, "siliconalley:screen_startnext".GetLocalization(), OnStartNext, primary: true);
-
         // ---- Release history (issue #129): the studio's persistent catalog, newest first ----
         _historySection = MakeSection(root);
         MakeDivider(_historySection.transform);
@@ -2911,24 +2941,6 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var historyFold = MakeCollapsible(_historySection.transform, "siliconalley:screen_history_header",
             startExpanded: false, onToggled: RebuildLayout);
         _historyHost = historyFold.Content;
-
-        // ---- Contract section (issue #27; issue #60: card + amber progress bar + stat rows) ----
-        _contractSection = MakeSection(root);
-        MakeHeader(_contractSection.transform, "siliconalley:screen_contract_header");
-        var contractCard = MakeCardPanel(_contractSection.transform, "ContractCard");
-        _contractBar = MakeProgressBar(contractCard.transform);
-        _contractProgress = MakeStatRow(contractCard.transform);
-        _contractDue = MakeStatRow(contractCard.transform);
-        _contractPayout = MakeStatRow(contractCard.transform);
-        // Issue #129: the #126 staff-split dial. Left = all hands on the contract (the legacy divert),
-        // right = product first; the slider maps to contractFocus = 1 − value.
-        var cfRow = MakeRow(contractCard.transform, 10f, 28);
-        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_left".GetLocalization()), 92f);
-        _contractFocusSlider = MakeSlider(cfRow.transform);
-        _contractFocusSlider.onValueChanged.AddListener(OnContractFocusChanged);
-        FixWidth(MakeTextButtonless(cfRow.transform, "siliconalley:screen_contract_focus_right".GetLocalization()), 92f);
-        _contractFocusText = MakeText(contractCard.transform, "ContractFocusVal", SiliconAlleyTheme.Sizes.Status, TextAnchor.MiddleLeft);
-        _contractFocusText.color = SiliconAlleyTheme.TextMuted;
 
         // ---- Footer (common) ----
         MakeDivider(root);
