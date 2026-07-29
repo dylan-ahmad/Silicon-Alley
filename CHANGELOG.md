@@ -7,6 +7,18 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 
 ## [Unreleased]
 
+### Added
+- **The icon pack is complete — no more empty gutters** (#145, epic #142). Twenty-nine new
+  game-icons.net concept icons (CC BY 3.0, credited in `CREDITS.md`) fill every stem the UI requests
+  but never had art: the ETA / reputation / installed-base stat rows, all eight milestone decision
+  events, the four publishers, the nine build-or-buy product dependencies and the three server role
+  buttons. The wizard summary's Components and Market-fit rows get their own `stat_components` /
+  `stat_fit` icons instead of borrowed category placeholders, and five new procedural placeholder
+  glyphs (`cat_stat`/`cat_ms`/`cat_publisher`/`cat_dep`/`cat_server`) guarantee any future unresolved
+  stem lands on a placeholder instead of an empty gutter. The SVG→white-128px-PNG authoring step is
+  now a committed, reproducible pipeline (`tools/generate-icons.ps1` + `tools/icon-manifest.txt`).
+  Presentation only.
+
 ### Fixed
 - **The hub and the detail view now show the same support-$/day** (#144, epic #142). The detail view's
   ship report used a private support-income formatter that forgot the market-demand multiplier the hub

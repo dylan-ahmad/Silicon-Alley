@@ -1505,7 +1505,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // royalty (amber); an all-self-built stack carries none (green); nothing selected is neutral.
         var builtDeps = BuiltDependencyCount(key, type);
         var licensedDeps = LicensedDependencyCount(key, type);
-        SetStat(_sumComponents, "cat_tool", "siliconalley:wiz_sum_lbl_components",
+        SetStat(_sumComponents, "stat_components", "siliconalley:wiz_sum_lbl_components",
             builtDeps + licensedDeps <= 0
                 ? "siliconalley:wiz_sum_components_none".GetLocalization()
                 : Compose("siliconalley:wiz_sum_components_value",
@@ -1549,7 +1549,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         foreach (var f in SiliconAlleyFeatures.FeaturesFor(type))
             if ((fitMask & (1 << f.Bit)) != 0) selectedFeatures++;
         var targeted = selectedFeatures >= 2;
-        SetStat(_sumFit, "cat_segment", "siliconalley:wiz_sum_lbl_fit",
+        SetStat(_sumFit, "stat_fit", "siliconalley:wiz_sum_lbl_fit",
             targeted
                 ? Compose("siliconalley:wiz_sum_fit_value",
                     ("market", SignedPct(fitMarket - 1f)),
