@@ -2370,10 +2370,37 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             return;
         }
         if (_wizardPage >= _visiblePages.Count - 1)
-            SiliconAlleyState.BeginDevelopment(_currentKey); // issue #88: Summary confirm = Start development
-        else
-            _wizardPage++;
-        RefreshStructural(); // issue #147: page swap (or the Summary confirm's stage change)
+        {
+            // Issue #150: "Start development" used to fire instantly from this button, and it is
+            // irreversible — LockConcept plus the stage flip, after which every wizard setter no-ops and
+            // only shipping or abandoning the project frees it again. Ask first.
+            SiliconAlleyModal.Confirm(_root.transform,
+                "siliconalley:modal_startdev_title".GetLocalization(),
+                Compose("siliconalley:modal_startdev_body",
+                    ("product", ProductDisplayName(_currentKey, _ctxBusinessType))),
+                "siliconalley:modal_startdev_confirm".GetLocalization(),
+                ConfirmStartDevelopment);
+            return;
+        }
+        _wizardPage++;
+        RefreshStructural(); // issue #147: a page swap re-lays the wizard out
+    }
+
+    // Issue #150: the confirmed "Start development". The modal defers the action by frames, so re-derive
+    // last-ness — the flow could have changed underneath (a page dropping out of IsPresent) — and re-check
+    // that the concept is still editable before locking it.
+    private void ConfirmStartDevelopment()
+    {
+        if (!SiliconAlleyState.CanEditConcept(_currentKey))
+            return;
+        RebuildVisiblePages();
+        if (_visiblePages.Count == 0 || _wizardPage < _visiblePages.Count - 1)
+        {
+            RefreshStructural();
+            return;
+        }
+        SiliconAlleyState.BeginDevelopment(_currentKey); // issue #88: Summary confirm = Start development
+        RefreshStructural(); // issue #147: the stage change swaps the whole section set
     }
 
     // Issue #26: toggle the feature shown in this Features-page slot for the current business type. The slot
