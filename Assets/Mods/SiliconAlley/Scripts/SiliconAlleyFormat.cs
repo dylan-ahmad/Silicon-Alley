@@ -33,6 +33,16 @@ public static class SiliconAlleyFormat
         return rounded > 0 ? "+" + Money(rounded) : Money(rounded);
     }
 
+    // The display name of a bound hotkey ("F9", "Tab", "` (backtick)"), reusing the SAME key_* locale table
+    // the options dropdowns are built from — so a rebound key reads identically everywhere and BackQuote
+    // never shows up as raw enum text. Unknown keys fall back to the enum name rather than going blank.
+    // (#151 uses it for the conflict hint; #152 gives the toasts a {key} token instead of a hardcoded "F9".)
+    public static string KeyLabel(KeyCode key)
+    {
+        var localized = ("siliconalley:key_" + key.ToString().ToLowerInvariant()).GetLocalization();
+        return string.IsNullOrEmpty(localized) ? key.ToString() : localized;
+    }
+
     // A 0..1 fraction as "42%".
     public static string Pct(float fraction01) =>
         Mathf.RoundToInt(Mathf.Clamp01(fraction01) * 100f).ToString(CultureInfo.InvariantCulture) + "%";
