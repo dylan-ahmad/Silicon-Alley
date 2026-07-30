@@ -173,6 +173,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // Sits atop the Market phase; reads/writes the #85 FeatureWeights + the SiliconAlleyAspects demand/fit model.
     private GameObject _targetingBlock, _allocationPage, _demandPage;
     private TMP_Text _allocHint, _targetingReadout;
+    // Issue #150: one before → after delta per wizard step — the number that step actually moves. The
+    // remaining facts stay in each page's readout line, now muted instead of bright italic.
+    private SiliconAlleyUI.DeltaReadout _featuresDelta, _platformsDelta, _toolsDelta, _marketDelta,
+        _depDelta, _componentsDelta, _targetingDelta;
     private WeightRow[] _weightRows;
     private DemandRow[] _demandRows;
     // Issue #146: the demand chart — market-wants vs your-allocation as two segmented distribution bars.
@@ -1061,8 +1065,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         }
         var market = SiliconAlleyAspects.MarketFitFactor(mask, weights, type, day);
         var quality = SiliconAlleyAspects.QualityFitBonus(mask, weights, type, day);
+        // Issue #150: this one was already a signed delta in prose — now it uses the primitive. The baseline
+        // is the neutral even allocation the model measures against (×1.00), not the previous tick.
+        SetDelta(_targetingDelta, FmtReach(1f), FmtReach(market), market - 1f, FmtSignedFactor);
         _targetingReadout.text = Compose("siliconalley:wiz_targeting_fit",
-            ("market", SignedPct(market - 1f)),
             ("quality", SignedPct(quality)));
     }
 
@@ -1216,28 +1222,39 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetCardChecked(c, selected); // issue #146: the checkbox IS the state — no tint, no "Selected" badge
             SetCardBadge(c, null, SiliconAlleyTheme.Accent);
         }
+        // Issue #150: what the picked features do to the quality ceiling, priced against picking none —
+        // computed through the real formula (mask 0) rather than by subtracting a bonus from a clamped result.
+        var featCeilingBefore = ProjectedCeilingWith(key, 0, SiliconAlleyState.GetUsedToolsMask(key), out _);
+        var featCeilingAfter = ProjectedCeiling(key);
+        SetDelta(_featuresDelta, Pct(featCeilingBefore), Pct(featCeilingAfter),
+            featCeilingAfter - featCeilingBefore, SignedPct);
         _featuresReadout.text = Compose("siliconalley:wiz_features_readout",
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
-            ("eta", Eta(_ctxSize - _ctxProgress, _ctxPerHour)),
-            ("ceiling", Pct(ProjectedCeiling(key))));
+            ("eta", Eta(_ctxSize - _ctxProgress, _ctxPerHour)));
     }
 
     // A display estimate of the achievable quality ceiling: the design baseline (clamped, so it reads sensibly
     // before any Design work) raised by the selected features (#26) and the tools used (#36). Matches the
     // simulator's DesignQualityCeiling for a real design quality; purely for the wizard preview.
-    private float ProjectedCeiling(string key)
+    private float ProjectedCeiling(string key) =>
+        ProjectedCeilingWith(key, SiliconAlleyState.GetFeatureMask(key), SiliconAlleyState.GetUsedToolsMask(key), out _);
+
+    // Issue #150: the same estimate with the feature / used-tool masks supplied, so a wizard page can price
+    // its OWN contribution honestly — pass 0 for this page's mask and you get the "before" the delta readout
+    // needs, computed through the real formula instead of subtracting a bonus from a clamped result. Also
+    // reports the pre-coverage-cap ceiling, which is the Coverage page's own before → after pair.
+    private float ProjectedCeilingWith(string key, int featureMask, int usedToolsMask, out float uncapped)
     {
         var type = _ctxBusinessType?.businessTypeName;
         var dq = Mathf.Max(0f, SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design));
-        var bonus = SiliconAlleyFeatures.QualityBonus(SiliconAlleyState.GetFeatureMask(key), type)
-            + SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type)
+        var bonus = SiliconAlleyFeatures.QualityBonus(featureMask, type)
+            + SiliconAlleyTools.QualityBonus(usedToolsMask, type)
             + SiliconAlleyState.DependencyQualityBonus(key, type) // issue #84: product-dependency quality (matches DesignQualityCeiling)
-            + SiliconAlleyAspects.QualityFitBonus(SiliconAlleyState.GetFeatureMask(key), SiliconAlleyState.GetFeatureWeights(key), type, TimeHelper.CurrentDay); // issue #85: market-fit (0 at neutral)
-        var ceiling = Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
+            + SiliconAlleyAspects.QualityFitBonus(featureMask, SiliconAlleyState.GetFeatureWeights(key), type, TimeHelper.CurrentDay); // issue #85: market-fit (0 at neutral)
+        uncapped = Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
         // Issue #39: uncovered feature→tool dependencies cap the ceiling (full coverage ⇒ no change).
-        return Mathf.Min(ceiling, SiliconAlleyDependencies.CoverageCeiling(
-            SiliconAlleyState.GetFeatureMask(key), SiliconAlleyState.GetOwnedToolsMask(key),
-            SiliconAlleyState.GetUsedToolsMask(key), type));
+        return Mathf.Min(uncapped, SiliconAlleyDependencies.CoverageCeiling(
+            featureMask, SiliconAlleyState.GetOwnedToolsMask(key), usedToolsMask, type));
     }
 
     // Operating-systems page (issue #37): the current type's platform list as toggles; each selected platform
@@ -1266,6 +1283,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SetCardChecked(c, selected); // issue #146: the checkbox IS the state — no tint, no "Selected" badge
             SetCardBadge(c, null, SiliconAlleyTheme.Accent);
         }
+        // Issue #150: launch reach against the single implicit home platform (mask 0 ⇒ ×1.0).
+        var reachAfter = SiliconAlleyPlatforms.ReachMultiplier(mask, type);
+        var reachBefore = SiliconAlleyPlatforms.ReachMultiplier(0, type);
+        SetDelta(_platformsDelta, FmtReach(reachBefore), FmtReach(reachAfter),
+            reachAfter - reachBefore, FmtSignedFactor);
         _platformsReadout.text = Compose("siliconalley:wiz_platforms_readout",
             ("market", PlatformMarketText(key, type)),
             ("size", Mathf.RoundToInt(_ctxSize).ToString(CultureInfo.InvariantCulture)),
@@ -1335,8 +1357,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 SetCardBadge(c, "siliconalley:wiz_state_off".GetLocalization(), SiliconAlleyTheme.Slate);
             }
         }
+        // Issue #150: what the tools in this product do to the quality ceiling, priced against using none.
+        var toolCeilingBefore = ProjectedCeilingWith(key, SiliconAlleyState.GetFeatureMask(key), 0, out _);
+        var toolCeilingAfter = ProjectedCeiling(key);
+        SetDelta(_toolsDelta, Pct(toolCeilingBefore), Pct(toolCeilingAfter),
+            toolCeilingAfter - toolCeilingBefore, SignedPct);
         _toolsReadout.text = Compose("siliconalley:wiz_tools_readout",
-            ("quality", Pct(SiliconAlleyTools.QualityBonus(SiliconAlleyState.GetUsedToolsMask(key), type))),
             ("royalty", Pct(SiliconAlleyState.ToolRoyalty(key, type))),
             ("licensed", LicensedToolCount(key, type).ToString(CultureInfo.InvariantCulture)));
     }
@@ -1413,8 +1439,10 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 SetCardBadge(c, "siliconalley:wiz_state_off".GetLocalization(), SiliconAlleyTheme.Slate);
             }
         }
+        // Issue #150: the quality the chosen component stack adds, priced against an empty stack (0).
+        var depQuality = SiliconAlleyState.DependencyQualityBonus(key, type);
+        SetDelta(_componentsDelta, Pct(0f), Pct(depQuality), depQuality, SignedPct);
         _componentsReadout.text = Compose("siliconalley:wiz_components_readout",
-            ("quality", Pct(SiliconAlleyState.DependencyQualityBonus(key, type))),
             ("royalty", Pct(SiliconAlleyState.DependencyRoyalty(key, type))),
             ("licensed", LicensedDependencyCount(key, type).ToString(CultureInfo.InvariantCulture)));
     }
@@ -1499,6 +1527,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
             SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
+        // Issue #150: the price the chosen audience commands, against Broad (the neutral ×1.0 baseline).
+        var priceAfter = SiliconAlleySegments.Get(current).PriceFactor;
+        var priceBefore = SiliconAlleySegments.Get(0).PriceFactor;
+        SetDelta(_marketDelta, FmtReach(priceBefore), FmtReach(priceAfter),
+            priceAfter - priceBefore, FmtSignedFactor);
         _marketReadout.text = SegmentText(current);
     }
 
@@ -1566,10 +1599,14 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             _depCards[row].Root.SetActive(false);
 
         SiliconAlleyDependencies.Coverage(featureMask, owned, used, type, out var covered, out var total);
+        // Issue #150: the honest before → after for THIS page — what the ceiling would be if every feature
+        // had its tool, versus what the uncovered ones cap it to. Equal values (full coverage) read as no change.
+        var cappedCeiling = ProjectedCeilingWith(key, featureMask, used, out var uncappedCeiling);
+        SetDelta(_depDelta, Pct(uncappedCeiling), Pct(cappedCeiling),
+            cappedCeiling - uncappedCeiling, SignedPct);
         _depReadout.text = Compose("siliconalley:wiz_deps_readout",
             ("covered", covered.ToString(CultureInfo.InvariantCulture)),
-            ("total", total.ToString(CultureInfo.InvariantCulture)),
-            ("ceiling", Pct(ProjectedCeiling(key))));
+            ("total", total.ToString(CultureInfo.InvariantCulture)));
     }
 
     // The provider tool name(s) for an uncovered feature — what the player could own/license to cover it.
@@ -1703,6 +1740,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         (v >= 0f ? "+" : "") + v.ToString("F1", CultureInfo.InvariantCulture);
     // Issue #149: the signed payout delta ("+$1,200"), from the shared format table.
     private static readonly Func<float, string> FmtSignedMoney = SignedMoney;
+    // Issue #150: a multiplier as the game writes them ("×1.4") plus its signed delta ("+0.4"), for the
+    // wizard's reach / price / market-fit deltas.
+    private static string FmtReach(float v) => "×" + v.ToString("0.0#", CultureInfo.InvariantCulture);
+    private static readonly Func<float, string> FmtSignedFactor = v =>
+        (v >= 0f ? "+" : "") + v.ToString("0.0#", CultureInfo.InvariantCulture);
 
     // Read-only recap shown once the concept is locked: the committed scope, focus and quality baseline.
     private void RefreshRecap(string key)
@@ -2820,7 +2862,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
             _featureCards[i] = MakeCardItem(_featuresPage.transform, () => OnToggleFeature(slot), checkable: true); // #146: real checkbox
         }
-        _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
+        MakeDeltaRow(_featuresPage.transform, "siliconalley:wiz_delta_ceiling", out _featuresDelta);
+        _featuresReadout = MakeText(_featuresPage.transform, "FeaturesReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _featuresReadout.color = SiliconAlleyTheme.TextMuted; // #150: was bright italic — louder than the content it annotates
 
         // Operating-systems page (issue #37): the platform checklist. Same reusable toggle-button pool as the
         // features page, sized to the largest platform table; RefreshPlatformsPage relabels + shows the type.
@@ -2833,7 +2877,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-slot index for the toggle closure (the bit is resolved at click time)
             _platformCards[i] = MakeCardItem(_platformsPage.transform, () => OnTogglePlatform(slot), checkable: true); // #146: real checkbox
         }
-        _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
+        MakeDeltaRow(_platformsPage.transform, "siliconalley:wiz_delta_reach", out _platformsDelta);
+        _platformsReadout = MakeText(_platformsPage.transform, "PlatformsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _platformsReadout.color = SiliconAlleyTheme.TextMuted; // #150: was bright italic — louder than the content it annotates
 
         // Editors & tools page (issue #36): the dependency catalog. A reusable pool of CYCLE buttons (one per
         // tool: Off → Licensed → Owned), sized to the largest tool table; RefreshToolsPage relabels per type.
@@ -2846,7 +2892,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-slot index for the cycle closure (the bit is resolved at click time)
             _toolCards[i] = MakeCardItem(_toolsPage.transform, () => OnCycleTool(slot));
         }
-        _toolsReadout = MakeText(_toolsPage.transform, "ToolsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
+        MakeDeltaRow(_toolsPage.transform, "siliconalley:wiz_delta_ceiling", out _toolsDelta);
+        _toolsReadout = MakeText(_toolsPage.transform, "ToolsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _toolsReadout.color = SiliconAlleyTheme.TextMuted; // #150: was bright italic — louder than the content it annotates
 
         // Market page (issue #38): single-select audience segment (price↔volume). One button per segment, like
         // the scope buttons; RefreshMarketPage recolors the chosen one and shows its market-size + factors.
@@ -2859,7 +2907,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var ordinal = i; // capture per-segment ordinal for the select closure
             _segmentCards[i] = MakeCardItem(_marketPage.transform, () => OnSelectSegment(ordinal)); // #57: vertical card stack
         }
-        _marketReadout = MakeText(_marketPage.transform, "MarketReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
+        MakeDeltaRow(_marketPage.transform, "siliconalley:wiz_delta_price", out _marketDelta);
+        _marketReadout = MakeText(_marketPage.transform, "MarketReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _marketReadout.color = SiliconAlleyTheme.TextMuted; // #150: was bright italic — louder than the content it annotates
 
         // Dependencies page (issue #39): read-only feature→tool coverage. A pool of text rows (one per selected
         // feature, sized to the largest feature table), relabelled covered/uncovered each refresh; no input.
@@ -2868,7 +2918,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _depCards = new SiliconAlleyUI.CardItem[SiliconAlleyFeatures.MaxCount];
         for (var i = 0; i < _depCards.Length; i++)
             _depCards[i] = MakeCardItem(_dependenciesPage.transform, null, 1); // read-only coverage card (1 "needs …" chip)
-        _depReadout = MakeText(_dependenciesPage.transform, "DepReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
+        MakeDeltaRow(_dependenciesPage.transform, "siliconalley:wiz_delta_ceiling_cap", out _depDelta);
+        _depReadout = MakeText(_dependenciesPage.transform, "DepReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _depReadout.color = SiliconAlleyTheme.TextMuted; // #150: was bright italic — louder than the content it annotates
 
         // Components page (issue #84): interactive build-or-buy product dependencies (#83). A reusable pool of
         // CYCLE cards (one per dependency slot: Off → License Vendor A → License Vendor B → Build in-house &
@@ -2882,7 +2934,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-slot index for the cycle closure (the bit is resolved at click time)
             _componentCards[i] = MakeCardItem(_componentsPage.transform, () => OnCycleComponent(slot));
         }
-        _componentsReadout = MakeText(_componentsPage.transform, "ComponentsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
+        MakeDeltaRow(_componentsPage.transform, "siliconalley:wiz_delta_quality", out _componentsDelta);
+        _componentsReadout = MakeText(_componentsPage.transform, "ComponentsReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _componentsReadout.color = SiliconAlleyTheme.TextMuted; // #150: was bright italic — louder than the content it annotates
 
         // Market-targeting pages (issue #86): Allocation = a per-feature % weight slider pool (one per feature in
         // the largest table; shown only for the selected features); Demand = a per-aspect demand vs allocation
@@ -2895,7 +2949,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var slot = i; // capture per-row index; the feature bit is resolved at change time
             _weightRows[i] = BuildWeightRow(_allocationPage.transform, slot);
         }
-        _allocHint = MakeText(_allocationPage.transform, "AllocHint", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
+        _allocHint = MakeText(_allocationPage.transform, "AllocHint", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _allocHint.color = SiliconAlleyTheme.TextMuted; // #150: an instruction, kept quiet
 
         _demandPage = MakeSection(_wizardSection.transform);
         MakeHeader(_demandPage.transform, "siliconalley:wiz_demand_header");
@@ -2913,7 +2968,9 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         for (var i = 0; i < _demandRows.Length; i++)
             _demandRows[i] = BuildDemandRow(_demandPage.transform, i);
         MakeDivider(_demandPage.transform);
-        _targetingReadout = MakeText(_demandPage.transform, "TargetingReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
+        MakeDeltaRow(_demandPage.transform, "siliconalley:wiz_delta_fit", out _targetingDelta);
+        _targetingReadout = MakeText(_demandPage.transform, "TargetingReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _targetingReadout.color = SiliconAlleyTheme.TextMuted; // #150: was bright italic — louder than the content it annotates
 
         // ---- Issue #81: fold the sub-pages into multi-column phases ----
         // The sub-page roots (built above) are re-parented into MakeColumns rows — their build + Refresh code
