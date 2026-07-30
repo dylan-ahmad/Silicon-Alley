@@ -2915,15 +2915,19 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeDivider(_demandPage.transform);
         _targetingReadout = MakeText(_demandPage.transform, "TargetingReadout", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Italic);
 
-        // ---- Issue #81: fold the 7 sub-pages into 4 wide, multi-column phases ----
-        // Concept and Summary stay single-column. Dependencies groups Features + Tools + Coverage as columns;
-        // Market groups Platforms + Segment as columns. The sub-page roots (built above) are re-parented into
-        // MakeColumns rows — their build + Refresh code is untouched; each column self-hides when empty.
+        // ---- Issue #81: fold the sub-pages into multi-column phases ----
+        // The sub-page roots (built above) are re-parented into MakeColumns rows — their build + Refresh code
+        // is untouched; each column self-hides when empty.
+        // Issue #150: Dependencies is TWO columns (Features | Tools) with Coverage as a full-width strip
+        // below, not three columns. At the unified 940px width three columns are ~287px each, under the floor
+        // three chips need once a card's icon, badge and padding are taken out — which is why the Tools cards'
+        // "licensed" state (quality + royalty + build chips) clipped. Two columns give ~437px, and Coverage is
+        // derived output rather than a picker, so a full-width strip suits it better anyway.
         _phaseDependencies = MakeSection(_wizardSection.transform);
         var depsColumns = MakeColumns(_phaseDependencies.transform);
         _featuresPage.transform.SetParent(depsColumns.transform, false);
         _toolsPage.transform.SetParent(depsColumns.transform, false);
-        _dependenciesPage.transform.SetParent(depsColumns.transform, false);
+        _dependenciesPage.transform.SetParent(_phaseDependencies.transform, false);
 
         _phaseMarket = MakeSection(_wizardSection.transform);
         // Issue #86: the market-targeting block (Allocation sliders | Demand + fit) sits ABOVE the existing
