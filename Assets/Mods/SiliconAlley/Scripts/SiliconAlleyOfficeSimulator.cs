@@ -531,8 +531,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             // Issue #20: the critical-reception score (0..10) the release earned.
             ["review"] = SiliconAlleyFormat.Review(review),
         };
-        Notifications.Show(NotificationType.Success, "siliconalley:notify_projectcomplete", data, 6f, key,
-            () => SiliconAlleyProjectScreen.Open(key));
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Money, "siliconalley:notify_projectcomplete", data,
+            6f, key, key);
     }
 
     // Step 2 (lifecycle): announce entry into Development or Testing. Release is announced by the
@@ -550,8 +550,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["product"] = ProductDisplayName(key, businessType),
             ["phase"] = SiliconAlleyState.PhaseNameKey(newPhase).GetLocalization(),
         };
-        Notifications.Show(NotificationType.Info, "siliconalley:notify_phase", data, 5f, key + ":" + newPhase,
-            () => SiliconAlleyProjectScreen.Open(key));
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Progress, "siliconalley:notify_phase", data,
+            5f, key + ":" + newPhase, key);
     }
 
     // Issue #9: nudge the player to open the Design screen and set the concept for a fresh project. The
@@ -563,9 +563,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         {
             ["business"] = buildingRegistration.GetDisplayName(),
             ["product"] = ProductDisplayName(key, businessType),
-        };
-        Notifications.Show(NotificationType.Info, "siliconalley:notify_design", data, 6f, key + ":design",
-            () => SiliconAlleyProjectScreen.Open(key));
+                    // #152: the hint names the CURRENT binding — the key is rebindable.
+            ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
+};
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Decision, "siliconalley:notify_design", data,
+            6f, key + ":design", key);
     }
 
     // Issue #88: tell the player a product has reached 100% (Testing parked) and awaits their Release action.
@@ -576,9 +578,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         {
             ["business"] = buildingRegistration.GetDisplayName(),
             ["product"] = ProductDisplayName(key, businessType),
-        };
-        Notifications.Show(NotificationType.Info, "siliconalley:notify_ready", data, 6f, key + ":ready",
-            () => SiliconAlleyProjectScreen.Open(key));
+                    // #152: the hint names the CURRENT binding — the key is rebindable.
+            ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
+};
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Parked, "siliconalley:notify_ready", data,
+            6f, key + ":ready", key);
     }
 
     // Issue #88: the build parked at the end of Development — nudge the player to send it to QA or release.
@@ -588,9 +592,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         {
             ["business"] = buildingRegistration.GetDisplayName(),
             ["product"] = ProductDisplayName(key, businessType),
-        };
-        Notifications.Show(NotificationType.Info, "siliconalley:notify_devdone", data, 6f, key + ":devdone",
-            () => SiliconAlleyProjectScreen.Open(key));
+                    // #152: the hint names the CURRENT binding — the key is rebindable.
+            ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
+};
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Parked, "siliconalley:notify_devdone", data,
+            6f, key + ":devdone", key);
     }
 
     // Issue #123: a milestone decision window opened — one clickable toast per studio+slot. The card itself
@@ -603,9 +609,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["business"] = buildingRegistration.GetDisplayName(),
             ["product"] = ProductDisplayName(key, businessType),
             ["event"] = evt.TitleKey.GetLocalization(),
-        };
-        Notifications.Show(NotificationType.Info, "siliconalley:notify_milestone", data, 6f, key + ":ms" + slot,
-            () => SiliconAlleyProjectScreen.Open(key));
+                    // #152: the hint names the CURRENT binding — the key is rebindable.
+            ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
+};
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Decision, "siliconalley:notify_milestone", data,
+            6f, key + ":ms" + slot, key);
     }
 
     // Issue #88: the studio is idle with staff on hand — nudge the player to start the next project/version.
@@ -615,9 +623,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         {
             ["business"] = buildingRegistration.GetDisplayName(),
             ["product"] = ProductDisplayName(key, businessType),
-        };
-        Notifications.Show(NotificationType.Info, "siliconalley:notify_startproject", data, 6f, key + ":start",
-            () => SiliconAlleyProjectScreen.Open(key));
+                    // #152: the hint names the CURRENT binding — the key is rebindable.
+            ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
+};
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Idle, "siliconalley:notify_startproject", data,
+            6f, key + ":start", key);
     }
 
     // Step 3 (support/updates): announce a periodic patch shipped to the studio's live catalog.
@@ -630,8 +640,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["catalog"] = catalog.ToString(CultureInfo.InvariantCulture),
             ["revenue"] = SiliconAlleyFormat.Money(revenue),
         };
-        Notifications.Show(NotificationType.Info, "siliconalley:notify_patch", data, 5f, key + ":patch",
-            () => SiliconAlleyProjectScreen.Open(key));
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Money, "siliconalley:notify_patch", data,
+            5f, key + ":patch", key);
     }
 
     // Issue #23 (Publisher deals): the deal-event toasts. All clickable → open the project screen, and
@@ -644,8 +654,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["publisher"] = PublisherName(publisherIndex),
             ["payout"] = SiliconAlleyFormat.Money(payout),
         };
-        Notifications.Show(NotificationType.Success, "siliconalley:notify_dealdone", data, 6f, key + ":dealdone",
-            () => SiliconAlleyProjectScreen.Open(key));
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Money, "siliconalley:notify_dealdone", data,
+            6f, key + ":dealdone", key);
     }
 
     private void ShowDealFailedNotification(string key, int publisherIndex)
@@ -655,8 +665,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["business"] = buildingRegistration.GetDisplayName(),
             ["publisher"] = PublisherName(publisherIndex),
         };
-        Notifications.Show(NotificationType.Warning, "siliconalley:notify_dealfail", data, 6f, key + ":dealfail",
-            () => SiliconAlleyProjectScreen.Open(key));
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Failed, "siliconalley:notify_dealfail", data,
+            6f, key + ":dealfail", key);
     }
 
     private void ShowDealWarningNotification(string key, int publisherIndex, int daysLeft)
@@ -667,8 +677,8 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["publisher"] = PublisherName(publisherIndex),
             ["days"] = SiliconAlleyFormat.DaysLeft(daysLeft),
         };
-        Notifications.Show(NotificationType.Warning, "siliconalley:notify_dealwarn", data, 5f, key + ":dealwarn",
-            () => SiliconAlleyProjectScreen.Open(key));
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Deadline, "siliconalley:notify_dealwarn", data,
+            6f, key + ":dealwarn", key);
     }
 
     // Issue #27 (Contracts): a staffed studio holding a contract works it. Accrue staff skill toward the
@@ -718,15 +728,15 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
             ["business"] = buildingRegistration.GetDisplayName(),
             ["payout"] = SiliconAlleyFormat.Money(payout),
         };
-        Notifications.Show(NotificationType.Success, "siliconalley:notify_contractdone", data, 6f, key + ":contractdone",
-            () => SiliconAlleyProjectScreen.Open(key));
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Money, "siliconalley:notify_contractdone", data,
+            6f, key + ":contractdone", key);
     }
 
     private void ShowContractMissNotification(string key)
     {
         var data = new Dictionary<string, string> { ["business"] = buildingRegistration.GetDisplayName() };
-        Notifications.Show(NotificationType.Warning, "siliconalley:notify_contractfail", data, 6f, key + ":contractfail",
-            () => SiliconAlleyProjectScreen.Open(key));
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Failed, "siliconalley:notify_contractfail", data,
+            6f, key + ":contractfail", key);
     }
 
     // Localized publisher display name for a roster ordinal, or "" if it can't be resolved (defensive).
