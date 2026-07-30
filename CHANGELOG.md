@@ -8,6 +8,21 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 ## [Unreleased]
 
 ### Added
+- **Options panel: three sections, honest labels, hotkey-conflict hints** (#151, epic #142). The eleven
+  settings are now grouped into **Gameplay**, **Servers** and **Hotkeys**, with a note that they apply to
+  your computer rather than to a savegame. Units moved out of the labels into each slider's own value
+  readout, and **hosting income is finally shown in dollars** — `$120/day` per server, matching the figure
+  the hub's server card already prints (it was the mod's only value denominated in cents). Support income
+  likewise reads in whole percent, which is what its label had claimed all along. **Binding two functions
+  to the same key now warns you** on the spot, without blocking the binding. "Open studio dashboard" is
+  gone everywhere — the separate dashboard died in 0.5.0 and that key opens the **studio hub**.
+  ⚠️ **One-time reset:** the hosting-income and support sliders were re-scaled into their new units, so if
+  you had tuned *those two*, they return to their defaults once. Every other setting is preserved.
+
+### Fixed
+- **Your options actually apply now** (#151). Stored settings were only applied once you opened the mod's
+  options tab in a session — so a rebound hotkey (say, the hub on Tab) silently reverted to its default on
+  every launch, along with the speed/payout/server tunables. They are applied at startup now.
 - **Design wizard: two columns, quieter feedback, clickable steps, a guarded commit** (#150, epic #142).
   **Concept** and **Summary** go two-column — the product-name field and focus slider no longer stretch
   across the whole window, the projected quality/lead/ETA sit *beside* the inputs that move them, and the
