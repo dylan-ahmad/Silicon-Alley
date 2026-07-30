@@ -139,6 +139,17 @@ public static class SiliconAlleyUI
         return header;
     }
 
+    // #150: a header for a group INSIDE a card — smaller, muted, still bold. Groups used to call MakeHeader,
+    // which renders byte-identically to a top-level window section header, so a card's internal grouping
+    // read as loud as the section containing it. Same return contract as MakeHeader.
+    public static TMP_Text MakeSubHeader(Transform parent, string key)
+    {
+        var header = MakeText(parent, "SubHeader", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft, FontStyle.Bold);
+        header.color = SiliconAlleyTheme.TextMuted;
+        header.text = key.GetLocalization();
+        return header;
+    }
+
     // ---- Buttons. ----
 
     public static Button MakeButton(Transform parent, string label, UnityAction onClick, bool primary = false)

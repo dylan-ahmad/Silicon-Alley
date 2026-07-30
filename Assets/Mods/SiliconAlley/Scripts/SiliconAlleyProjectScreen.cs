@@ -2774,23 +2774,29 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _sumHeroTitle = MakeText(heroCol.transform, "HeroTitle", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
         _sumHeroSub = MakeText(heroCol.transform, "HeroSub", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         _sumHeroSub.color = SiliconAlleyTheme.TextMuted;
-        // Issue #87: the card grew past the point where a flat list scans well, so the rows sit in three
-        // labelled groups — what you're making, what it costs, who it reaches. The two new rows borrow the
+        // Issue #87: the card grew past the point where a flat list scans well, so the rows sit in labelled
+        // groups — what you're making, what it costs, who it reaches. The two new rows borrow the
         // cat_tool / cat_segment placeholder icons (#55); dropping stat_components.png / stat_fit.png into
         // UI/Icons and switching those stems in RefreshSummaryPage is the drop-in upgrade.
+        // Issue #150: those groups now sit in TWO COLUMNS — value on the left (what it is, who it reaches),
+        // cost on the right — because a stat row spanning the full card left ~700px of nothing between each
+        // label and its right-aligned value. At ~437px the gap is ~250px, inside the ⅓-window budget. The
+        // group headers use MakeSubHeader: as MakeHeader they rendered byte-identically to the window's own
+        // section headers, so a card's internal grouping shouted as loud as the section around it.
         MakeDivider(reviewCard.transform);
-        MakeHeader(reviewCard.transform, "siliconalley:wiz_sum_grp_product");
-        _sumQuality = MakeStatRow(reviewCard.transform);
-        _sumCoverage = MakeStatRow(reviewCard.transform);
-        MakeDivider(reviewCard.transform);
-        MakeHeader(reviewCard.transform, "siliconalley:wiz_sum_grp_cost");
-        _sumComponents = MakeStatRow(reviewCard.transform);
-        _sumCost = MakeStatRow(reviewCard.transform);
-        _sumRoyalty = MakeStatRow(reviewCard.transform);
-        MakeDivider(reviewCard.transform);
-        MakeHeader(reviewCard.transform, "siliconalley:wiz_sum_grp_market");
-        _sumMarket = MakeStatRow(reviewCard.transform);
-        _sumFit = MakeStatRow(reviewCard.transform);
+        var sumGrid = MakeColumns(reviewCard.transform);
+        var sumLeft = MakeSection(sumGrid.transform);
+        var sumRight = MakeSection(sumGrid.transform);
+        MakeSubHeader(sumLeft.transform, "siliconalley:wiz_sum_grp_product");
+        _sumQuality = MakeStatRow(sumLeft.transform);
+        _sumCoverage = MakeStatRow(sumLeft.transform);
+        MakeSubHeader(sumLeft.transform, "siliconalley:wiz_sum_grp_market");
+        _sumMarket = MakeStatRow(sumLeft.transform);
+        _sumFit = MakeStatRow(sumLeft.transform);
+        MakeSubHeader(sumRight.transform, "siliconalley:wiz_sum_grp_cost");
+        _sumComponents = MakeStatRow(sumRight.transform);
+        _sumCost = MakeStatRow(sumRight.transform);
+        _sumRoyalty = MakeStatRow(sumRight.transform);
 
         // Features page (issue #26): the design-document feature picker. A reusable pool of toggle buttons,
         // sized to the largest feature table; RefreshFeaturesPage relabels + shows the current type's list.
