@@ -2753,6 +2753,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Title row: title (flexible) + [‹ Overview] (issue #127: back to the hub; hidden on it) + [X] close.
         var titleRow = MakeRow(root, 6f, 30);
+        // MakeRow force-expands its children, which splits ALL the surplus width equally across the row and
+        // overrides FixWidth below (flexibleWidth 0 doesn't opt out of childForceExpandWidth) — the [X] grew
+        // to ~310px on the hub and the buttons ate the header. Same fix the studio row already applies: the
+        // TITLE absorbs the slack (as the comment above always claimed) and the buttons keep their widths.
+        titleRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
         // Issue #147: invisible drag strip behind the title row — the window's drag handle. First sibling
         // + ignoreLayout: the row's buttons render later and keep raycast priority; the strip catches
         // everything else (alpha-0 Images still raycast; rows themselves have no Graphic). It implements
@@ -2770,6 +2775,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // Issue #149: the title row names the STUDIO (it used to repeat the stage, which the meta row
         // below already states — that was the header's duplication). The hub still writes dash_title here.
         _titleText = MakeText(titleRow.transform, "Title", SiliconAlleyTheme.Sizes.Title, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _titleText.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack; the buttons hug right
         _titleText.enableWordWrapping = false;
         _titleText.overflowMode = TextOverflowModes.Ellipsis;
         _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);

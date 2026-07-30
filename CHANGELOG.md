@@ -5,6 +5,20 @@ All notable changes to **Silicon Alley** are recorded here. The version is the m
 version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Release
 (see `.github/workflows/auto-tag.yml`). Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
+## [0.6.1] — 2026-07-30
+
+### Fixed
+- **The header buttons no longer eat the title row.** `‹ Overview` and `X` are given fixed widths (120px
+  and 34px), but the row they sit in force-expands its children, which splits all the surplus width
+  equally across the row and overrides that — so on the hub the close button stretched to roughly **310px**
+  and on a studio screen the pair swallowed ~530px of a 940px header. The row now lets the **title** absorb
+  the slack, which is what its own comment always claimed, and the buttons keep the widths they ask for.
+  (The studio switcher row below already did this; the title row was simply never given the same treatment.)
+- **"1 studios · … · 1 servers"** in the hub's totals line. The counted nouns were baked into the template
+  as plurals with the bare number interpolated in front, so a single studio or a single server read wrong.
+  Both now agree with their count via a shared `Counted` helper in the format table — the same
+  singular/plural shape the "1 studio needs you" headline directly above them already used.
+
 ## [0.6.0] — 2026-07-30
 
 The presentation release (epic #142): the mod stops looking like its first build. Cards read as cards,

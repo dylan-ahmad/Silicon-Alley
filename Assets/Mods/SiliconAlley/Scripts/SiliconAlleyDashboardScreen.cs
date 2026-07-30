@@ -272,11 +272,13 @@ sealed class SiliconAlleyHubStrip
         _chipsRow.SetActive(needing > 0);
 
         var upkeep = SiliconAlleyOfficeSimulator.ServerUpkeepPerDay(servers);
+        // The counted nouns carry their own singular/plural (it read "1 studios · … · 1 servers"), the same
+        // way the headline above picks dash_strip_needs_one — the template just places the phrases.
         _totals.text = Compose("siliconalley:dash_strip_totals",
-            ("studios", count.ToString(CultureInfo.InvariantCulture)),
+            ("studios", Counted(count, "siliconalley:dash_strip_n_studios")),
             ("support", Money(support) + "/day"),
             ("installed", installed.ToString("N0", CultureInfo.InvariantCulture)),
-            ("servers", servers.ToString(CultureInfo.InvariantCulture)),
+            ("servers", Counted(servers, "siliconalley:dash_strip_n_servers")),
             ("upkeep", Money(upkeep) + "/day"));
         _serversHint.gameObject.SetActive(servers == 0);
     }
