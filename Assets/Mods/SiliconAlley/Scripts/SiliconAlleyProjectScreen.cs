@@ -1158,10 +1158,21 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     {
         if (slot < 0 || slot >= _visiblePages.Count)
             return null;
-        var state = StepStateOf(_visiblePages[slot]);
         return Compose("siliconalley:wiz_step_tip",
             ("title", _visiblePages[slot].TitleKey.GetLocalization()),
-            ("state", ("siliconalley:wiz_step_state_" + state).GetLocalization()));
+            ("state", StepStateNameKey(StepStateOf(_visiblePages[slot])).GetLocalization()));
+    }
+
+    // Spelled out rather than concatenated from the enum name: a rename would otherwise silently produce a
+    // missing locale key (and the codebase's convention is explicit NameKey mappings anyway).
+    private static string StepStateNameKey(StepState state)
+    {
+        switch (state)
+        {
+            case StepState.Done: return "siliconalley:wiz_step_state_done";
+            case StepState.Partial: return "siliconalley:wiz_step_state_partial";
+            default: return "siliconalley:wiz_step_state_untouched";
+        }
     }
 
     // Header text + dot states for the current visible page. Issue #150: the two encodings are orthogonal —

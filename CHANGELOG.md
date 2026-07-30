@@ -8,6 +8,19 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 ## [Unreleased]
 
 ### Added
+- **Design wizard: two columns, quieter feedback, clickable steps, a guarded commit** (#150, epic #142).
+  **Concept** and **Summary** go two-column — the product-name field and focus slider no longer stretch
+  across the whole window, the projected quality/lead/ETA sit *beside* the inputs that move them, and the
+  Summary's stat rows split into value (product + market) and cost columns, closing the ~700px gap that
+  used to sit between every label and its right-aligned value. **Dependencies drops from three columns to
+  two** (Features | Tools, with Coverage as a full-width strip), which is what the Tools cards needed —
+  at three columns their "licensed" state clipped its own chips. Each step now leads with **one muted
+  before → after delta** for the number that step actually moves (quality ceiling, launch reach, price
+  power, market fit …) instead of a bright italic sentence, and the remaining facts stay in a quiet
+  caption. **The step dots are clickable**, with a hover tooltip and a colour that finally means something:
+  done / in progress / not started, while the wider pill keeps marking where you are. And **"Start
+  development" asks first** — it permanently locks the design, and it used to fire the moment you pressed
+  Next. Presentation only — no save surface.
 - **Detail view: urgency first, and a header that says each thing once** (#149, epic #142). The studio
   detail sections are **ordered by what can cost you**: the **contract** (hard deadline + staff dial) and
   an **open milestone decision** and a **due update** now sit at the top — the contract used to be dead
