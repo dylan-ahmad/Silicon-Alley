@@ -963,7 +963,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         var label = MakeText(row.transform, "WLabel", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
         label.enableWordWrapping = false;
         label.overflowMode = TextOverflowModes.Ellipsis;
-        FixWidth(label, 118f);
+        // #165: 118 is a FLOOR, not a ceiling. FixWidth pins min == preferred, which ellipsized every feature
+        // name longer than ~13 caption glyphs ("Collaboratio…", "Enterprise SS…") even though the column had
+        // room to spare. Keeping the floor still lines the sliders up; the ellipsis stays as the last resort.
+        var labelLayout = label.GetComponent<LayoutElement>();
+        labelLayout.minWidth = 118f;
+        labelLayout.flexibleWidth = 0f;
         var slider = MakeSlider(row.transform); // flexibleWidth 1 from MakeSlider
         slider.onValueChanged.AddListener(v => OnWeightChanged(slot, v));
         var pct = MakeText(row.transform, "WPct", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
@@ -1321,7 +1326,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         }
         // Issue #150: what the picked features do to the quality ceiling, priced against picking none —
         // computed through the real formula (mask 0) rather than by subtracting a bonus from a clamped result.
-        var featCeilingBefore = ProjectedCeilingWith(key, 0, SiliconAlleyState.GetUsedToolsMask(key), out _);
+        var featCeilingBefore = ProjectedCeilingWith(key, 0, SiliconAlleyState.GetUsedToolsMask(key), out _,
+            fitFeatureMask: SiliconAlleyState.GetFeatureMask(key)); // #165: hold market fit constant
         var featCeilingAfter = ProjectedCeiling(key);
         SetDelta(_featuresDelta, Pct(featCeilingBefore), Pct(featCeilingAfter),
             featCeilingAfter - featCeilingBefore, SignedPct);
@@ -1340,14 +1346,20 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     // its OWN contribution honestly — pass 0 for this page's mask and you get the "before" the delta readout
     // needs, computed through the real formula instead of subtracting a bonus from a clamped result. Also
     // reports the pre-coverage-cap ceiling, which is the Coverage page's own before → after pair.
-    private float ProjectedCeilingWith(string key, int featureMask, int usedToolsMask, out float uncapped)
+    // #165: fitFeatureMask lets a caller HOLD the market-fit term constant across a before → after pair.
+    // Without it, passing featureMask 0 also zeroed QualityFitBonus (FitDelta needs >= 2 features), so the
+    // Features page charged its own delta for the step-4 fit penalty too — it read +12% where the features
+    // contribute +18%. Pass the live mask here and the fit term cancels, leaving only what features move.
+    private float ProjectedCeilingWith(string key, int featureMask, int usedToolsMask, out float uncapped,
+        int fitFeatureMask = -1)
     {
         var type = _ctxBusinessType?.businessTypeName;
         var dq = Mathf.Max(0f, SiliconAlleyState.GetPhaseQuality(key, SiliconAlleyState.ProjectPhase.Design));
         var bonus = SiliconAlleyFeatures.QualityBonus(featureMask, type)
             + SiliconAlleyTools.QualityBonus(usedToolsMask, type)
             + SiliconAlleyState.DependencyQualityBonus(key, type) // issue #84: product-dependency quality (matches DesignQualityCeiling)
-            + SiliconAlleyAspects.QualityFitBonus(featureMask, SiliconAlleyState.GetFeatureWeights(key), type, TimeHelper.CurrentDay); // issue #85: market-fit (0 at neutral)
+            + SiliconAlleyAspects.QualityFitBonus(fitFeatureMask >= 0 ? fitFeatureMask : featureMask,
+                SiliconAlleyState.GetFeatureWeights(key), type, TimeHelper.CurrentDay); // issue #85: market-fit (0 at neutral)
         uncapped = Mathf.Min(1f, 0.5f + 0.5f * dq + bonus);
         // Issue #39: uncovered feature→tool dependencies cap the ceiling (full coverage ⇒ no change).
         return Mathf.Min(uncapped, SiliconAlleyDependencies.CoverageCeiling(
@@ -1621,6 +1633,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 Compose("siliconalley:wiz_chip_price", ("v", s.PriceFactor.ToString("0.0", CultureInfo.InvariantCulture))),
                 Compose("siliconalley:wiz_chip_volume", ("v", s.VolumeFactor.ToString("0.0", CultureInfo.InvariantCulture))),
                 s.MarketSizeKey.GetLocalization());
+            // #165: this row is the mod's tightest — three chips plus, on the selected card, the badge, in a
+            // ~437px column. Pin the two NUMBERS ("price ×…" is worthless) and let the prose market-size chip
+            // be the one that ellipsizes, since it still reads when clipped.
+            PinChipWidth(c.Chips[0], c.ChipLabels[0]);
+            PinChipWidth(c.Chips[1], c.ChipLabels[1]);
             c.Card.color = selected ? SiliconAlleyTheme.CardSelected : SiliconAlleyTheme.Card;
             SetCardBadge(c, selected ? "siliconalley:wiz_state_selected".GetLocalization() : null, SiliconAlleyTheme.Accent);
         }
@@ -2685,7 +2702,12 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         var canvas = _root.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 5000;
+        // #165: the Canvas ceiling, not a comfortable-looking number. 5000 was picked by inference from a
+        // grep — sortingOrder/overrideSorting appear NOWHERE in the decompiled game source, so the game's
+        // canvases are Inspector-authored and their order is invisible to source analysis. The game's
+        // Notifications panel was in fact drawing OVER this window (its own fill is semi-transparent, which
+        // reads as "the mod window is see-through"). short.MaxValue leaves nothing above us to guess at.
+        canvas.sortingOrder = short.MaxValue;
         var scaler = _root.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
@@ -2753,6 +2775,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
 
         // Title row: title (flexible) + [‹ Overview] (issue #127: back to the hub; hidden on it) + [X] close.
         var titleRow = MakeRow(root, 6f, 30);
+        // MakeRow force-expands its children, which splits ALL the surplus width equally across the row and
+        // overrides FixWidth below (flexibleWidth 0 doesn't opt out of childForceExpandWidth) — the [X] grew
+        // to ~310px on the hub and the buttons ate the header. Same fix the studio row already applies: the
+        // TITLE absorbs the slack (as the comment above always claimed) and the buttons keep their widths.
+        titleRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
         // Issue #147: invisible drag strip behind the title row — the window's drag handle. First sibling
         // + ignoreLayout: the row's buttons render later and keep raycast priority; the strip catches
         // everything else (alpha-0 Images still raycast; rows themselves have no Graphic). It implements
@@ -2770,6 +2797,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         // Issue #149: the title row names the STUDIO (it used to repeat the stage, which the meta row
         // below already states — that was the header's duplication). The hub still writes dash_title here.
         _titleText = MakeText(titleRow.transform, "Title", SiliconAlleyTheme.Sizes.Title, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _titleText.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack; the buttons hug right
         _titleText.enableWordWrapping = false;
         _titleText.overflowMode = TextOverflowModes.Ellipsis;
         _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);

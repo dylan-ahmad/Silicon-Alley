@@ -120,6 +120,18 @@ done via migration (below) or not at all.
   **persisted enum ordinal** (`ProjectKind {Quick=0,Standard=1,Ambitious=2}`). Derived, non-persisted
   enums (`ProjectPhase`, computed from `Progress`) are exempt.
 - **Display names / localization may change freely**; the underlying identifier/ordinal may NOT.
+  **EXCEPTION — notification keys are persisted state (learned the hard way in #165).** Anything passed to
+  `Notifications.Show` is stored in the savegame as **key + data dictionary** and re-localized at *display*
+  time (`decompiled/…:169842` enqueues it; `:169477` renders `notification.Key.Localize(notification.Data)`),
+  so for a `siliconalley:notify_*` key that has shipped:
+  - **never delete it** — a missing key renders as the raw key string in the player's history. This makes
+    shipped notify keys *deliberate orphans*: they stay in `en.json` with **no code reference**, and a
+    locale-orphan sweep must skip them (verify with `git log -S` before removing ANY key, not just grep).
+  - **never add a `{token}` to it** — records written earlier have no value for it and render the token
+    literally until they age out (~1 game-year). To reword *with* a new token, add a NEW key and point the
+    code at it: #152 mutated five in place, and #165 restored them and moved the code to `*_k` variants.
+  - Never-delete legacy keys (kept solely to render pre-#152 save records): `notify_ready`,
+    `notify_devdone`, `notify_startproject`, `notify_milestone`, `notify_design`.
 
 ### 3. Release gate (run before anything ships)
 Verify the change does **not**:

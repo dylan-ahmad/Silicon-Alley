@@ -569,7 +569,11 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                     // #152: the hint names the CURRENT binding — the key is rebindable.
             ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
 };
-        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Decision, "siliconalley:notify_design", data,
+        // #165: the "_k" keys are the ones carrying {key}. The token-free originals stay in en.json
+        // untouched because the GAME persists a notification's key + data dict into the savegame and
+        // re-localizes it on display — records written before #152 have no "key" value and would render
+        // the token literally. Never add a token to a shipped notify_* key; add a new key instead.
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Decision, "siliconalley:notify_design_k", data,
             6f, key + ":design", key);
     }
 
@@ -584,7 +588,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                     // #152: the hint names the CURRENT binding — the key is rebindable.
             ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
 };
-        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Parked, "siliconalley:notify_ready", data,
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Parked, "siliconalley:notify_ready_k", data,
             6f, key + ":ready", key);
     }
 
@@ -598,7 +602,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                     // #152: the hint names the CURRENT binding — the key is rebindable.
             ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
 };
-        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Parked, "siliconalley:notify_devdone", data,
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Parked, "siliconalley:notify_devdone_k", data,
             6f, key + ":devdone", key);
     }
 
@@ -615,7 +619,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                     // #152: the hint names the CURRENT binding — the key is rebindable.
             ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
 };
-        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Decision, "siliconalley:notify_milestone", data,
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Decision, "siliconalley:notify_milestone_k", data,
             6f, key + ":ms" + slot, key);
     }
 
@@ -629,7 +633,7 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
                     // #152: the hint names the CURRENT binding — the key is rebindable.
             ["key"] = SiliconAlleyFormat.KeyLabel(SiliconAlleyProjectScreen.ToggleKey),
 };
-        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Idle, "siliconalley:notify_startproject", data,
+        SiliconAlleyToasts.Queue(SiliconAlleyToasts.Klass.Idle, "siliconalley:notify_startproject_k", data,
             6f, key + ":start", key);
     }
 

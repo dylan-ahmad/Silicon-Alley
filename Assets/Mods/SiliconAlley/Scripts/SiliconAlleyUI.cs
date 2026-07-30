@@ -373,6 +373,21 @@ public static class SiliconAlleyUI
         return img;
     }
 
+    // #165: pin a chip to its own content width so the layout group can't ellipsize it. Unity's
+    // HorizontalLayoutGroup lerps EVERY child from preferred toward min by one shared factor — there is no
+    // per-child priority — so "price ×1.0" was clipped to "price ×…" at the same rate as the long prose chip
+    // beside it. min == preferred is the only state the lerp cannot touch. Use this ONLY for short chips
+    // whose text is worthless truncated, and leave the prose chip in a row unpinned so IT absorbs the
+    // shortage — pinning every chip in an over-subscribed row makes the row overflow its card instead.
+    public static void PinChipWidth(Image chip, TMP_Text label, float max = 140f)
+    {
+        var le = chip.GetComponent<LayoutElement>();
+        if (le == null || label == null)
+            return;
+        var content = label.GetPreferredValues(label.text).x + 2f * SiliconAlleyTheme.Space.Base;
+        le.minWidth = Mathf.Clamp(content, 44f, max);
+    }
+
     // Fill the first texts.Length chips with text; hide the remaining chip slots.
     public static void SetCardChips(CardItem c, params string[] texts)
     {
@@ -394,6 +409,9 @@ public static class SiliconAlleyUI
             return;
         c.Badge.color = color;
         c.BadgeLabel.text = text;
+        // #165: a badge states a STATE — "Selec…" / "Licens…" tells the player nothing. It shares the card's
+        // horizontal row with the body, so it was shrinking along with everything else; pin it to its word.
+        PinChipWidth(c.Badge, c.BadgeLabel);
     }
 
     // #146: tick/untick a checkable card. Selection reads from the checkbox, not a card tint, so the card
@@ -432,7 +450,7 @@ public static class SiliconAlleyUI
         public TMP_Text Value = null!;
     }
 
-    // "[icon 22px] label (muted, hugs left) …… value (bold, right-aligned, fills + wraps)".
+    // "[icon 22px] label (muted, hugs left) …… value (bold, right-aligned, fills, clips)".
     public static StatRow MakeStatRow(Transform parent)
     {
         var go = new GameObject("StatRow", typeof(RectTransform));
@@ -458,7 +476,12 @@ public static class SiliconAlleyUI
         label.GetComponent<LayoutElement>().flexibleWidth = 0f; // hug content on the left
 
         var value = MakeText(go.transform, "Value", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleRight, FontStyle.Bold);
-        value.GetComponent<LayoutElement>().flexibleWidth = 1f; // fill the rest; wraps if the value is long
+        value.GetComponent<LayoutElement>().flexibleWidth = 1f; // fill the rest
+        // #165: was wrap + Overflow, with no preferredHeight anywhere in the chain — so a value too wide for
+        // its column broke to a second line that TMP DREW past the row's 26px band, over the row below (the
+        // Summary's "Ongoing royalties" against the narrow Cost column). Clip like the label already does.
+        value.enableWordWrapping = false;
+        value.overflowMode = TextOverflowModes.Ellipsis;
 
         return new StatRow { Root = go, Icon = icon, Label = label, Value = value };
     }

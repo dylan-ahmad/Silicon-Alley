@@ -20,7 +20,7 @@ public static class SiliconAlleyTheme
 {
     // ---- Palette. White 9-slice sprites are tinted with these; the values refine the original flat
     // navy constants into a cohesive surface/accent/text set the later screens share. ----
-    public static readonly Color Surface   = new Color(0.086f, 0.098f, 0.125f, 0.98f); // window / panel background
+    public static readonly Color Surface   = new Color(0.086f, 0.098f, 0.125f, 1f);    // window / panel background
     public static readonly Color Card      = new Color(0.12f,  0.14f,  0.18f,  1f);     // raised card surface
     public static readonly Color Elevated  = new Color(0.16f,  0.18f,  0.23f,  1f);     // hovered / elevated card
     public static readonly Color Accent    = new Color(0.20f,  0.50f,  0.86f,  1f);     // primary / selected (game blue)

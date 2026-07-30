@@ -9,7 +9,8 @@ using static SiliconAlleyUI;
 
 // Issue #146 (epic #142): the mod's tooltip system. A reimplementation of the game's Tooltip.TooltipSystem
 // pattern on the MOD canvas — the game's own tooltip canvas is scene-authored with no code-set sortingOrder,
-// so it would draw UNDER our sortingOrder-5000 overlay; rendering our own panel on the same canvas is the
+// so it is expected to draw UNDER our overlay (but see #165: a source grep cannot see an Inspector-authored
+// sortingOrder, which is how the Notifications panel got above us); rendering our own panel on the same canvas is the
 // only way a tooltip can sit above the window. The shape mirrors the game's (verified in the decompiled
 // TooltipTarget/TooltipSystem): a 0.1s unscaled hover delay, one global current target so a new hover steals
 // the panel, Hide on pointer-exit AND on OnDisable (no stale tooltip surviving its hidden owner), and a

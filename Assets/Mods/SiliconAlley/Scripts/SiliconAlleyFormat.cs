@@ -127,6 +127,15 @@ public static class SiliconAlleyFormat
     public static string ProductDisplayName(string key, BusinessType businessType) =>
         SiliconAlleyState.GetProductNameOrDefault(key, ProductDisplayName(businessType));
 
+    // A counted noun that agrees with its number: "1 studio" vs "3 studios". Takes the PLURAL key and
+    // derives the singular as "<key>_one", the shape dash_strip_needs/_needs_one already established.
+    // Any counted noun rendered into a sentence should come through here — the hub totals line read
+    // "1 studios · … · 1 servers" because it interpolated the bare number into a hardcoded plural.
+    public static string Counted(int n, string pluralKey) =>
+        n == 1
+            ? (pluralKey + "_one").GetLocalization()
+            : Compose(pluralKey, ("n", n.ToString(CultureInfo.InvariantCulture)));
+
     // #148: localized-string composition for "{a} · {b}"-style keys — was three identical private copies
     // (dashboard ×2, project screen ×1); the hub strip would have needed a fourth.
     public static string Compose(string key, params (string, string)[] args)
