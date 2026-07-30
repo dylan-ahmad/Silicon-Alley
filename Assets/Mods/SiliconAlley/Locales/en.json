@@ -266,6 +266,7 @@
   "siliconalley:wiz_components_header": "Components — build in-house or license the stack",
   "siliconalley:wiz_components_readout": "Components: +{quality} quality · royalty {royalty} · {licensed} licensed",
   "siliconalley:wiz_product": "Product: {product}",
+  "siliconalley:wiz_concept_preview": "Projected",
   "siliconalley:wiz_summary_header": "Summary — review before you commit",
   "siliconalley:wiz_recap_header": "Design (locked)",
   "siliconalley:wiz_sum_scope": "Scope: {scope} · size {size} · ship {eta}",

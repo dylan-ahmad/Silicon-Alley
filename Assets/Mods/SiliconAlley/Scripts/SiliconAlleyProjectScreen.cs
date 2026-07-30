@@ -129,7 +129,7 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
     private float _ctxSize, _ctxProgress, _ctxPerHour;
     // Concept page
     private GameObject _conceptPage;
-    private TMP_Text _designQualityText, _leadText, _etaText, _conceptNameText;
+    private TMP_Text _designQualityText, _leadText, _etaText;
     private SiliconAlleyUI.TabBar _scopeTabs; // issue #146: the scope picker as a real segmented control
     private TMP_InputField _productNameInput;
     private Slider _focusSlider;
@@ -1158,12 +1158,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _animRt.localScale = new Vector3(ScalePopFrom, ScalePopFrom, 1f);
     }
 
-    // Concept page: today's scope + focus controls plus read-only product name and baseline readouts.
+    // Concept page: the scope/name/focus inputs on the left, their live consequences on the right (#150).
     private void RefreshConceptPage()
     {
         var key = _currentKey;
         var productName = ProductDisplayName(key, _ctxBusinessType);
-        _conceptNameText.text = Compose("siliconalley:wiz_product", ("product", productName));
         if (_productNameInput.text != productName)
         {
             _suppress = true;
@@ -2738,31 +2737,43 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         MakeDivider(_wizardSection.transform);
         BuildStepIndicator(_wizardSection.transform); // issue #56: step indicator above the active page
 
-        // Concept page: today's scope + focus controls, read-only product name and baseline readouts.
+        // Concept page: scope + name + focus controls with a live preview of what they cost.
+        // Issue #150: TWO COLUMNS — the inputs on the left, the live preview beside them. Single-column, the
+        // name field and the focus slider each stretched across the full 888px content width, and the three
+        // preview lines sat under them where a change is easy to miss.
         _conceptPage = MakeSection(_wizardSection.transform);
         MakeHeader(_conceptPage.transform, "siliconalley:screen_scope");
+        var conceptGrid = MakeColumns(_conceptPage.transform);
+        var conceptInputs = MakeSection(conceptGrid.transform);
+        var conceptPreview = MakeSection(conceptGrid.transform);
         // Issue #146: the scope picker is a real segmented control (was 3 hand-recoloured MakeButtons).
         var scopeKeys = new[] { "siliconalley:projecttype_quick", "siliconalley:projecttype_standard", "siliconalley:projecttype_ambitious" };
         var scopeLabels = new string[scopeKeys.Length];
         for (var i = 0; i < scopeKeys.Length; i++)
             scopeLabels[i] = scopeKeys[i].GetLocalization();
-        _scopeTabs = MakeTabs(_conceptPage.transform, scopeLabels, OnScopeTab);
+        _scopeTabs = MakeTabs(conceptInputs.transform, scopeLabels, OnScopeTab);
         for (var i = 0; i < scopeKeys.Length; i++)
             SetButtonIcon(_scopeTabs.Buttons[i], SiliconAlleyTheme.IconFor(scopeKeys[i])); // issue #55: scope icon (fixed set)
-        _conceptNameText = MakeText(_conceptPage.transform, "ConceptName", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
-        MakeHeader(_conceptPage.transform, "siliconalley:screen_product_name");
-        _productNameInput = MakeInputField(_conceptPage.transform, "ProductNameInput",
+        // #150: the old "Product: {name}" line is gone — it restated the input sitting right below it, a
+        // leftover from when the name was read-only.
+        MakeSubHeader(conceptInputs.transform, "siliconalley:screen_product_name");
+        _productNameInput = MakeInputField(conceptInputs.transform, "ProductNameInput",
             "siliconalley:screen_product_name_placeholder".GetLocalization(), 64);
         _productNameInput.onValueChanged.AddListener(OnProductNameChanged);
-        MakeHeader(_conceptPage.transform, "siliconalley:screen_focus");
-        var focusRow = MakeRow(_conceptPage.transform, 10f, 28);
-        FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_polish".GetLocalization()), 70f);
+        MakeSubHeader(conceptInputs.transform, "siliconalley:screen_focus");
+        var focusRow = MakeRow(conceptInputs.transform, 10f, 28);
+        FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_polish".GetLocalization()), 62f);
         _focusSlider = MakeSlider(focusRow.transform);
         _focusSlider.onValueChanged.AddListener(OnFocusChanged);
-        FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_speed".GetLocalization()), 70f);
-        _designQualityText = MakeText(_conceptPage.transform, "DesignQuality", SiliconAlleyTheme.Sizes.Header, TextAnchor.MiddleLeft);
-        _leadText = MakeText(_conceptPage.transform, "Lead", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
-        _etaText = MakeText(_conceptPage.transform, "Eta", SiliconAlleyTheme.Sizes.Body, TextAnchor.MiddleLeft);
+        FixWidth(MakeTextButtonless(focusRow.transform, "siliconalley:screen_focus_speed".GetLocalization()), 62f);
+        // Right column: what the choices on the left produce, right where you can see both at once.
+        MakeSubHeader(conceptPreview.transform, "siliconalley:wiz_concept_preview");
+        _designQualityText = MakeText(conceptPreview.transform, "DesignQuality", SiliconAlleyTheme.Sizes.Subtitle, TextAnchor.MiddleLeft, FontStyle.Bold);
+        _designQualityText.color = SiliconAlleyTheme.Header;
+        _leadText = MakeText(conceptPreview.transform, "Lead", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _leadText.color = SiliconAlleyTheme.TextMuted;
+        _etaText = MakeText(conceptPreview.transform, "Eta", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleLeft);
+        _etaText.color = SiliconAlleyTheme.TextMuted;
 
         // Summary page (issue #58): a scannable review CARD — product/scope/ETA hero + icon stat rows.
         _summaryPage = MakeSection(_wizardSection.transform);
