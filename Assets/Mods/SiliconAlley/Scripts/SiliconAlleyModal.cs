@@ -8,7 +8,9 @@ using static SiliconAlleyUI;
 
 // Issue #146 (epic #142): the in-canvas confirm modal for destructive/irreversible actions. Deliberately
 // NOT the game's HudConfirm (docs/CAPABILITIES.md Q3): that dialog's scene canvas has no code-set
-// sortingOrder so it draws UNDER our sortingOrder-5000 overlay, its labels are localization-key-only (no
+// sortingOrder so it is EXPECTED to draw under our overlay — though note #165: a source grep cannot see
+// an Inspector-authored sortingOrder, and the game's Notifications panel did draw over us at 5000, which
+// is why the canvas now sits at short.MaxValue. Its labels are also localization-key-only (no
 // dynamic strings like the product name), and it silently auto-confirms when its host UI is absent or the
 // skip modifier is held — all three disqualify it for a destructive confirm on top of our window.
 //

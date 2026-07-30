@@ -7,7 +7,42 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 
 ## [0.6.1] — 2026-07-30
 
+The screenshot-pass release: 0.6.0 was verified in a running game and eight defects came back. Two were
+found in the first pass and six in the second, including one that had quietly damaged data already sitting
+in savegames.
+
 ### Fixed
+- **Old notifications no longer read `{key}`.** The game stores a notification as its localization key plus
+  a data dictionary **inside the savegame** and re-localizes it when you open your notification history —
+  so a string's set of `{tokens}` is a durable contract, not presentation. #152 added a `{key}` token to
+  five notification strings that had already shipped, which means every notification written before that
+  update had no value to substitute and rendered the token literally, forever. The five originals are
+  restored to their exact pre-#152 wording so history reads correctly again, and the live-binding versions
+  moved to new keys. Your existing notification history repairs itself; nothing is lost.
+- **The game's notification panel no longer draws over the mod's window.** Opening your notifications with
+  the studio screen up let the panel composite on top of it — and because the panel is itself part
+  transparent, it read as though the mod's window had gone see-through. The window's canvas now sits at the
+  top of the UI stack. (The old value was picked by reading the game's code, which cannot see a sort order
+  set in the Unity Inspector — so it was a guess that happened to lose.) The window face is also fully
+  opaque now, instead of 98%.
+- **The audience-segment cards stop hiding their own numbers.** On the wizard's Market step the Broad and
+  Consumer cards rendered `price ×…`, `volume ×…`, and the selected card's badge read `Selec…`. A row that
+  runs out of width shrinks *every* chip in it by the same proportion — there is no notion of which one
+  matters — so the two chips that are nothing but a number were clipped just as hard as the prose beside
+  them. The numbers and the state badge are now pinned to their content; the description absorbs the
+  squeeze, because it still reads when clipped.
+- **The Summary's "Ongoing royalties" no longer spills into the row below it.** Stat-row values wrapped and
+  then drew past their own row, so the longest value in the narrowest column overlapped its neighbour. Values
+  clip like their labels already did. The text is also shorter and now matches the Components step's own
+  wording (`12% · 2 licensed`) instead of saying `2 licensed tool(s)/component(s)`.
+- **The allocation sliders show their full feature names.** "Collaboration Suite" and "Enterprise SSO &
+  Admin" were ellipsized by a hard 118px label width even though the column had room. 118px is now a
+  minimum that keeps the sliders aligned, not a maximum.
+- **The Features step reports what features actually contribute.** Its before → after quality-ceiling
+  reading priced "no features" as its baseline, which also zeroed the market-fit term, so once you moved the
+  Market step's allocation sliders the features silently wore the fit penalty too — the row said **+12%**
+  where the features contribute **+18%**. Market fit is now held constant across the comparison. (The
+  Summary's own ceiling figure was always correct.)
 - **The header buttons no longer eat the title row.** `‹ Overview` and `X` are given fixed widths (120px
   and 34px), but the row they sit in force-expands its children, which splits all the surplus width
   equally across the row and overrides that — so on the hub the close button stretched to roughly **310px**
