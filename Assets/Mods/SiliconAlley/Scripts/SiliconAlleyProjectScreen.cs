@@ -1127,11 +1127,47 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             var le = dot.gameObject.AddComponent<LayoutElement>();
             le.minHeight = le.preferredHeight = SiliconAlleyTheme.Height.Dot;
             le.minWidth = le.preferredWidth = SiliconAlleyTheme.Height.Dot;
+            // Issue #150: the dots are navigation now, not decoration. A raw Button on the pill Image (the
+            // MakeCardItem/MakeTabs idiom) rather than MakeButton, which would build a 38px control with its
+            // own sprite and label and fight the width writes below. The slot index is resolved against
+            // _visiblePages at CLICK time — the pool is capacity 8 and a page can drop out of the flow.
+            var slot = i;
+            var button = dot.gameObject.AddComponent<Button>();
+            button.targetGraphic = dot;
+            button.colors = SiliconAlleyTheme.Interaction;
+            button.onClick.AddListener(() => OnStepDot(slot));
+            dot.gameObject.AddComponent<SiliconAlleyHoverScale>().Gate = button;
+            SiliconAlleyTooltip.Attach(dot, () => StepDotTip(slot)); // a 12px target needs a name on hover
             _stepDots[i] = dot;
         }
     }
 
-    // Header text + dot states for the current visible page (current = bright + wider, done = blended, todo = slate).
+    // Issue #150: a step dot clicked — jump to that page. Structural (a page swap, like Back/Next), and
+    // guarded because the pool outlives the flow: a page whose IsPresent flipped false since the last
+    // refresh simply isn't there any more.
+    private void OnStepDot(int slot)
+    {
+        if (slot < 0 || slot >= _visiblePages.Count || slot == _wizardPage)
+            return; // clicking the current dot must not replay the page transition
+        _wizardPage = slot;
+        RefreshStructural();
+    }
+
+    // Issue #150: the dot's hover text — which step it is and how far along it is.
+    private string StepDotTip(int slot)
+    {
+        if (slot < 0 || slot >= _visiblePages.Count)
+            return null;
+        var state = StepStateOf(_visiblePages[slot]);
+        return Compose("siliconalley:wiz_step_tip",
+            ("title", _visiblePages[slot].TitleKey.GetLocalization()),
+            ("state", ("siliconalley:wiz_step_state_" + state).GetLocalization()));
+    }
+
+    // Header text + dot states for the current visible page. Issue #150: the two encodings are orthogonal —
+    // WIDTH marks where you are, COLOUR marks how complete each step is (done / partial / untouched), so a
+    // glance answers both "where am I" and "what have I skipped". All writes are idempotent value writes
+    // (LayoutElement widths, Image.color), safe on the 1 Hz value path (#147).
     private void UpdateStepIndicator(WizardPage current)
     {
         var count = _visiblePages.Count;
@@ -1147,10 +1183,58 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
                 continue;
             var le = _stepDots[i].GetComponent<LayoutElement>();
             le.minWidth = le.preferredWidth = i == _wizardPage ? 18f : SiliconAlleyTheme.Height.Dot; // the current step reads as a wider pill
-            _stepDots[i].color = i == _wizardPage ? SiliconAlleyTheme.Accent
-                : i < _wizardPage ? SiliconAlleyTheme.StepDone
+            var state = StepStateOf(_visiblePages[i]);
+            _stepDots[i].color = state == StepState.Done ? SiliconAlleyTheme.Ok
+                : state == StepState.Partial ? SiliconAlleyTheme.StepDone
                 : SiliconAlleyTheme.Slate;
         }
+    }
+
+    // Issue #150: per-step completeness. Derived from the PER-PROJECT state only — OwnedToolsMask and
+    // OwnedDependencyMask survive project completion, so a returning studio would otherwise report progress
+    // it hasn't made on this product. Two values genuinely cannot report "untouched" (scope and design focus
+    // always hold a default, and segment 0 IS Broad), so their steps lean on a sibling signal instead.
+    private enum StepState { Untouched, Partial, Done }
+
+    private StepState StepStateOf(WizardPage page)
+    {
+        var key = _currentKey;
+        var type = _ctxBusinessType?.businessTypeName;
+        if (page.Root == _conceptPage)
+            // Scope and focus always have values, so the honest signal is "did you name the product".
+            return string.IsNullOrWhiteSpace(SiliconAlleyState.GetProductName(key))
+                ? StepState.Partial : StepState.Done;
+        if (page.Root == _phaseDependencies)
+        {
+            var features = SiliconAlleyState.GetFeatureMask(key);
+            var used = SiliconAlleyState.GetUsedToolsMask(key);
+            if (features == 0 && used == 0)
+                return StepState.Untouched;
+            SiliconAlleyDependencies.Coverage(features, SiliconAlleyState.GetOwnedToolsMask(key), used, type,
+                out var covered, out var total);
+            return features != 0 && covered >= total ? StepState.Done : StepState.Partial;
+        }
+        if (page.Root == _componentsPage)
+        {
+            var deps = SiliconAlleyProductDependencies.DependenciesFor(type);
+            if (deps.Length == 0)
+                return StepState.Done; // nothing to decide for this type
+            var usedCount = 0;
+            foreach (var d in deps)
+                if (SiliconAlleyState.IsDependencyUsed(key, d.Bit)) usedCount++;
+            return usedCount == 0 ? StepState.Untouched
+                : usedCount >= deps.Length ? StepState.Done : StepState.Partial;
+        }
+        if (page.Root == _phaseMarket)
+        {
+            // Segment always holds an ordinal (0 = Broad), so platforms + the allocation weights carry it.
+            var platforms = SiliconAlleyState.GetPlatformMask(key);
+            var weights = SiliconAlleyState.GetFeatureWeights(key);
+            if (platforms == 0 && weights == null)
+                return StepState.Untouched;
+            return platforms != 0 ? StepState.Done : StepState.Partial;
+        }
+        return StepState.Untouched; // Summary is a review page — it reports no progress of its own
     }
 
     // Begin the fade + scale-pop for the page that just became current (advanced each frame in Update).
