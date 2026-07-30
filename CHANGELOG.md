@@ -5,9 +5,26 @@ All notable changes to **Silicon Alley** are recorded here. The version is the m
 version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Release
 (see `.github/workflows/auto-tag.yml`). Format loosely follows [Keep a Changelog](https://keepachangelog.com).
 
-## [Unreleased]
+## [0.6.0] — 2026-07-30
+
+The presentation release (epic #142): the mod stops looking like its first build. Cards read as cards,
+amber means caution and red means irreversible, one 940px window drags where you want it and scrolls
+when it must, and the hub finally answers the only question that matters at a glance — *which studio
+needs me?* Nothing about the economy changed, and nothing in your savegame did either.
 
 ### Added
+- **A guide that matches the game again** (#153, epic #142). A new **Screens & Hub** help page
+  documents the vocabulary this release introduced — the draggable window and its scrollbar, the
+  triage strip and what red versus amber means, the two-column grid with whole-card clicks, servers
+  stacked under their studio, the urgency-ordered detail view with its collapsed release history,
+  tooltips and checkboxes and confirm dialogs, and how notifications tier themselves. The other
+  seventeen pages were written for the 0.5.0 screens and had drifted: eleven of them still said
+  **F9** opened "the design window" (it opens the hub), the Servers page pointed at an Overview
+  section that #148 dissolved, the wizard page still told you to press Abandon **twice**, and the
+  Options walkthrough listed neither the three setting groups nor the four server sliders nor the
+  help key. All corrected. Locale sweep: 21 keys orphaned by #143–#152 removed, every referenced key
+  verified present (including the dynamically built hotkey and milestone families), and the last
+  in-game strings hiding in code moved into `en.json`.
 - **Phone contract offers you can actually read, and toasts that know how urgent they are** (#152, epic
   #142). The client's offer was a paragraph with the two numbers that matter buried mid-sentence; it is
   now a headline plus scan lines — **payout, deadline, and the workload**, which the call never showed at
@@ -30,10 +47,7 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   ⚠️ **One-time reset:** the hosting-income and support sliders were re-scaled into their new units, so if
   you had tuned *those two*, they return to their defaults once. Every other setting is preserved.
 
-### Fixed
-- **Your options actually apply now** (#151). Stored settings were only applied once you opened the mod's
-  options tab in a session — so a rebound hotkey (say, the hub on Tab) silently reverted to its default on
-  every launch, along with the speed/payout/server tunables. They are applied at startup now.
+### Changed (0.6.0 UI)
 - **Design wizard: two columns, quieter feedback, clickable steps, a guarded commit** (#150, epic #142).
   **Concept** and **Summary** go two-column — the product-name field and focus slider no longer stretch
   across the whole window, the projected quality/lead/ETA sit *beside* the inputs that move them, and the
@@ -100,22 +114,12 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   now a committed, reproducible pipeline (`tools/generate-icons.ps1` + `tools/icon-manifest.txt`).
   Presentation only.
 
-### Fixed
-- **The hub and the detail view now show the same support-$/day** (#144, epic #142). The detail view's
-  ship report used a private support-income formatter that forgot the market-demand multiplier the hub
-  card applies, so the two screens disagreed for the same studio at the same moment. Every screen now
-  routes through the one `SiliconAlleyFormat` table (the detail $/day figure changes: it is now
-  demand-scaled, matching what the simulator actually credits).
-
-### Changed
 - **One format table** (#144): all user-visible number shapes are normalized — multiplication is always
   `×` (never `x`), reviews are always `7.4/10`, percentages always carry their own `%` (locale strings
   no longer append it), money always formats as `$1,234` / `-$1,234`, and the server-economy line uses
   `·` separators like everywhere else. ETAs split by meaning: throughput *estimates* keep the tilde
   (`~2d 6h`) while exact calendar deadlines (contract due, publisher deadlines, patch timer) are bare
   (`14d`). The hub's demand trend pill now shows the multiplier shape too (`▲ ×1.12`). Presentation only.
-
-### Changed (0.6.0 UI)
 - **Window behavior: one width, draggable, jank-free refresh** (#147, epic #142). The project window is
   **one 940px width everywhere** — entering/leaving the Design stage no longer teleports it 440px — and
   it now hangs from a **fixed top edge** (height changes grow downward instead of moving both edges).
@@ -139,6 +143,20 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
   text supports all nine alignments, headers return their label (stylable), and every raw font size and
   off-palette color in the screens now routes through the theme. Presentation only — no save surface;
   pre-0.6.0 bundles fall back gracefully (flat chips, no shadows).
+
+### Fixed
+- **Your options actually apply now** (#151). Stored settings were only applied once you opened the mod's
+  options tab in a session — so a rebound hotkey (say, the hub on Tab) silently reverted to its default on
+  every launch, along with the speed/payout/server tunables. They are applied at startup now.
+- **The hub and the detail view now show the same support-$/day** (#144, epic #142). The detail view's
+  ship report used a private support-income formatter that forgot the market-demand multiplier the hub
+  card applies, so the two screens disagreed for the same studio at the same moment. Every screen now
+  routes through the one `SiliconAlleyFormat` table (the detail $/day figure changes: it is now
+  demand-scaled, matching what the simulator actually credits).
+- **Ad Spend is named properly in your income statement** (#153). The hourly Ad Spend charge filed itself
+  under the bare literal `ad spend` — lowercase, and the only Silicon Alley transaction not using its
+  proper display name — while the "Ad Spend" locale string sat unused. Every other charge (marketing
+  campaigns, tool and component R&D, milestone options) already passed a localized name.
 
 ## [0.5.0] — 2026-07-29
 

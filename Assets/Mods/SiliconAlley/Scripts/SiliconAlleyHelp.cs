@@ -60,6 +60,7 @@ public static class SiliconAlleyHelp
         // Overview + system pages -> dedicated "Silicon Alley" category (#66 / #67 still to come).
         (OverviewSlug, ModCategoryKey),
         ("siliconalley-getting-started", ModCategoryKey),   // #67 — new-player walkthrough
+        ("siliconalley-screens", ModCategoryKey),   // #153 — the 0.6.0 hub / window / detail-view screen guide
         ("siliconalley-wizard", ModCategoryKey),   // #65 — the design-wizard guide
         // #66 — economy & market system pages.
         ("siliconalley-contracts",     ModCategoryKey),

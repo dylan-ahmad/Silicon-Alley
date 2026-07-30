@@ -2774,7 +2774,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _titleText.overflowMode = TextOverflowModes.Ellipsis;
         _overviewButton = MakeButton(titleRow.transform, "siliconalley:screen_overview".GetLocalization(), GoHub);
         FixWidth(_overviewButton, 120f);
-        FixWidth(MakeButton(titleRow.transform, "X", Close), 34f);
+        // #153: chrome glyphs are locale-side like "‹ Overview" (screen_overview), not inline literals.
+        FixWidth(MakeButton(titleRow.transform, "siliconalley:screen_close_icon".GetLocalization(), Close), 34f);
 
         // Issue #149: the identity line — [type icon] product + version …… ‹ N / M › . The switcher finally
         // says WHERE you are in the studio list instead of being two positionless arrows (detail only —
@@ -2787,11 +2788,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         _studioText.GetComponent<LayoutElement>().flexibleWidth = 1f; // absorb the slack; the switcher hugs right
         _studioText.enableWordWrapping = false;
         _studioText.overflowMode = TextOverflowModes.Ellipsis;
-        FixWidth(MakeButton(studioRow.transform, "‹", () => CycleStudio(-1)), 38f);
+        FixWidth(MakeButton(studioRow.transform, "siliconalley:screen_prev".GetLocalization(), () => CycleStudio(-1)), 38f);
         _switcherText = MakeText(studioRow.transform, "Switcher", SiliconAlleyTheme.Sizes.Caption, TextAnchor.MiddleCenter);
         _switcherText.color = SiliconAlleyTheme.TextMuted;
         FixWidth(_switcherText, 56f);
-        FixWidth(MakeButton(studioRow.transform, "›", () => CycleStudio(1)), 38f);
+        FixWidth(MakeButton(studioRow.transform, "siliconalley:screen_next".GetLocalization(), () => CycleStudio(1)), 38f);
 
         // Issue #149: the meta line — [phase icon] stage + THE one phase % …… quality · ship ETA (muted).
         // _summaryText moves in here so the header is three purposeful rows instead of four mixed ones.

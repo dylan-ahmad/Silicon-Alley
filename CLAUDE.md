@@ -29,7 +29,14 @@ A pack of IT-company business types for **Big Ambitions**, built with the offici
     `SiliconAlleyDashboardScreen` is only the F8 alias + the top-level hub card builders),
     `SiliconAlleyTheme` + `SiliconAlleyUI` (#54: the bundled theme + 9-slice sprite kit and the
     reusable, sprite-backed `Make*` styled-component layer — build new screens (#55–#61) on these, not
-    flat colours).
+    flat colours; 0.6.0 (#143/#146/#147) added the design tokens, the `MakeScrollbar`/`MakeTabs`/
+    `MakeToggle`/`MakeCollapsible`/`MakeBadge`/`MakeDeltaReadout`/`MakeSegmentedBar` primitives and
+    `SiliconAlleyWindowDrag`), `SiliconAlleyTooltip` (#146: hover tips on the mod canvas),
+    `SiliconAlleyModal` (#146: the in-canvas confirm dialog — Abandon project / Start development),
+    `SiliconAlleyToasts` (#152: notification urgency tiers + burst digests), `SiliconAlleyFormat`
+    (#144: THE format table — never re-derive a user-visible number shape privately),
+    `SiliconAlleyHelp` (the native-HelpSystem page injection; a new page = one row in `Pages` + a
+    `<slug>` / `help_<slug>_content` pair in `en.json`).
   - `Locales/en.json` — **all in-game text is English** (other languages fall back to `en`).
 - `docs/` — `CAPABILITIES.md` (what the mod API allows, with decompiled citations) + `DESIGN.md`.
 - `decompiled/` — gitignored ILSpy dump of the game DLLs (the API source of truth). Regenerate with
