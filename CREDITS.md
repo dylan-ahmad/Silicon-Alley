@@ -31,9 +31,9 @@ and rasterized to 128px (the mod tints them to the theme). Credit by author:
 - **Skoll** (game-icons.net) — _siren, combination-lock, sound-waves, pc._
 - **Sbed** (game-icons.net) — _wrench._
 
-Summary review-card stat icons (issue #58): `stat_quality`=delapouite/round-star,
-`stat_coverage`=delapouite/check-mark, `stat_cost`=delapouite/coins, `stat_royalty`=delapouite/receive-money,
-`stat_market`=lorc/world.
+Summary review-card stat icons (issue #58): `stat_quality`, `stat_coverage`, `stat_cost`,
+`stat_royalty` and `stat_market` — listed individually in the per-file mapping below (folded in by
+issue #153, so the table is the one complete record).
 
 Icon-pack completion (issue #145): every remaining requested stem — the ETA/reputation/installed stat
 rows, the eight milestone decision events, the four publishers, the nine product dependencies and the
@@ -99,6 +99,11 @@ All of the above are available at game-icons.net under CC BY 3.0.
 | `stat_installed` | delapouite/save-arrow |
 | `stat_components` | lorc/cubes |
 | `stat_fit` | lorc/on-target |
+| `stat_quality` | delapouite/round-star |
+| `stat_coverage` | delapouite/check-mark |
+| `stat_cost` | delapouite/coins |
+| `stat_royalty` | delapouite/receive-money |
+| `stat_market` | lorc/world |
 | `ms_scope_creep` | delapouite/expand |
 | `ms_middleware` | delapouite/plug |
 | `ms_tech_debt` | lorc/cracked-disc |

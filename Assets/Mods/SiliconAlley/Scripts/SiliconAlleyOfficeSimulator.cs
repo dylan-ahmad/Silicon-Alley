@@ -249,7 +249,10 @@ public class SiliconAlleyOfficeSimulator : BusinessSimulator
         // Ad Spend buys steady awareness while the player keeps it on; if the studio can't pay, it auto-off.
         if (SiliconAlleyState.IsAdSpend(key))
         {
-            if (SiliconAlleyMoney.TrySpend(buildingRegistration, SiliconAlleyState.AdSpendCostPerHour, "ad spend"))
+            // #153: the transaction reason is a LOCALIZED name like every other TrySpend call site — this one
+            // shipped a bare "ad spend" literal into the player's income statement while its key sat unused.
+            if (SiliconAlleyMoney.TrySpend(buildingRegistration, SiliconAlleyState.AdSpendCostPerHour,
+                    "siliconalley:mkt_name_adspend".GetLocalization()))
                 SiliconAlleyState.AddAwareness(key, SiliconAlleyState.AdSpendAwarenessPerHour);
             else
                 SiliconAlleyState.SetAdSpend(key, false);

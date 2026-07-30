@@ -120,7 +120,7 @@ public static class SiliconAlleyFormat
     public static string ProductDisplayName(BusinessType businessType)
     {
         if (businessType?.businessProducts == null || businessType.businessProducts.Length == 0)
-            return "project";
+            return "siliconalley:product_fallback".GetLocalization();   // #153: was a bare "project" literal
         return businessType.businessProducts[0].itemName.GetLocalization();
     }
 
