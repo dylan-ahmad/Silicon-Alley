@@ -72,12 +72,22 @@ public class SiliconAlleyDashboardScreen : MonoBehaviour
     {
         if (Instance == this)
             Instance = null;
+        SiliconAlleyToasts.Clear(); // issue #152: never carry buffered events across a city unload
     }
 
     private void Update()
     {
         if (Input.GetKeyDown(ToggleKey))
             SiliconAlleyProjectScreen.ToggleHub();
+
+        // Issue #152: flush the toast buffer once the hour's simulation has drained. The game spreads
+        // SimulateCurrentHour across frames on a ~2ms budget, so there is no per-tick hook inside the mod;
+        // this is the same condition GameManager.Update itself checks, which makes the flush at most one
+        // frame late and — crucially — means every studio that fired in this hour is counted together.
+        // During a time-machine run each hour completes synchronously, which is exactly the burst the
+        // digest exists for.
+        if (!BusinessSimulatorHelper.Work.HasPendingWork)
+            SiliconAlleyToasts.Flush();
     }
 }
 

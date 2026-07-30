@@ -8,6 +8,17 @@ version bump to `main` auto-creates the matching `vX.Y.Z` git tag + GitHub Relea
 ## [Unreleased]
 
 ### Added
+- **Phone contract offers you can actually read, and toasts that know how urgent they are** (#152, epic
+  #142). The client's offer was a paragraph with the two numbers that matter buried mid-sentence; it is
+  now a headline plus scan lines — **payout, deadline, and the workload**, which the call never showed at
+  all (as a duration at that studio's current staffing, since the raw figure means nothing). With several
+  offers on the table it also says which one you're looking at, and the middle button is **"Next studio"
+  or nothing** — it used to turn into "View studios" and end the call from the same slot that had been
+  cycling offers a moment earlier. Toasts now match their urgency: a decision window that expires reads
+  differently from a patch note, the "press F9" hints **follow your actual key binding**, and when several
+  studios fire the same kind of event at once — a time-machine catch-up, say — you get **one summary that
+  takes you to the hub** instead of a stack of four. The marketing toast is gone; it restated a number
+  already on screen.
 - **Options panel: three sections, honest labels, hotkey-conflict hints** (#151, epic #142). The eleven
   settings are now grouped into **Gameplay**, **Servers** and **Hotkeys**, with a note that they apply to
   your computer rather than to a savegame. Units moved out of the labels into each slider's own value

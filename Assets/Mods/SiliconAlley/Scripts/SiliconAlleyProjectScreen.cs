@@ -516,9 +516,11 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
         if (reg == null)
         {
             _titleText.text = "siliconalley:screen_title_plain".GetLocalization();
-            _studioText.text = SiliconAlleyRegistry.NoStudioLocalizationKey(
-                "siliconalley:screen_nostudio",
-                "siliconalley:screen_registration_failed").GetLocalization();
+            // #152: the "then press {key}" hint names the live binding, not a hardcoded F9.
+            _studioText.text = Compose(SiliconAlleyRegistry.NoStudioLocalizationKey(
+                    "siliconalley:screen_nostudio",
+                    "siliconalley:screen_registration_failed"),
+                ("key", KeyLabel(ToggleKey)));
             _phaseText.text = "";
             _summaryText.text = "";
             RefreshSwitcher();
@@ -2601,15 +2603,8 @@ public class SiliconAlleyProjectScreen : MonoBehaviour
             SiliconAlleyState.AddAwareness(_currentKey, awareness);
         if (hype > 0f)
             SiliconAlleyState.AddHype(_currentKey, hype);
-        var data = new Dictionary<string, string>
-        {
-            ["business"] = reg.GetDisplayName(),
-            ["channel"] = channelNameKey.GetLocalization(),
-            ["awareness"] = Mathf.RoundToInt(SiliconAlleyState.GetAwareness(_currentKey)).ToString(CultureInfo.InvariantCulture),
-        };
-        var key = _currentKey;
-        Notifications.Show(NotificationType.Success, "siliconalley:notify_marketing", data, 4f, key + ":mkt",
-            () => Open(key));
+        // Issue #152: no toast here. This one fired in response to the player's own click and then told
+        // them the awareness figure that is already on screen, one row above the button they just pressed.
         Refresh();
     }
 

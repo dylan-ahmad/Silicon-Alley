@@ -175,7 +175,8 @@ public class SiliconAlleyClientDialog : Dialog
     // Issue #125: the studios eligible for a contract this call (player-owned, no active contract). The
     // offer entry cycles them with "Next studio"; each studio shows its own DETERMINISTIC offer
     // (SiliconAlleyContracts.OfferFor — same terms on every redial until the 3-day window rolls).
-    private readonly List<(string key, string name)> _eligible = new List<(string key, string name)>();
+    private readonly List<(string key, string name, BuildingRegistration registration)> _eligible =
+        new List<(string key, string name, BuildingRegistration registration)>();
 
     public SiliconAlleyClientDialog()
     {
@@ -215,7 +216,7 @@ public class SiliconAlleyClientDialog : Dialog
             ConfirmTextOverride = "siliconalley:client_view_studios".Localize(),
             OnConfirm = OpenDashboard,
             // Issue #68: the spare button opens the in-game guide.
-            SecondOptionTextOverride = "siliconalley:client_open_guide".GetLocalization(),
+            SecondOptionTextOverride = "siliconalley:client_open_guide", // #152: this field takes a KEY, not text
             OnSecondOption = OpenHelp,
             OnCancel = DialogController.current.CancelDialog,
         };
@@ -255,26 +256,43 @@ public class SiliconAlleyClientDialog : Dialog
             var key = SiliconAlleyState.KeyFor(registration);
             if (SiliconAlleyState.HasContract(key))
                 continue;
-            _eligible.Add((key, registration.GetDisplayName()));
+            // Issue #152: keep the registration — the offer now states its WORKLOAD as a duration at that
+            // studio's current staffing, which needs the building to read throughput from.
+            _eligible.Add((key, registration.GetDisplayName(), registration));
         }
     }
 
     // Issue #125: the offer entry for one eligible studio. "Next studio" chains to the next entry via the
-    // non-null OnSecondOption return (ShowEntry — the base game's own negotiate-counter-offer pattern);
-    // with a single eligible studio the spare button keeps opening the dashboard, as before.
+    // non-null OnSecondOption return (ShowEntry — the base game's own negotiate-counter-offer pattern).
+    //
+    // Issue #152: the terms are scan lines now, not a paragraph with the two numbers that matter buried
+    // mid-sentence — payout, deadline and (shown for the first time) the WORKLOAD, expressed as a duration
+    // at this studio's current staffing because the raw scope figure means nothing to a player. Note the
+    // deliberate wording: "workload", never "scope", which the design wizard already uses for the
+    // Quick/Standard/Ambitious project size.
+    //
+    // The buttons no longer change meaning with the offer count. The middle slot is "Next studio" when
+    // there is a next studio and is simply ABSENT otherwise (a button renders only when its callback is
+    // non-null) — it used to turn into "View studios", which ended the call from the same orange slot.
     private DialogEntry OfferEntry(int index)
     {
-        var (key, name) = _eligible[index];
+        var (key, name, registration) = _eligible[index];
         var offer = SiliconAlleyContracts.OfferFor(key, TimeHelper.CurrentDay);
+        var perHour = SiliconAlleyOfficeSimulator.CurrentHourlyProgress(registration);
+        var body = new Dictionary<string, string>
+        {
+            ["studio"] = name,
+            ["days"] = offer.DeadlineDays.ToString(CultureInfo.InvariantCulture),
+            ["payout"] = SiliconAlleyFormat.Money(offer.Payout),
+            ["workload"] = SiliconAlleyFormat.Eta(offer.Scope, perHour),
+        };
         var entry = new DialogEntry
         {
             headerKey = npcNameKey,
-            messageData = "siliconalley:client_contract_offer".Localize(new Dictionary<string, string>
-            {
-                ["studio"] = name,
-                ["days"] = offer.DeadlineDays.ToString(CultureInfo.InvariantCulture),
-                ["payout"] = SiliconAlleyFormat.Money(offer.Payout),
-            }),
+            // With more than one offer on the table the body also says which one you are looking at.
+            messageData = (_eligible.Count > 1
+                ? "siliconalley:client_contract_offer_multi"
+                : "siliconalley:client_contract_offer").Localize(Position(body, index)),
             Template = DialogEntry.TemplateType.Text,
             ConfirmTextOverride = "siliconalley:client_contract_accept_for".Localize(new Dictionary<string, string>
             {
@@ -285,33 +303,43 @@ public class SiliconAlleyClientDialog : Dialog
         };
         if (_eligible.Count > 1)
         {
-            entry.SecondOptionTextOverride = "siliconalley:client_contract_next".GetLocalization();
+            // SecondOptionTextOverride is consumed as a LOCALIZATION KEY (unlike ConfirmTextOverride, which
+            // takes a data holder) — passing pre-localized text only worked because Localizor passes unknown
+            // keys through, and would have broken in any other language.
+            entry.SecondOptionTextOverride = "siliconalley:client_contract_next";
             entry.OnSecondOption = () => OfferEntry((index + 1) % _eligible.Count);
         }
-        else
-        {
-            entry.SecondOptionTextOverride = "siliconalley:client_view_studios".GetLocalization();
-            entry.OnSecondOption = OpenDashboard;
-        }
         return entry;
+    }
+
+    // "2 of 4" — only meaningful while several studios are on offer; harmless to add either way.
+    private Dictionary<string, string> Position(Dictionary<string, string> data, int index)
+    {
+        data["n"] = (index + 1).ToString(CultureInfo.InvariantCulture);
+        data["m"] = _eligible.Count.ToString(CultureInfo.InvariantCulture);
+        return data;
     }
 
     // Accept the shown studio's deterministic offer (a no-op-safe state write), then confirm. The absolute
     // deadline is fixed here, at accept time, so a shown-but-unaccepted offer never ages within its window.
     private DialogEntry AcceptOffer(int index)
     {
-        var (key, name) = _eligible[index];
+        var (key, name, registration) = _eligible[index];
         var offer = SiliconAlleyContracts.OfferFor(key, TimeHelper.CurrentDay);
         var deadlineDay = TimeHelper.CurrentDay + offer.DeadlineDays;
         SiliconAlleyState.AcceptContract(key, offer.Scope, deadlineDay, offer.Payout);
         return new DialogEntry
         {
             headerKey = npcNameKey,
+            // #152: the confirmation repeats the same three scan lines the offer showed, so the terms you
+            // just agreed to are still on screen in the same shape.
             messageData = "siliconalley:client_contract_accepted".Localize(new Dictionary<string, string>
             {
                 ["studio"] = name,
                 ["days"] = offer.DeadlineDays.ToString(CultureInfo.InvariantCulture),
                 ["payout"] = SiliconAlleyFormat.Money(offer.Payout),
+                ["workload"] = SiliconAlleyFormat.Eta(offer.Scope,
+                    SiliconAlleyOfficeSimulator.CurrentHourlyProgress(registration)),
             }),
             Template = DialogEntry.TemplateType.Text,
             OnCancel = DialogController.current.FinishDialog,
